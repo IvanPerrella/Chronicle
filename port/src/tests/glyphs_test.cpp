@@ -9,6 +9,7 @@
 #include <SDL3/SDL_gamepad.h>
 #include <nlohmann/json.hpp>
 
+#include "../glyph_draw.hpp"
 #include "../platform/config.hpp"
 #include "../platform/input.hpp"
 
@@ -140,5 +141,11 @@ TEST(Glyphs, EveryAtlasRectIsInsideItsAtlasFile) {
             ASSERT_LE(rect[0].get<int>() + rect[2].get<int>(), width) << style << " " << name;
             ASSERT_LE(rect[1].get<int>() + rect[3].get<int>(), height) << style << " " << name;
         }
+    }
+}
+
+TEST(Glyphs, TheSkipPromptButtonsAreListedInEveryLanguage) {
+    for (const char *name : {"pause_e", "pause_f", "pause_g", "pause_i", "pause_s"}) {
+        EXPECT_EQ(GlyphBakedCount(name), 2) << name;
     }
 }

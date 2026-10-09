@@ -19,5 +19,8 @@ bool GlyphDrawSlot(glyphs::Button button, const CRect_i_ &slot, int alpha, float
 //    place and true is returned, so the caller skips the rectangle.
 //  - Overlay: the drawn rectangle holds a box among other art; call after drawing the rectangle,
 //    and the symbol is drawn over the painted one.
+// How many painted symbols are listed for a texture (the skip prompt exists in every language).
+int GlyphBakedCount(const char *texture);
+
 bool GlyphReplaceSprite(const char *texture, const CRect_i_ &screen, const CRect_i_ &texel, int alpha);
 void GlyphOverlaySprite(const char *texture, const CRect_i_ &screen, const CRect_i_ &texel, int alpha);

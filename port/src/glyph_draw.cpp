@@ -32,6 +32,15 @@ constexpr Baked kBaked[] = {
     // the cutscene skip prompt: PAL (YES cross, NO circle) and the other layout
     {"pause_e", 46, 35, 16, 16, glyphs::Button::Cross},
     {"pause_e", 80, 52, 16, 16, glyphs::Button::Circle},
+    // the same prompt in the other languages (German and Spanish share English's layout)
+    {"pause_g", 46, 35, 16, 16, glyphs::Button::Cross},
+    {"pause_g", 80, 52, 16, 16, glyphs::Button::Circle},
+    {"pause_s", 46, 35, 16, 16, glyphs::Button::Cross},
+    {"pause_s", 80, 52, 16, 16, glyphs::Button::Circle},
+    {"pause_f", 38, 38, 16, 16, glyphs::Button::Cross},
+    {"pause_f", 89, 49, 16, 16, glyphs::Button::Circle},
+    {"pause_i", 38, 38, 16, 16, glyphs::Button::Cross},
+    {"pause_i", 89, 48, 16, 16, glyphs::Button::Circle},
     {"skip_bord", 62, 77, 16, 16, glyphs::Button::Circle},
     {"skip_bord", 86, 94, 16, 16, glyphs::Button::Cross},
 };
@@ -90,6 +99,14 @@ bool GlyphDrawSlot(glyphs::Button button, const CRect_i_ &slot, int alpha, float
     gfx::Draw2D(gfx::Primitive::Quads, quad, image.binding, draw2d::SpriteState());
     draw2d::RestoreTestZbuf();
     return true;
+}
+
+int GlyphBakedCount(const char *texture) {
+    int n = 0;
+    for (const Baked &b : kBaked) {
+        n += std::strcmp(b.texture, texture) == 0;
+    }
+    return n;
 }
 
 bool GlyphReplaceSprite(const char *texture, const CRect_i_ &screen, const CRect_i_ &texel, int alpha) {
