@@ -55,6 +55,7 @@ struct Layout {
     float             cap_height = 0.42f;
     float             xsq = 0.56f;
     float             max_width = 0.9375f;
+    bool              underline = true; // the brush stroke under the name
     float             underline_y = 0.7656f;
     float             underline_thick = 0.0547f;
     float             underline_pad_left = 0.0117f;
@@ -149,6 +150,7 @@ bool Prepare(const std::string &name, PortDecodedTexture &texture) {
         layout.cap_height = Number(lay, "cap_height", layout.cap_height);
         layout.xsq = Number(lay, "xsq", layout.xsq);
         layout.max_width = Number(lay, "max_width", layout.max_width);
+        layout.underline = Number(lay, "underline", 1.0f) != 0.0f;
         layout.underline_y = Number(lay, "underline_y", layout.underline_y);
         layout.underline_thick = Number(lay, "underline_thick", layout.underline_thick);
         layout.underline_pad_left = Number(lay, "underline_pad_left", layout.underline_pad_left);
@@ -211,8 +213,10 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
     const float right = (span.right - frame.x0) / frame.w + layout.underline_pad_right;
     const float grow = layout.edge_width;
     std::vector<gfx::Vertex2D> outline, body;
-    Stroke(outline, frame, layout, left, right, grow, style.edge, fade);
-    Stroke(body, frame, layout, left, right, 0.0f, style.fill, fade);
+    if (layout.underline) {
+        Stroke(outline, frame, layout, left, right, grow, style.edge, fade);
+        Stroke(body, frame, layout, left, right, 0.0f, style.fill, fade);
+    }
     if (layout.drips) {
         // Hanging drops under the underline (Dark Heaven Castle).
         const float k = std::clamp(fade, 0.0f, 1.0f);
