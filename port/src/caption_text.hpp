@@ -37,4 +37,28 @@ void BlankPainted(const char *name, PortDecodedTexture &texture);
 /// no font, and the painted caption is drawn instead.
 bool Draw(int icon, int x, int y, int box_width, int alpha);
 
+/// A line of lettering drawn the way a caption is, for pictures of text that are text at runtime (the area name cards):
+/// all sizes are in the units the draw call is in (the logical screen of gfx::Draw2D).
+struct LineStyle {
+    unsigned char fill[3] = {255, 255, 255};
+    unsigned char edge[3] = {0, 0, 0};
+    unsigned char glow[3] = {0, 0, 0};
+    float         edge_width = 1.0f; // the outline, in logical units
+    float         glow_width = 0.0f; // how far the glow reaches
+    float         glow_amount = 0.0f; // 0 none, 1 as strong as the lettering
+};
+
+struct LineBounds {
+    float left = 0.0f;
+    float right = 0.0f;
+};
+
+/// Draws `utf8` (as given: capitals are the caller's choice) centred on center_x, its capitals from cap_top down for
+/// cap_height. The letters are the font's, squeezed to xsq of their width (less if the line would pass max_width),
+/// spaced by their ink and a twelfth of a capital. `fade` (0 to 1) darkens the whole line toward black, as the card's
+/// fade does. `rows` converts logical rows to the target's (1 where the caller is already in them). False without a
+/// font. bounds gets where the lettering lies.
+bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_height, float xsq, float max_width,
+              const LineStyle &style, float fade, float rows, LineBounds *bounds);
+
 } // namespace caption

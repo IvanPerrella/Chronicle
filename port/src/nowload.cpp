@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 
+#include "area_card.hpp"
 #include "dataread.hpp"
 #include "gameloop.hpp"
 #include "gfx/gfx.hpp"
@@ -65,7 +66,10 @@ void Upload(CTexture *texture) {
         if (PortDecodeTexture(texture->bpp, texture->width, texture->height, levels, 1, (u_char *) texture->clut, 0,
                               false, decoded)) {
             if (texture == &nl_tex && !card_name.empty()) {
-                LocalizeTexture(card_name.c_str(), decoded);
+                // A plate and the font: the card is its plate and the name is text (area_card.hpp). Else the language's picture.
+                if (!areacard::Prepare(card_name, decoded)) {
+                    LocalizeTexture(card_name.c_str(), decoded);
+                }
             }
             tbp = PortCreateTexture(decoded, PortTextureOwner::Loading, &cbp);
         }
@@ -104,6 +108,10 @@ void DrawSprite() {
     state.blend = true;
     state.alpha = gfx::GsBlend{0, 1, 0, 1, 0};
     gfx::Draw2D(gfx::Primitive::Quads, quad, ref.binding, state);
+    if (sprite.texture == &nl_tex && texel.x == 0 && texel.y == 0 && texel.width == static_cast<int>(sprite.texture->width) &&
+        texel.height == static_cast<int>(sprite.texture->height)) {
+        areacard::Draw(x0, y0, x1, y1, static_cast<float>(sprite.alpha) / 128.0f);
+    }
 }
 
 // Retail draws from the VSync interrupt into its own double buffer, whatever the game is doing.
@@ -155,6 +163,7 @@ PC_OVERRIDE void init_now_loading(int title_number) {
     }
 
     PortReleaseOwner(PortTextureOwner::Loading);
+    areacard::Clear();
     nl_tex.Initialize();
     nl_tex2.Initialize();
     sprite = LoadingSprite{};

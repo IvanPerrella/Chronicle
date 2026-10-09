@@ -281,36 +281,96 @@ bool Compose(char32_t ch, float scale, int em_px, Bitmap &out) {
     return false;
 }
 
-// The letter's coverage grown by `radius` pixels in every direction: a round stroke round the shape, with
-// the same soft edge the glyph has, so a caption's outline is a real stroke rather than offset copies.
+// Squared distance to the nearest 1 in a row or column of a grid (Felzenszwalb and Huttenlocher): `f` holds 0 where
+// the shape is and a huge value elsewhere, and comes back as the squared distance to the shape along that line.
+void DistanceLine(std::vector<float> &f, std::vector<int> &v, std::vector<float> &z, std::vector<float> &out) {
+    const int n = static_cast<int>(f.size());
+    int       k = 0;
+    v[0] = 0;
+    z[0] = -1e30f;
+    z[1] = 1e30f;
+    for (int q = 1; q < n; q++) {
+        float s;
+        for (;;) {
+            const int p = v[static_cast<size_t>(k)];
+            s = ((f[static_cast<size_t>(q)] + static_cast<float>(q * q)) - (f[static_cast<size_t>(p)] + static_cast<float>(p * p))) /
+                (2.0f * static_cast<float>(q - p));
+            if (s <= z[static_cast<size_t>(k)] && k > 0) {
+                k--;
+            } else {
+                break;
+            }
+        }
+        k++;
+        v[static_cast<size_t>(k)] = q;
+        z[static_cast<size_t>(k)] = s;
+        z[static_cast<size_t>(k) + 1] = 1e30f;
+    }
+    k = 0;
+    for (int q = 0; q < n; q++) {
+        while (z[static_cast<size_t>(k) + 1] < static_cast<float>(q)) {
+            k++;
+        }
+        const int p = v[static_cast<size_t>(k)];
+        out[static_cast<size_t>(q)] = static_cast<float>((q - p) * (q - p)) + f[static_cast<size_t>(p)];
+    }
+}
+
+// The letter's coverage grown by `radius` pixels in every direction: a round stroke round the shape, as far from
+// the letter as the pixel's true distance to it, so the edge is smooth at any radius.
 Bitmap Dilate(const Bitmap &in, int radius) {
     if (radius <= 0 || in.w <= 0 || in.h <= 0) {
         return in;
     }
     Bitmap out;
-    out.x0 = in.x0 - radius - 1;
-    out.y0 = in.y0 - radius - 1;
-    out.w = in.w + 2 * (radius + 1);
-    out.h = in.h + 2 * (radius + 1);
-    out.alpha.assign(static_cast<size_t>(out.w) * out.h, 0);
-    const int reach = radius + 1;
+    const int pad = radius + 1;
+    out.x0 = in.x0 - pad;
+    out.y0 = in.y0 - pad;
+    out.w = in.w + 2 * pad;
+    out.h = in.h + 2 * pad;
+    const int            W = out.w, H = out.h;
+    const float          kFar = 1e12f;
+    std::vector<float>   grid(static_cast<size_t>(W) * H, kFar);
     for (int row = 0; row < in.h; row++) {
         for (int col = 0; col < in.w; col++) {
-            const int cover = in.alpha[static_cast<size_t>(row) * in.w + col];
-            if (cover == 0) {
-                continue;
+            if (in.alpha[static_cast<size_t>(row) * in.w + col] >= 128) {
+                grid[static_cast<size_t>(row + pad) * W + col + pad] = 0.0f;
             }
-            for (int dy = -reach; dy <= reach; dy++) {
-                for (int dx = -reach; dx <= reach; dx++) {
-                    const float edge = static_cast<float>(radius) + 0.5f - std::sqrt(static_cast<float>(dx * dx + dy * dy));
-                    if (edge <= 0.0f) {
-                        continue;
-                    }
-                    const int      value = static_cast<int>(cover * std::min(edge, 1.0f) + 0.5f);
-                    unsigned char &to = out.alpha[static_cast<size_t>(row + dy + reach) * out.w + (col + dx + reach)];
-                    to = static_cast<unsigned char>(std::max<int>(to, value));
-                }
+        }
+    }
+    const int          longest = std::max(W, H);
+    std::vector<float> line(static_cast<size_t>(longest)), result(static_cast<size_t>(longest)), z(static_cast<size_t>(longest) + 1);
+    std::vector<int>   v(static_cast<size_t>(longest));
+    for (int col = 0; col < W; col++) {
+        line.resize(static_cast<size_t>(H));
+        for (int row = 0; row < H; row++) {
+            line[static_cast<size_t>(row)] = grid[static_cast<size_t>(row) * W + col];
+        }
+        DistanceLine(line, v, z, result);
+        for (int row = 0; row < H; row++) {
+            grid[static_cast<size_t>(row) * W + col] = result[static_cast<size_t>(row)];
+        }
+    }
+    for (int row = 0; row < H; row++) {
+        line.resize(static_cast<size_t>(W));
+        for (int col = 0; col < W; col++) {
+            line[static_cast<size_t>(col)] = grid[static_cast<size_t>(row) * W + col];
+        }
+        DistanceLine(line, v, z, result);
+        for (int col = 0; col < W; col++) {
+            grid[static_cast<size_t>(row) * W + col] = result[static_cast<size_t>(col)];
+        }
+    }
+    out.alpha.assign(static_cast<size_t>(W) * H, 0);
+    for (int row = 0; row < H; row++) {
+        for (int col = 0; col < W; col++) {
+            const float d = std::sqrt(grid[static_cast<size_t>(row) * W + col]);
+            float       cover = std::clamp(static_cast<float>(radius) + 0.5f - d, 0.0f, 1.0f) * 255.0f;
+            const int   src_row = row - pad, src_col = col - pad;
+            if (src_row >= 0 && src_row < in.h && src_col >= 0 && src_col < in.w) {
+                cover = std::max(cover, static_cast<float>(in.alpha[static_cast<size_t>(src_row) * in.w + src_col]));
             }
+            out.alpha[static_cast<size_t>(row) * W + col] = static_cast<unsigned char>(cover + 0.5f);
         }
     }
     return out;
@@ -376,7 +436,7 @@ bool GetGlyph(char32_t ch, int em_px, Glyph &out) {
 }
 
 bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out) {
-    if (!g_font.loaded || em_px < 4 || em_px > 512 || outline_px < 0 || outline_px > 8) {
+    if (!g_font.loaded || em_px < 4 || em_px > 512 || outline_px < 0 || outline_px > 64) {
         return false;
     }
     const auto key = std::make_pair(ch, em_px + outline_px * 1024);
@@ -487,7 +547,7 @@ gfx::TextureBinding Binding() {
 }
 
 Metrics GetMetrics() {
-    Metrics metrics = {0.8f, 0.2f, 0.6f};
+    Metrics metrics = {0.8f, 0.2f, 0.6f, 0.7f};
     if (!g_font.loaded) {
         return metrics;
     }
@@ -499,6 +559,10 @@ Metrics GetMetrics() {
     int advance, bearing;
     stbtt_GetCodepointHMetrics(&g_font.info, '0', &advance, &bearing);
     metrics.advance = static_cast<float>(advance) / em;
+    int x0, y0, x1, y1;
+    if (stbtt_GetCodepointBox(&g_font.info, 'H', &x0, &y0, &x1, &y1) != 0 && y1 > y0) {
+        metrics.cap = static_cast<float>(y1 - y0) / em;
+    }
     return metrics;
 }
 

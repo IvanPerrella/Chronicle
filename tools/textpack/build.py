@@ -117,6 +117,57 @@ def titles(orig, out, scale):
     return n
 
 
+def plate_cards(orig, out, scale):
+    """The area name cards' backdrops without their lettering, one picture for every language, and the json that says where
+    and how the port draws each name over its plate (`<out>/plates/<card>.png|json`, the port's areacard)."""
+    words, styles = strings('titles.json'), strings('title_styles.json')
+    dirs = {k: v for k, v in words['_lang_dirs'].items()}
+    folder = os.path.join(out, 'plates')
+    os.makedirs(folder, exist_ok=True)
+    n = 0
+    for area in [k for k in words if re.match(r'mt\d+$', k)]:
+        cards = {}
+        for d in ['img'] + list(dirs.values()):
+            c = orig.load('%s/%s.tm2' % (d, area), area)
+            if c is not None:
+                cards[d] = c[..., :3]
+        if not cards:
+            print('plates: no originals for', area)
+            continue
+        base = next(cards[d] for d in ('img_1', 'img_2', 'img_3', 'img_4', 'img_5', 'img_6', 'img') if d in cards)
+        plate, _ = plates.build_plate(list(cards.values()))
+        fill, glow, edge = sample_style(base)
+        st = {'fill': fill, 'glow': glow, 'edge': edge}
+        st.update(styles['default'])
+        st.update(styles.get(area, {}))
+        if st.get('plate') == 'black':
+            plate = np.zeros_like(plate)
+        H, W = plate.shape[:2]
+        rgba = np.dstack([plate, np.full(plate.shape[:2], 255, np.uint8)])
+        save(out, 'plates', area, rgba, scale)
+        # Where render_card puts the lettering (its defaults, for a 1536x512 card), as fractions of the card.
+        cap_h, cap_top_y, ul_y, ul_thick, max_w = 215, 140, 392, 28, 1440
+        sheet = {
+            '_doc': 'Where and how the port draws the name over plates/<card>.png: fractions of the card (x of its width, y of its height).',
+            'layout': {
+                'cap_top': round(cap_top_y / 512, 4), 'cap_height': round(cap_h / 512, 4), 'xsq': 0.56,
+                'max_width': round(max_w / 1536, 4), 'underline_y': round(ul_y / 512, 4),
+                'underline_thick': round(ul_thick / 512, 4), 'underline_pad_left': round(18 / 1536, 4),
+                'underline_pad_right': round(26 / 1536, 4), 'underline_bow': round(4 / 512, 4),
+            },
+            'style': {
+                'fill': [int(round(v)) for v in st['fill']], 'edge': [int(round(v)) for v in st['edge']],
+                'glow': [int(round(v)) for v in st['glow']], 'glow_amount': st.get('glow_amount', 0.85),
+                'edge_width': round(st.get('outline', 4) / 1536, 5), 'glow_width': round(18 / 1536, 5),
+                'drips': 1 if st.get('drips') else 0,
+            },
+        }
+        with open(os.path.join(folder, area + '.json'), 'w', encoding='utf-8') as f:
+            json.dump(sheet, f, indent=2)
+        n += 1
+    return n
+
+
 # ---- dungeon floor labels --------------------------------------------------------------------------------------------
 
 ROW1, ROW2, ROW3 = (0, 205), (205, 430), (470, 720)
@@ -260,10 +311,10 @@ def main():
     ap.add_argument('--out', required=True, help='<save folder>/lang/textures')
     ap.add_argument('--scale', type=int, choices=(1, 4), default=1,
                     help="1 (default): the texture's own size, as the game draws it; 4: four times that")
-    ap.add_argument('--only', choices=('titles', 'floors', 'bosses'), action='append')
+    ap.add_argument('--only', choices=('titles', 'plates', 'floors', 'bosses'), action='append')
     args = ap.parse_args()
     orig = Originals(args.originals)
-    jobs = {'titles': titles, 'floors': floors, 'bosses': bosses}
+    jobs = {'titles': titles, 'plates': plate_cards, 'floors': floors, 'bosses': bosses}
     for name, job in jobs.items():
         if args.only and name not in args.only:
             continue

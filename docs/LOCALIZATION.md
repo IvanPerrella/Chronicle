@@ -296,6 +296,16 @@ the floor labels are the same face embossed). The bosses' names are a serif that
 files named `<game file with / as __>/<name>.png`. Change a word in the strings file and run it again; add a
 language by adding its words. The Japanese pictures are not made.
 
+**Area name cards as text.** The loading screen's name card can be a plate and text instead of a picture per language:
+`python tools/textpack/build.py --originals <extracted textures> --out <save folder>/lang/textures --only plates`
+writes, for each card, `textures/plates/<card>.png` (the backdrop without its lettering, the same in every
+language) and `textures/plates/<card>.json` (where the name goes, as fractions of the card, and its colours, outline,
+glow and underline, sampled from the disc's card). With a plate for the card and the font loaded, the port shows
+the plate and draws the name over it from the font at the screen's own resolution (`area_card.cpp`), so the
+lettering is sharp at any window size and a better plate (a hand-redrawn or upscaled one) improves every language
+at once. The names are `area.<card>` in the language's JSON (`area.mt01`...), shipped for every language. Without a
+plate or the font the card is the language's picture as above, or the disc's.
+
 **Shadows.** The pictures carry no shadow of their own; the port casts it when it loads one, so it can be set
 per kind of text. In Options, Display page: Text Shadow (the message text), Symbol Shadow (the button symbols),
 and for the pictures Area Name Shadow, Floor Label Shadow and Boss Name Shadow (`video.text_shadow`,

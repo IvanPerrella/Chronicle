@@ -312,4 +312,103 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
     return true;
 }
 
+bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_height, float xsq, float max_width,
+              const LineStyle &style, float fade, float rows, LineBounds *bounds) {
+    if (utf8.empty() || cap_height <= 0.0f || !FontReady()) {
+        return false;
+    }
+    const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
+    const ttffont::Metrics    metrics = ttffont::GetMetrics();
+    const float               em = cap_height / std::max(0.2f, metrics.cap);
+    const int                 em_px = std::clamp(static_cast<int>(em * mapping.scale_x + 0.5f), 4, 512);
+    const std::u32string      text = Decode(utf8);
+    const float               gap = cap_height * 0.075f;
+
+    struct Letter {
+        ttffont::Glyph fill;
+        char32_t       ch;
+        bool           blank;
+    };
+    std::vector<Letter> letters;
+    float               natural = 0.0f;
+    for (char32_t ch : text) {
+        Letter letter = {};
+        letter.ch = ch;
+        if (ch == U' ') {
+            letter.blank = true;
+            natural += cap_height * 0.32f;
+        } else if (ttffont::GetGlyph(ch, em_px, letter.fill) && letter.fill.width > 0) {
+            natural += letter.fill.width / mapping.scale_x + gap;
+        } else {
+            continue;
+        }
+        letters.push_back(letter);
+    }
+    if (letters.empty()) {
+        return false;
+    }
+    natural -= gap;
+    float squeeze = xsq;
+    if (max_width > 0.0f && natural * squeeze > max_width) {
+        squeeze = max_width / natural;
+    }
+    const float width = natural * squeeze;
+    const float left = center_x - width / 2;
+
+    const float baseline = (cap_top + cap_height) * rows;
+    auto        snap = [](float value, float scale, float offset) { return (std::round(value * scale + offset) - offset) / scale; };
+    const int   edge_px = std::clamp(static_cast<int>(style.edge_width * mapping.scale_x + 0.5f), 0, 60);
+    const int   glow_px = style.glow_amount > 0.0f ? std::clamp(static_cast<int>(style.glow_width * mapping.scale_x + 0.5f), 0, 60) : 0;
+
+    auto quad = [&](std::vector<gfx::Vertex2D> &out, const ttffont::Glyph &glyph, const ttffont::Glyph &fill, float pen,
+                    const unsigned char (&rgb)[3], int alpha) {
+        if (glyph.width <= 0 || glyph.height <= 0) {
+            return;
+        }
+        const float w = glyph.width / mapping.scale_x * squeeze;
+        const float h = glyph.height / mapping.scale_y * rows;
+        float       x = pen + (glyph.x_offset - fill.x_offset) / mapping.scale_x * squeeze;
+        float       y = baseline + glyph.y_offset / mapping.scale_y;
+        x = snap(x, mapping.scale_x, mapping.offset_x);
+        y = snap(y, mapping.scale_y, mapping.offset_y);
+        const float k = std::clamp(fade, 0.0f, 1.0f) * 0.5f;
+        const u_char r = static_cast<u_char>(rgb[0] * k), g = static_cast<u_char>(rgb[1] * k), b = static_cast<u_char>(rgb[2] * k);
+        const u_char a = static_cast<u_char>(std::clamp(alpha, 0, 0x80));
+        out.push_back(draw2d::Vertex(x, y, 0.0f, glyph.u0, glyph.v0, r, g, b, a));
+        out.push_back(draw2d::Vertex(x + w, y, 0.0f, glyph.u1, glyph.v0, r, g, b, a));
+        out.push_back(draw2d::Vertex(x + w, y + h, 0.0f, glyph.u1, glyph.v1, r, g, b, a));
+        out.push_back(draw2d::Vertex(x, y + h, 0.0f, glyph.u0, glyph.v1, r, g, b, a));
+    };
+
+    std::vector<gfx::Vertex2D> glows, edges, fills;
+    float                      pen = left;
+    for (const Letter &letter : letters) {
+        if (letter.blank) {
+            pen += cap_height * 0.32f * squeeze;
+            continue;
+        }
+        ttffont::Glyph extra;
+        if (glow_px > 0 && ttffont::GetOutlinedGlyph(letter.ch, em_px, glow_px, extra)) {
+            quad(glows, extra, letter.fill, pen, style.glow, static_cast<int>(0x80 * std::min(1.0f, style.glow_amount) * 0.55f));
+        }
+        if (edge_px > 0 && ttffont::GetOutlinedGlyph(letter.ch, em_px, edge_px, extra)) {
+            quad(edges, extra, letter.fill, pen, style.edge, 0x80);
+        }
+        quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80);
+        pen += (letter.fill.width / mapping.scale_x + gap) * squeeze;
+    }
+    const gfx::TextureBinding binding = ttffont::Binding();
+    for (std::vector<gfx::Vertex2D> *layer : {&glows, &edges, &fills}) {
+        if (!layer->empty()) {
+            gfx::Draw2D(gfx::Primitive::Quads, *layer, binding, draw2d::SpriteState());
+        }
+    }
+    draw2d::RestoreTestZbuf();
+    if (bounds != nullptr) {
+        bounds->left = left;
+        bounds->right = left + width;
+    }
+    return true;
+}
+
 } // namespace caption
