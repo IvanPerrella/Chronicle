@@ -9,6 +9,7 @@
 
 #include "dataalloc.hpp"
 #include "mglib.hpp"
+#include "caption_text.hpp"
 #include "localize_texture.hpp"
 #include "texture_port.hpp"
 #include "tim2.hpp"
@@ -350,6 +351,7 @@ void Enter(CTextureManager &manager, EnterMode mode, int block, char *name, u_ch
             return;
         }
         LocalizeTexture(name, decoded);
+        caption::BlankPainted(name, decoded);
         MakeGroundPeriodic(name, decoded);
         DumpTexture(name, decoded);
         tbp = PortCreateTexture(decoded, PortTextureOwner::Manager, &cbp);

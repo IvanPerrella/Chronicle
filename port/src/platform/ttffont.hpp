@@ -22,11 +22,17 @@ struct Glyph {
     float u0, v0, u1, v1;
     float x_offset, y_offset;
     float width, height;
+    float advance = 0; // how far the pen moves on after the letter, in pixels
 };
 
 // The glyph of ch at an em of em_px pixels, rasterized into the atlas when first asked for. False
 // where the font has no glyph for ch, so the caller draws what it drew before, or the atlas is full.
 bool GetGlyph(char32_t ch, int em_px, Glyph &out);
+
+// The same glyph with its shape grown by outline_px pixels (0 to 8) on every side: the stroke of a
+// caption's outline, white with the grown coverage as alpha. Drawn behind GetGlyph's at the same pen, it
+// gives each letter a real outline. x_offset, y_offset, width and height describe the grown bitmap.
+bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out);
 
 // The glyph of ch at an em of em_px pixels as plain coverage (alpha, w x h, 0 to 255) with its top-left
 // corner x0, y0 pixels from the pen on the baseline, y down; what GetGlyph puts in the atlas, and what

@@ -248,5 +248,19 @@
     "options.video.anisotropy.choice.3": "8x",
     "options.video.anisotropy.choice.4": "16x",
     "options.video.anisotropy.help": "\"Filtre anisotrope\"\nTextures plus nettes\nsur les surfaces vues\nde biais.",
-    "options.video.anisotropy.label": "Filtre anisotrope"
+    "options.video.anisotropy.label": "Filtre anisotrope",
+    "menu.caption.item": "OBJET",
+    "menu.caption.weapon": "ARMES",
+    "menu.caption.allies": "ALLIÉS",
+    "menu.caption.georama_parts": "PIÈCES DU DIORAMA",
+    "menu.caption.option": "OPTION",
+    "menu.caption.save": "ENREGIS.",
+    "menu.caption.manuals": "MANUELS",
+    "menu.caption.leave_dungeon": "QUITTER LES LIEUX",
+    "menu.caption.other_area": "CHANGER D'ENDROIT",
+    "menu.caption.go_dungeon": "ACCÈS AU DÉDALE",
+    "menu.caption.move_remove": "PLACER/DÉPLACER",
+    "menu.caption.georama_analysis": "STATISTIQUES",
+    "menu.caption.go_outside": "SORTIR",
+    "menu.caption.config_assembly": "ASSEMBLAGE"
 }

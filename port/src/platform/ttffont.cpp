@@ -1,6 +1,7 @@
 #include "platform/ttffont.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <map>
@@ -280,6 +281,68 @@ bool Compose(char32_t ch, float scale, int em_px, Bitmap &out) {
     return false;
 }
 
+// The letter's coverage grown by `radius` pixels in every direction: a round stroke round the shape, with
+// the same soft edge the glyph has, so a caption's outline is a real stroke rather than offset copies.
+Bitmap Dilate(const Bitmap &in, int radius) {
+    if (radius <= 0 || in.w <= 0 || in.h <= 0) {
+        return in;
+    }
+    Bitmap out;
+    out.x0 = in.x0 - radius - 1;
+    out.y0 = in.y0 - radius - 1;
+    out.w = in.w + 2 * (radius + 1);
+    out.h = in.h + 2 * (radius + 1);
+    out.alpha.assign(static_cast<size_t>(out.w) * out.h, 0);
+    const int reach = radius + 1;
+    for (int row = 0; row < in.h; row++) {
+        for (int col = 0; col < in.w; col++) {
+            const int cover = in.alpha[static_cast<size_t>(row) * in.w + col];
+            if (cover == 0) {
+                continue;
+            }
+            for (int dy = -reach; dy <= reach; dy++) {
+                for (int dx = -reach; dx <= reach; dx++) {
+                    const float edge = static_cast<float>(radius) + 0.5f - std::sqrt(static_cast<float>(dx * dx + dy * dy));
+                    if (edge <= 0.0f) {
+                        continue;
+                    }
+                    const int      value = static_cast<int>(cover * std::min(edge, 1.0f) + 0.5f);
+                    unsigned char &to = out.alpha[static_cast<size_t>(row + dy + reach) * out.w + (col + dx + reach)];
+                    to = static_cast<unsigned char>(std::max<int>(to, value));
+                }
+            }
+        }
+    }
+    return out;
+}
+
+// How far the pen moves after ch, in pixels at scale (pixels per font unit). A letter built from others
+// moves by its base letter's width.
+float AdvanceOf(char32_t ch, float scale) {
+    char32_t drawn = ch;
+    if (DrawnGlyph(ch) == 0) {
+        for (const Accented &accented : kAccented) {
+            if (accented.ch == ch) {
+                drawn = accented.base;
+            }
+        }
+        if (ch == U'\u00A1') {
+            drawn = U'!';
+        } else if (ch == U'\u00BF') {
+            drawn = U'?';
+        } else if (ch == U'\u0153' || ch == U'\u0152') {
+            drawn = ch == U'\u0153' ? U'o' : U'O';
+        }
+    }
+    int index = DrawnGlyph(drawn);
+    if (index == 0) {
+        index = stbtt_FindGlyphIndex(&g_font.info, static_cast<int>(drawn));
+    }
+    int advance = 0, bearing = 0;
+    stbtt_GetGlyphHMetrics(&g_font.info, index, &advance, &bearing);
+    return static_cast<float>(advance) * scale;
+}
+
 } // namespace
 
 bool Load(const std::filesystem::path &file) {
@@ -309,10 +372,14 @@ bool Loaded() {
 }
 
 bool GetGlyph(char32_t ch, int em_px, Glyph &out) {
-    if (!g_font.loaded || em_px < 4 || em_px > 512) {
+    return GetOutlinedGlyph(ch, em_px, 0, out);
+}
+
+bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out) {
+    if (!g_font.loaded || em_px < 4 || em_px > 512 || outline_px < 0 || outline_px > 8) {
         return false;
     }
-    const auto key = std::make_pair(ch, em_px);
+    const auto key = std::make_pair(ch, em_px + outline_px * 1024);
     if (auto found = g_atlas.glyphs.find(key); found != g_atlas.glyphs.end()) {
         out = found->second;
         return true;
@@ -333,6 +400,10 @@ bool GetGlyph(char32_t ch, int em_px, Glyph &out) {
     } else if (!Compose(ch, scale, em_px, bitmap)) {
         g_atlas.missing[key] = true;
         return false;
+    }
+    const float advance = AdvanceOf(ch, scale);
+    if (outline_px > 0) {
+        bitmap = Dilate(bitmap, outline_px);
     }
     const int width = bitmap.w;
     const int height = bitmap.h;
@@ -360,6 +431,7 @@ bool GetGlyph(char32_t ch, int em_px, Glyph &out) {
     glyph.y_offset = static_cast<float>(bitmap.y0);
     glyph.width = static_cast<float>(width);
     glyph.height = static_cast<float>(height);
+    glyph.advance = advance;
 
     if (width > 0 && height > 0) {
         // White with the coverage as alpha, so the draw's vertex colour tints it.

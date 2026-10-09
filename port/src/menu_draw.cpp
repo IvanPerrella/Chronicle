@@ -12,6 +12,7 @@
 #include "name_mouse.hpp"
 #include "memcard.hpp"
 #include "menu_dungeon.hpp"
+#include "caption_text.hpp"
 #include "menu_pointer.hpp"
 #include "rect.hpp"
 
@@ -55,6 +56,51 @@ PC_OVERRIDE void DrawMenu2DSprite(CTexture *texture, CRect_i_ screen, CRect_i_ t
                                   unsigned char b, int alpha) {
     NameMouseHand(texture, screen, texel, r == 0 && g == 0 && b == 0);
     set2DSprite(GetVif1Packet(), texture, screen, texel, r, g, b, alpha);
+}
+
+// The caption beside an icon is text from the language's JSON when the font is there (caption_text.hpp), a
+// cream fill over a blue outline as sharp as the help line's; texture.cpp blanks the painted words then. The
+// icon and its place are retail's.
+PC_OVERRIDE void DrawMainMenuIcon(int x, int y, int icon, int selected, int bright, int alpha) {
+    if (StayTex == NULL) {
+        StayTex = TexManager.GetTexture("stayframe", -1);
+        if (StayTex == NULL) {
+            return;
+        }
+    }
+    MENU_ICON_INFO *info = GetMenuIconInfo(icon);
+    if (info == NULL) {
+        return;
+    }
+
+    int   u = info->u;
+    int   v = info->v;
+    s16   frame_size[2][2] = {
+        {0x30, 0x20},
+        {0x3A, 0x28}
+    };
+    int width = frame_size[selected][0];
+    int height = frame_size[selected][1];
+    if (selected) {
+        u = info->selected_u;
+        v = info->selected_v;
+        if (icon == info->id) {
+            width = 0x38;
+        }
+    }
+    set2DSprite(GetVif1Packet(), StayTex, CRect_i_(x, y, width, height - 1), CRect_i_(u, v, width, height), bright, bright, bright, alpha);
+
+    if (selected) {
+        x += 0x44;
+        y += 1;
+    } else {
+        x += 0x40;
+        y -= 1;
+    }
+    if (caption::Draw(icon, x, y, info->label_width, alpha)) {
+        return;
+    }
+    set2DSprite(GetVif1Packet(), StayTex, CRect_i_(x, y, info->label_width, info->label_height - 1), CRect_i_(info->label_u, info->label_v, info->label_width, info->label_height), bright, bright, bright, alpha);
 }
 
 extern PERSONAL_BOARD *PerBoardPt;
