@@ -1,5 +1,7 @@
 #include "gameloop.hpp"
 
+#include "caption_text.hpp"
+
 #include <algorithm>
 #include <charconv>
 #include <cstdio>
@@ -94,6 +96,7 @@ struct FpsOverlay {
     std::string         text;
     gfx::LogicalMapping mapping = {};
     gfx::DisplayListRef list;
+    bool                font = false;
 };
 
 FpsOverlay g_fps;
@@ -149,7 +152,11 @@ const gfx::DisplayList *FpsOverlayList() {
     }
     std::string         text = GameFpsText();
     gfx::LogicalMapping mapping = gfx::GetLogicalMapping(gfx::kMainTarget);
-    if (!g_fps.list || text != g_fps.text || !SameMapping(mapping, g_fps.mapping)) {
+    // The counter is drawn in the community font once it is there (caption::Ready loads it), so the badge is
+    // sharp on every screen, the title's and the loading screen's included.
+    const bool font = caption::Ready();
+    if (!g_fps.list || text != g_fps.text || !SameMapping(mapping, g_fps.mapping) || font != g_fps.font) {
+        g_fps.font = font;
         g_fps.list = OverlayRecord(text);
         g_fps.text = std::move(text);
         g_fps.mapping = mapping;

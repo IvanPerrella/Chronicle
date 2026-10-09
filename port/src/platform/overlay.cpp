@@ -1,5 +1,7 @@
 #include "overlay.hpp"
 
+#include "platform/ttffont.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -77,6 +79,66 @@ gfx::Vertex2D Vertex(float x, float y, std::uint8_t grey, std::uint8_t alpha) {
     };
 }
 
+// The counter in the community TrueType font, at the screen's own resolution, when one is loaded: the same words
+// as the 5x7 bitmaps, but sharp at any window size. False where there is no font, or it lacks a letter.
+bool DrawTtfText(std::string_view text, const gfx::LogicalMapping &mapping, int pixel, int x, int y) {
+    if (!ttffont::Loaded()) {
+        return false;
+    }
+    const int              em_px = std::clamp(9 * pixel, 8, 120);
+    const ttffont::Metrics metrics = ttffont::GetMetrics();
+    std::vector<ttffont::Glyph> glyphs;
+    float                       width = 0.0f;
+    for (char c : text) {
+        ttffont::Glyph glyph;
+        if (c == ' ') {
+            glyph.width = glyph.height = 0;
+            glyph.advance = static_cast<float>(em_px) * 0.35f;
+        } else if (!ttffont::GetGlyph(static_cast<char32_t>(static_cast<unsigned char>(c)), em_px, glyph)) {
+            return false;
+        }
+        width += glyph.advance;
+        glyphs.push_back(glyph);
+    }
+    auto logical = [&](float px_x, float px_y, float u, float v, std::uint8_t grey, std::uint8_t alpha) {
+        return gfx::Vertex2D{
+            (px_x - mapping.offset_x) / mapping.scale_x, (px_y - mapping.offset_y) / mapping.scale_y, 0.0f, u, v, {grey, grey, grey, alpha}
+        };
+    };
+    const float pad = static_cast<float>(kOverlayPadding * pixel);
+    const float line = static_cast<float>(em_px) * (metrics.ascent + metrics.descent);
+    std::vector<gfx::Vertex2D> backdrop;
+    const float                left = static_cast<float>(x), top = static_cast<float>(y);
+    const float                right = left + width + 2 * pad, bottom = top + line + 2 * pad;
+    backdrop.push_back(logical(left, top, 0, 0, 0, kBackdropAlpha));
+    backdrop.push_back(logical(right, top, 0, 0, 0, kBackdropAlpha));
+    backdrop.push_back(logical(right, bottom, 0, 0, 0, kBackdropAlpha));
+    backdrop.push_back(logical(left, bottom, 0, 0, 0, kBackdropAlpha));
+
+    std::vector<gfx::Vertex2D> quads;
+    float                      pen = left + pad;
+    const float                base = top + pad + static_cast<float>(em_px) * metrics.ascent;
+    for (const ttffont::Glyph &glyph : glyphs) {
+        if (glyph.width > 0 && glyph.height > 0) {
+            // On whole target pixels, so the strokes stay sharp.
+            const float gx = std::round(pen + glyph.x_offset);
+            const float gy = std::round(base + glyph.y_offset);
+            quads.push_back(logical(gx, gy, glyph.u0, glyph.v0, 0x80, 0x80));
+            quads.push_back(logical(gx + glyph.width, gy, glyph.u1, glyph.v0, 0x80, 0x80));
+            quads.push_back(logical(gx + glyph.width, gy + glyph.height, glyph.u1, glyph.v1, 0x80, 0x80));
+            quads.push_back(logical(gx, gy + glyph.height, glyph.u0, glyph.v1, 0x80, 0x80));
+        }
+        pen += glyph.advance;
+    }
+    gfx::DrawState blended;
+    blended.blend = true;
+    gfx::Draw2D(gfx::Primitive::Quads, backdrop, {}, blended);
+    if (!quads.empty()) {
+        gfx::Draw2D(gfx::Primitive::Quads, quads, ttffont::Binding(), blended);
+    }
+    return true;
+}
+
 } // namespace
 
 const std::uint8_t *OverlayGlyph(char c) {
@@ -100,6 +162,9 @@ int OverlayPixelSize(const gfx::LogicalMapping &mapping) {
 
 void OverlayDrawText(std::string_view text, const gfx::LogicalMapping &mapping, int pixel, int x, int y) {
     if (text.empty() || mapping.scale_x <= 0.0f || mapping.scale_y <= 0.0f) {
+        return;
+    }
+    if (DrawTtfText(text, mapping, pixel, x, y)) {
         return;
     }
     // Quads on whole target pixels, given in the logical space Draw2D maps back onto them.
