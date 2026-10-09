@@ -1,5 +1,6 @@
 #include "menu_draw.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -97,7 +98,7 @@ PC_OVERRIDE void DrawMainMenuIcon(int x, int y, int icon, int selected, int brig
         x += 0x40;
         y -= 1;
     }
-    if (caption::Draw(icon, x, y, info->label_width, alpha)) {
+    if (caption::Draw(icon, x, y, std::max<int>(info->label_width, 0xB8), alpha)) {
         return;
     }
     set2DSprite(GetVif1Packet(), StayTex, CRect_i_(x, y, info->label_width, info->label_height - 1), CRect_i_(info->label_u, info->label_v, info->label_width, info->label_height), bright, bright, bright, alpha);

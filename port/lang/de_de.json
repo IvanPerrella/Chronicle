@@ -256,11 +256,11 @@
     "menu.caption.option": "OPTION",
     "menu.caption.save": "SPEICHERN",
     "menu.caption.manuals": "ANLEITUNG",
-    "menu.caption.leave_dungeon": "VERLIES VERL.",
-    "menu.caption.other_area": "AND. GEBIET",
+    "menu.caption.leave_dungeon": "VERLIES VERLASSEN",
+    "menu.caption.other_area": "ANDERES GEBIET",
     "menu.caption.go_dungeon": "ZUM VERLIES",
-    "menu.caption.move_remove": "BEWEGEN/ENTF.",
+    "menu.caption.move_remove": "BEWEGEN/ENTFERNEN",
     "menu.caption.georama_analysis": "DIORAMAANALYSE",
     "menu.caption.go_outside": "NACH DRAUSSEN",
-    "menu.caption.config_assembly": "KONFIG/ZUS.BAU"
+    "menu.caption.config_assembly": "KONFIG./ZUSAMMENBAU"
 }

@@ -249,7 +249,7 @@
     "options.video.anisotropy.choice.4": "16x",
     "options.video.anisotropy.help": "\"Filtro anisotropico\"\nTexture più nitide\nsulle superfici viste\ndi sbieco.",
     "options.video.anisotropy.label": "Filtro anisotropico",
-    "menu.caption.item": "OGG.",
+    "menu.caption.item": "OGGETTI",
     "menu.caption.weapon": "ARMI",
     "menu.caption.allies": "ALLEATI",
     "menu.caption.georama_parts": "PARTE DIORAMA",
@@ -258,9 +258,9 @@
     "menu.caption.manuals": "MANUALI",
     "menu.caption.leave_dungeon": "TORNA IN CITTÀ",
     "menu.caption.other_area": "VAI IN ALTRE ZONE",
-    "menu.caption.go_dungeon": "VAI NEI LABIR.",
+    "menu.caption.go_dungeon": "VAI NEI LABIRINTI",
     "menu.caption.move_remove": "SPOSTA/RIMUOVI",
     "menu.caption.georama_analysis": "ANALISI DIORAMA",
     "menu.caption.go_outside": "ESCI FUORI",
-    "menu.caption.config_assembly": "CONF./ASSEMBLA"
+    "menu.caption.config_assembly": "CONFIG./ASSEMBLA"
 }
