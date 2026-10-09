@@ -248,19 +248,5 @@
     "options.video.anisotropy.choice.3": "8x",
     "options.video.anisotropy.choice.4": "16x",
     "options.video.anisotropy.help": "\"Filtro anisotrópico\"\nTexturas más nítidas\nen superficies vistas\nen ángulo.",
-    "options.video.anisotropy.label": "Filtro anisotrópico",
-    "menu.caption.item": "OBJETO",
-    "menu.caption.weapon": "ARMA",
-    "menu.caption.allies": "ALIADOS",
-    "menu.caption.georama_parts": "PARTES DEL DIADORAMA",
-    "menu.caption.option": "OPCIÓN",
-    "menu.caption.save": "GUARDAR",
-    "menu.caption.manuals": "MANUALES",
-    "menu.caption.leave_dungeon": "ABANDONAR MAZMORRA",
-    "menu.caption.other_area": "IR A OTRAS AREAS",
-    "menu.caption.go_dungeon": "IR A MAZMORRA",
-    "menu.caption.move_remove": "MOVER/QUITAR",
-    "menu.caption.georama_analysis": "ANÁLISIS DEL DIADORAMA",
-    "menu.caption.go_outside": "SALIR",
-    "menu.caption.config_assembly": "CONFIGURAR/UNIR"
+    "options.video.anisotropy.label": "Filtro anisotrópico"
 }

@@ -257,10 +257,12 @@ letters and marks. The port logs `font: message text from <file>` when it loads 
 - It works for every message the game draws through its message windows, whatever its source: the disc's
   text, the JSON's, item and monster names.
 - The menu captions beside the icons (ITEM, WEAPON, GO TO DUNGEON, SAVE, OPTION...) are drawn from the font
-  too, as text from the language's JSON (`menu.caption.<name>`), a cream fill over a blue outline stroked
-  round each letter, the colours of the painted English captions in every language. The painted words are
-  blanked from `stayframe` while a font is loaded; without one they stay as the disc has them. A new
-  language translates the fourteen `menu.caption.*` strings and needs no picture.
+  too, as text: the quoted name the help window gives the icon ("Article", "Oggetti"...), in capitals, a cream
+  fill over a blue outline stroked round each letter, the colours of the painted English captions in every
+  language. So they follow the language's help messages, JSON edits to them included, and a new language
+  needs no picture. A `menu.caption.<name>` string in the language's JSON (see `caption_text.cpp`) overrides one
+  caption. The painted words are blanked from `stayframe` while a font is loaded; without one they stay as
+  the disc has them.
 - It does not touch other text that is a picture: the title screen's and the like are textures, and stay
   as they are. A few of those pictures can be replaced per language, see "Pictures of text" below.
 - A word keeps the cells the game gave it: its letters are spaced by the font inside the word and the word

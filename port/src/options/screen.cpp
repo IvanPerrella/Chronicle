@@ -5,7 +5,6 @@
 #include <memory>
 #include <optional>
 
-#include "caption_text.hpp"
 #include "clsmes.hpp"
 #include "dataread.hpp"
 #include "gamepad.hpp"
@@ -689,9 +688,6 @@ std::vector<std::pair<std::string, std::string>> OptionStrings() {
         {"options.display.window_now",    options::kWindowNowText    },
     };
     for (auto &entry : options::RowStrings()) {
-        out.push_back(std::move(entry));
-    }
-    for (auto &entry : caption::Strings()) {
         out.push_back(std::move(entry));
     }
     return out;

@@ -10,6 +10,8 @@
 #include "gfx/gfx.hpp"
 #include "localize.hpp"
 #include "menu_draw.hpp"
+#include "menuetc.hpp"
+#include "gametext.hpp"
 #include "platform/ttffont.hpp"
 #include "texture_port.hpp"
 
@@ -61,6 +63,39 @@ bool FontReady() {
     return ttffont::Loaded();
 }
 
+// The upper case of a letter the font draws as a capital: ASCII and the Latin-1 letters the PAL languages use.
+char32_t Upper(char32_t ch) {
+    if ((ch >= U'a' && ch <= U'z') || (ch >= 0xE0 && ch <= 0xFE && ch != 0xF7)) {
+        return ch - 0x20;
+    }
+    return ch == 0x153 ? 0x152 : ch;
+}
+
+// What the help window calls the icon: its message's first line, the name in quotes ("Article", "Sauvegarder"),
+// without the quotes. Empty where the window holds no such message.
+std::string HelpTitle(int icon) {
+    const MENU_ICON_INFO *info = GetMenuIconInfo(icon);
+    if (info == nullptr || CommonMenuMes2.buff == nullptr) {
+        return {};
+    }
+    const short *codes = CommonMenuMes2.GetTextLineDataTop(info->help_mes_no);
+    if (codes == nullptr) {
+        return {};
+    }
+    std::string text = GameTextDecode(codes);
+    const size_t end = text.find_first_of("\n{");
+    if (end != std::string::npos) {
+        text.erase(end);
+    }
+    while (!text.empty() && (text.front() == '"' || text.front() == ' ')) {
+        text.erase(text.begin());
+    }
+    while (!text.empty() && (text.back() == '"' || text.back() == ' ')) {
+        text.pop_back();
+    }
+    return text;
+}
+
 std::u32string Decode(std::string_view in) {
     std::u32string out;
     for (size_t i = 0; i < in.size();) {
@@ -103,7 +138,7 @@ float Natural(const std::u32string &text, float em, float scale_x) {
             total += em * 0.5f;
             continue;
         }
-        total += glyph.advance / scale_x;
+        total += glyph.width / scale_x + em * 0.1f;
     }
     return total;
 }
@@ -111,6 +146,9 @@ float Natural(const std::u32string &text, float em, float scale_x) {
 Layout Lay(std::string_view utf8, float box_width) {
     Layout layout;
     layout.text = Decode(utf8);
+    for (char32_t &ch : layout.text) {
+        ch = Upper(ch);
+    }
     const float scale_x = gfx::GetUiMapping(gfx::CurrentRenderTarget()).scale_x;
     float       natural = Natural(layout.text, layout.em, scale_x);
     if (box_width > 0 && natural > box_width) {
@@ -148,14 +186,6 @@ std::vector<std::pair<std::string, std::string>> Strings() {
 
 bool Ready() {
     return FontReady();
-}
-
-float Width(std::string_view utf8, float em) {
-    if (!FontReady()) {
-        return 0.0f;
-    }
-    const float scale_x = gfx::GetUiMapping(gfx::CurrentRenderTarget()).scale_x;
-    return Natural(Decode(utf8), em, scale_x);
 }
 
 void BlankPainted(const char *name, PortDecodedTexture &texture) {
@@ -215,7 +245,15 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
     if (icon < 0 || icon >= kIcons || !FontReady()) {
         return false;
     }
-    const std::string text = LocalizeText(kEntries[icon].key, kEntries[icon].english);
+    // A translator's JSON string wins; else the name the help window gives the icon, so the two always agree;
+    // else the English.
+    std::string text = LocalizeText(kEntries[icon].key, "");
+    if (text.empty()) {
+        text = HelpTitle(icon);
+    }
+    if (text.empty()) {
+        text = kEntries[icon].english;
+    }
     const Layout      layout = Lay(text, static_cast<float>(box_width));
 
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
@@ -261,7 +299,7 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
             place(edge, edges, kOutline);
         }
         place(fill, fills, kFill);
-        pen += fill.advance / mapping.scale_x * layout.squeeze;
+        pen += (fill.width / mapping.scale_x + layout.em * 0.1f) * layout.squeeze;
     }
     if (!fills.empty()) {
         const gfx::TextureBinding binding = ttffont::Binding();
