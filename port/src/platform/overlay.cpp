@@ -107,33 +107,39 @@ bool DrawTtfText(std::string_view text, const gfx::LogicalMapping &mapping, int 
     };
     const float pad = static_cast<float>(kOverlayPadding * pixel);
     const float line = static_cast<float>(em_px) * (metrics.ascent + metrics.descent);
-    std::vector<gfx::Vertex2D> backdrop;
+    (void) line;
+    (void) width;
     const float                left = static_cast<float>(x), top = static_cast<float>(y);
-    const float                right = left + width + 2 * pad, bottom = top + line + 2 * pad;
-    backdrop.push_back(logical(left, top, 0, 0, 0, kBackdropAlpha));
-    backdrop.push_back(logical(right, top, 0, 0, 0, kBackdropAlpha));
-    backdrop.push_back(logical(right, bottom, 0, 0, 0, kBackdropAlpha));
-    backdrop.push_back(logical(left, bottom, 0, 0, 0, kBackdropAlpha));
 
-    std::vector<gfx::Vertex2D> quads;
-    float                      pen = left + pad;
+    // No box behind the counter: a thin black edge (the same glyphs, nudged round the letters) keeps it readable on any scene.
+    const float                edge = static_cast<float>(std::max(1, pixel / 2));
+    const float                offsets[5][2] = {{-edge, 0}, {edge, 0}, {0, -edge}, {0, edge}, {edge, edge}};
+    std::vector<gfx::Vertex2D> shadow, quads;
     const float                base = top + pad + static_cast<float>(em_px) * metrics.ascent;
+    auto                       add = [&](std::vector<gfx::Vertex2D> &out, float gx, float gy, const ttffont::Glyph &glyph,
+                   std::uint8_t grey) {
+        out.push_back(logical(gx, gy, glyph.u0, glyph.v0, grey, 0x80));
+        out.push_back(logical(gx + glyph.width, gy, glyph.u1, glyph.v0, grey, 0x80));
+        out.push_back(logical(gx + glyph.width, gy + glyph.height, glyph.u1, glyph.v1, grey, 0x80));
+        out.push_back(logical(gx, gy + glyph.height, glyph.u0, glyph.v1, grey, 0x80));
+    };
+    float pen = left + pad;
     for (const ttffont::Glyph &glyph : glyphs) {
         if (glyph.width > 0 && glyph.height > 0) {
             // On whole target pixels, so the strokes stay sharp.
             const float gx = std::round(pen + glyph.x_offset);
             const float gy = std::round(base + glyph.y_offset);
-            quads.push_back(logical(gx, gy, glyph.u0, glyph.v0, 0x80, 0x80));
-            quads.push_back(logical(gx + glyph.width, gy, glyph.u1, glyph.v0, 0x80, 0x80));
-            quads.push_back(logical(gx + glyph.width, gy + glyph.height, glyph.u1, glyph.v1, 0x80, 0x80));
-            quads.push_back(logical(gx, gy + glyph.height, glyph.u0, glyph.v1, 0x80, 0x80));
+            for (const auto &offset : offsets) {
+                add(shadow, gx + offset[0], gy + offset[1], glyph, 0);
+            }
+            add(quads, gx, gy, glyph, 0x80);
         }
         pen += glyph.advance;
     }
     gfx::DrawState blended;
     blended.blend = true;
-    gfx::Draw2D(gfx::Primitive::Quads, backdrop, {}, blended);
     if (!quads.empty()) {
+        gfx::Draw2D(gfx::Primitive::Quads, shadow, ttffont::Binding(), blended);
         gfx::Draw2D(gfx::Primitive::Quads, quads, ttffont::Binding(), blended);
     }
     return true;
