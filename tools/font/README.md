@@ -4,6 +4,7 @@ The Dark Cloud Compendium Community Font ("Dark Cloud Speech", version 001.000),
 copyright (c) 2020 Dayuppy & Moonbunny. It was released to the community to use as they wish, and Dayuppy
 confirmed on 2026-10-06 that it may be used in this port.
 
+The digit 5 was redrawn (the original had no tail on its bottom stroke, so it read like an S); every other glyph is Dayuppy and Moonbunny's.
 It draws the FPS counter (`gen_overlay_font.py`) and the game's message text (docs/LOCALIZATION.md): the build
 copies it to `lang/font.ttf` beside the executable. Its accented letters, the cedilla, `¡`, `¿`, `œ` and `Œ`
 are blank in the file; the port builds them from the font's own letters and marks when it draws.
