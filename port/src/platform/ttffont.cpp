@@ -36,14 +36,16 @@ struct Atlas {
     std::map<std::pair<char32_t, int>, bool>  missing;
 };
 
-Font  g_font;
-Atlas g_atlas;
+Font     g_font;
+Atlas    g_atlas;
+unsigned g_generation = 0;
 
 void ResetAtlas() {
     if (g_atlas.texture != gfx::kNullTexture) {
         gfx::DestroyTexture(g_atlas.texture);
     }
     g_atlas = {};
+    g_generation++;
 }
 
 bool EnsureAtlas() {
@@ -480,6 +482,7 @@ bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out) {
             std::fprintf(stderr, "font: atlas full, starting again\n");
             gfx::TextureHandle keep = g_atlas.texture;
             g_atlas = {};
+            g_generation++;
             g_atlas.texture = keep;
             std::vector<unsigned char> blank(static_cast<size_t>(kAtlasSize) * kAtlasSize * 4, 0);
             gfx::UpdateTextureNow(keep, 0, 0, 0, kAtlasSize, kAtlasSize, blank.data());
@@ -518,6 +521,49 @@ bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out) {
     g_atlas.glyphs[key] = glyph;
     out = glyph;
     return true;
+}
+
+bool AddImage(const std::vector<unsigned char> &rgba, int w, int h, Glyph &out) {
+    if (w <= 0 || h <= 0 || w > 1024 || h > 1024 || rgba.size() < static_cast<size_t>(w) * h * 4 || !EnsureAtlas()) {
+        return false;
+    }
+    if (g_atlas.x + w + 2 * kPad > kAtlasSize) {
+        g_atlas.x = 0;
+        g_atlas.y += g_atlas.row_height;
+        g_atlas.row_height = 0;
+    }
+    if (g_atlas.y + h + 2 * kPad > kAtlasSize) {
+        std::fprintf(stderr, "font: atlas full, starting again\n");
+        gfx::TextureHandle keep = g_atlas.texture;
+        g_atlas = {};
+        g_generation++;
+        g_atlas.texture = keep;
+        std::vector<unsigned char> blank(static_cast<size_t>(kAtlasSize) * kAtlasSize * 4, 0);
+        gfx::UpdateTextureNow(keep, 0, 0, 0, kAtlasSize, kAtlasSize, blank.data());
+    }
+    const int                  pw = w + 2 * kPad;
+    const int                  ph = h + 2 * kPad;
+    std::vector<unsigned char> pixels(static_cast<size_t>(pw) * ph * 4, 0);
+    for (int row = 0; row < h; row++) {
+        std::copy_n(&rgba[static_cast<size_t>(row) * w * 4], static_cast<size_t>(w) * 4,
+                    &pixels[(static_cast<size_t>(row + kPad) * pw + kPad) * 4]);
+    }
+    gfx::UpdateTextureNow(g_atlas.texture, 0, static_cast<uint32_t>(g_atlas.x), static_cast<uint32_t>(g_atlas.y),
+                          static_cast<uint32_t>(pw), static_cast<uint32_t>(ph), pixels.data());
+    out = {};
+    out.u0 = static_cast<float>(g_atlas.x + kPad);
+    out.v0 = static_cast<float>(g_atlas.y + kPad);
+    out.u1 = static_cast<float>(g_atlas.x + kPad + w);
+    out.v1 = static_cast<float>(g_atlas.y + kPad + h);
+    out.width = static_cast<float>(w);
+    out.height = static_cast<float>(h);
+    g_atlas.x += pw;
+    g_atlas.row_height = std::max(g_atlas.row_height, ph);
+    return true;
+}
+
+unsigned Generation() {
+    return g_generation;
 }
 
 bool RenderGlyph(char32_t ch, int em_px, std::vector<unsigned char> &alpha, int &w, int &h, int &x0, int &y0) {

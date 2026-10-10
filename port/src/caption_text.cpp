@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <map>
 
 #include "draw2d_port.hpp"
 #include "gfx/gfx.hpp"
@@ -437,6 +438,74 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     const int   edge_px = std::clamp(static_cast<int>(style.edge_width * mapping.scale_x + 0.5f), 0, 60);
     const int   glow_px = style.glow_amount > 0.0f ? std::clamp(static_cast<int>(style.glow_width * mapping.scale_x + 0.5f), 0, 60) : 0;
 
+    // Where a letter's quad lies (x, y, width, height in logical units), snapped to whole pixels.
+    auto rect_of = [&](const ttffont::Glyph &glyph, const ttffont::Glyph &fill, float pen, float &x, float &y, float &w, float &h) {
+        w = glyph.width / mapping.scale_x * squeeze * style.xscale;
+        h = glyph.height / mapping.scale_y * rows * style.yscale;
+        x = pen + (glyph.x_offset - fill.x_offset) / mapping.scale_x * squeeze * style.xscale;
+        y = baseline + glyph.y_offset / mapping.scale_y * style.yscale;
+        x = snap(x, mapping.scale_x, mapping.offset_x);
+        y = snap(y, mapping.scale_y, mapping.offset_y);
+    };
+    // A letter filled from the field: its coverage with each pixel's colour taken from the field where the pixel lies on the
+    // card, kept in the atlas by where and how big it is drawn (made again when that changes or the atlas starts again).
+    static std::map<std::array<int, 9>, ttffont::Glyph> textured;
+    static unsigned                                      textured_generation = 0;
+    auto textured_letter = [&](const Letter &letter, size_t index, float pen, ttffont::Glyph &out) {
+        if (style.field == nullptr || style.field->width <= 0 || style.field->rgb.size() < static_cast<size_t>(style.field->width) * style.field->height * 3) {
+            return false;
+        }
+        if (textured_generation != ttffont::Generation() || textured.size() > 96) {
+            textured.clear();
+            textured_generation = ttffont::Generation();
+        }
+        float x, y, w, h;
+        rect_of(letter.fill, letter.fill, pen, x, y, w, h);
+        const std::array<int, 9> key = {static_cast<int>(style.field->id), static_cast<int>(index), em_px,
+                                        static_cast<int>(std::lround(x * 8)), static_cast<int>(std::lround(y * 8)),
+                                        static_cast<int>(std::lround(w * 8)), static_cast<int>(std::lround(h * 8)),
+                                        static_cast<int>(std::lround(style.field_x * 8)), static_cast<int>(std::lround(style.field_y * 8))};
+        if (auto found = textured.find(key); found != textured.end()) {
+            out = found->second;
+            return true;
+        }
+        std::vector<unsigned char> coverage;
+        int                        gw, gh, gx0, gy0;
+        if (!ttffont::RenderGlyph(letter.ch, em_px, coverage, gw, gh, gx0, gy0) || gw <= 0 || gh <= 0 ||
+            gw != static_cast<int>(letter.fill.width) || gh != static_cast<int>(letter.fill.height)) {
+            return false;
+        }
+        const FillField           &field = *style.field;
+        std::vector<unsigned char> rgba(static_cast<size_t>(gw) * gh * 4);
+        for (int j = 0; j < gh; j++) {
+            for (int i = 0; i < gw; i++) {
+                const float lx = x + (static_cast<float>(i) + 0.5f) / gw * w;
+                const float ly = y + (static_cast<float>(j) + 0.5f) / gh * h;
+                const float u = std::clamp((lx - style.field_x) / style.field_w * field.width - 0.5f, 0.0f, field.width - 1.001f);
+                const float v = std::clamp((ly - style.field_y) / style.field_h * field.height - 0.5f, 0.0f, field.height - 1.001f);
+                const int   u0 = static_cast<int>(u), v0 = static_cast<int>(v);
+                const float fu = u - u0, fv = v - v0;
+                unsigned char *texel = &rgba[(static_cast<size_t>(j) * gw + i) * 4];
+                for (int c = 0; c < 3; c++) {
+                    auto at = [&](int xx, int yy) { return static_cast<float>(field.rgb[(static_cast<size_t>(yy) * field.width + xx) * 3 + c]); };
+                    const float top = at(u0, v0) * (1 - fu) + at(u0 + 1, v0) * fu;
+                    const float bottom = at(u0, v0 + 1) * (1 - fu) + at(u0 + 1, v0 + 1) * fu;
+                    texel[c] = static_cast<unsigned char>(std::clamp(top * (1 - fv) + bottom * fv, 0.0f, 255.0f));
+                }
+                texel[3] = coverage[static_cast<size_t>(j) * gw + i];
+            }
+        }
+        ttffont::Glyph image;
+        if (!ttffont::AddImage(rgba, gw, gh, image)) {
+            return false;
+        }
+        image.x_offset = letter.fill.x_offset;
+        image.y_offset = letter.fill.y_offset;
+        image.advance = letter.fill.advance;
+        textured[key] = image;
+        out = image;
+        return true;
+    };
     auto quad = [&](std::vector<gfx::Vertex2D> &out, const ttffont::Glyph &glyph, const ttffont::Glyph &fill, float pen,
                     const unsigned char (&rgb)[3], int alpha, float shift_x = 0.0f, float shift_y = 0.0f) {
         if (glyph.width <= 0 || glyph.height <= 0) {
@@ -465,6 +534,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     size_t                     slot = 0;
     std::vector<gfx::Vertex2D> glows, edges, fills;
     float                      pen = left;
+    size_t                     letter_index = 0;
     for (const Letter &letter : letters) {
         if (letter.blank) {
             pen += (cap_height * 0.32f + style.word) * squeeze;
@@ -494,7 +564,16 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
             quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, 0.0f, -half);
             quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, 0.0f, half);
         }
-        quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80);
+        {
+            static const unsigned char white[3] = {255, 255, 255};
+            ttffont::Glyph             coloured;
+            if (textured_letter(letter, letter_index, pen, coloured)) {
+                quad(fills, coloured, letter.fill, pen, white, 0x80);
+            } else {
+                quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80);
+            }
+        }
+        letter_index++;
         pen += (letter.fill.width / mapping.scale_x * style.xscale + gap) * squeeze;
     }
     const gfx::TextureBinding binding = ttffont::Binding();

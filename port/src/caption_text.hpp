@@ -44,6 +44,15 @@ bool Draw(int icon, int x, int y, int box_width, int alpha);
 
 /// A line of lettering drawn the way a caption is, for pictures of text that are text at runtime (the area name cards):
 /// all sizes are in the units the draw call is in (the logical screen of gfx::Draw2D).
+/// The colours of a picture of lettering, for lettering that is not one colour: each texel holds the colour of the nearest
+/// pixel of the painted letters, so letters drawn over it carry the painted texture (grain, shading) as the painted ones do.
+struct FillField {
+    int                        width = 0;
+    int                        height = 0;
+    std::vector<unsigned char> rgb; // width * height * 3
+    unsigned                   id = 0; // told apart from other fields for caching
+};
+
 struct LineStyle {
     unsigned char fill[3] = {255, 255, 255};
     unsigned char edge[3] = {0, 0, 0};
@@ -58,6 +67,10 @@ struct LineStyle {
     // cap_top and cap_height name the box the letters' own ink fills (their tops and bottoms as drawn), not the font's
     // capital height, which is what the plate's painted lettering was measured as.
     bool          ink_fit = false;
+    // Fill each letter from this field, which covers the logical rectangle (field_x, field_y, field_w, field_h), instead of
+    // with the one colour fill.
+    const FillField *field = nullptr;
+    float            field_x = 0.0f, field_y = 0.0f, field_w = 1.0f, field_h = 1.0f;
     // Where each letter's ink goes, left and right in logical units, one per drawn letter (spaces excluded), in order; each
     // glyph is drawn into its slot. Empty to lay the line out by the font. Used when the painted lettering has been split.
     std::vector<std::array<float, 2>> slots;

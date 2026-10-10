@@ -70,10 +70,14 @@ struct Layout {
     struct Ink {
         float left, right, top, bottom; // the lettering
         std::vector<std::array<float, 2>> slots; // each letter's left and right as fractions of the card, where it was cut
+        caption::FillField field;       // the painted lettering's colours spread outward, for the texture of the fill
+        bool  has_ring = false;         // the colours of the dark outline and the glow just outside the painted letters
+        unsigned char outline[3] = {0, 0, 0}, glow[3] = {0, 0, 0};
         bool  has_rule = false;         // and the brush underneath it, where the card has one
         float rule_y = 0.0f, rule_thick = 0.0f, rule_left = 0.0f, rule_right = 0.0f;
     };
     std::optional<Ink> ink;
+    unsigned           field_id = 0;
     float              underline_y0 = 0.7656f; // the plate json's, before the fit moves it
     caption::LineStyle style;
     float             edge_width = 0.0039f; // of the card's width
@@ -259,6 +263,84 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
             }
             if (slots.size() == drawn) {
                 ink.slots = std::move(slots);
+            }
+        }
+    }
+    // The painted letters' colours, spread to the nearest texels so that a letter drawn a little off them still has painted
+    // colour under it, and the colours of the ring just outside them (the outline) and a little further out (the glow).
+    {
+        auto colour_at = [&](size_t i, int rgb[3]) {
+            if (card.format == gfx::TextureFormat::Index8) {
+                const uint32_t colour = card.palette[card.levels[0][i]];
+                rgb[0] = static_cast<int>(colour & 0xFF);
+                rgb[1] = static_cast<int>((colour >> 8) & 0xFF);
+                rgb[2] = static_cast<int>((colour >> 16) & 0xFF);
+            } else {
+                rgb[0] = card.levels[0][i * 4];
+                rgb[1] = card.levels[0][i * 4 + 1];
+                rgb[2] = card.levels[0][i * 4 + 2];
+            }
+        };
+        const size_t        count = static_cast<size_t>(width) * height;
+        std::vector<int>    nearest(count, -1);
+        std::vector<int>    distance(count, 0);
+        std::vector<size_t> queue;
+        for (int y = top; y <= bottom; y++) {
+            for (int x = 0; x < width; x++) {
+                const size_t i = static_cast<size_t>(y) * width + x;
+                if (mask[i]) {
+                    nearest[i] = static_cast<int>(i);
+                    queue.push_back(i);
+                }
+            }
+        }
+        for (size_t head = 0; head < queue.size(); head++) {
+            const size_t i = queue[head];
+            const int    x = static_cast<int>(i % width), y = static_cast<int>(i / width);
+            const int    dx[4] = {1, -1, 0, 0}, dy[4] = {0, 0, 1, -1};
+            for (int k = 0; k < 4; k++) {
+                const int nx = x + dx[k], ny = y + dy[k];
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height || ny < top - 12 || ny > bottom + 12) {
+                    continue;
+                }
+                const size_t n = static_cast<size_t>(ny) * width + nx;
+                if (nearest[n] < 0) {
+                    nearest[n] = nearest[i];
+                    distance[n] = distance[i] + 1;
+                    queue.push_back(n);
+                }
+            }
+        }
+        ink.field.width = width;
+        ink.field.height = height;
+        ink.field.rgb.assign(count * 3, 0);
+        long ring[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+        for (size_t i = 0; i < count; i++) {
+            int rgb[3] = {fill[0], fill[1], fill[2]};
+            if (nearest[i] >= 0) {
+                colour_at(static_cast<size_t>(nearest[i]), rgb);
+            }
+            for (int c = 0; c < 3; c++) {
+                ink.field.rgb[i * 3 + c] = static_cast<unsigned char>(rgb[c]);
+            }
+            const int x = static_cast<int>(i % width), y = static_cast<int>(i / width);
+            if (nearest[i] >= 0 && !mask[i] && y >= top && y <= bottom && x >= left && x <= right) {
+                const int which = distance[i] >= 1 && distance[i] <= 2 ? 0 : distance[i] >= 3 && distance[i] <= 5 ? 1 : -1;
+                if (which >= 0) {
+                    int own[3];
+                    colour_at(i, own);
+                    for (int c = 0; c < 3; c++) {
+                        ring[which][c] += own[c];
+                    }
+                    ring[which][3]++;
+                }
+            }
+        }
+        if (ring[0][3] > 8 && ring[1][3] > 8) {
+            ink.has_ring = true;
+            for (int c = 0; c < 3; c++) {
+                ink.outline[c] = static_cast<unsigned char>(ring[0][c] / ring[0][3]);
+                ink.glow[c] = static_cast<unsigned char>(ring[1][c] / ring[1][3]);
             }
         }
     }
@@ -494,6 +576,23 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
         cap_height = (ink.bottom - ink.top) * frame.h * tune.size;
         xsq = 10.0f; // wider than any name, so the box's width is what shapes it
         style.ink_fit = true;
+        // The painted texture, outline and glow colours; the plate's json is what a card without them (no fit) uses.
+        static unsigned next_field = 0;
+        if (layout.field_id == 0) {
+            layout.field_id = ++next_field;
+            layout.ink->field.id = layout.field_id;
+        }
+        style.field = &layout.ink->field;
+        style.field_x = frame.x0;
+        style.field_y = frame.y0;
+        style.field_w = frame.w;
+        style.field_h = frame.h;
+        if (layout.ink->has_ring) {
+            for (int c = 0; c < 3; c++) {
+                style.edge[c] = layout.ink->outline[c];
+                style.glow[c] = layout.ink->glow[c];
+            }
+        }
         if (!ink.slots.empty()) {
             // Each glyph into the slot its painted letter stood in, moved and sized with the dials about the lettering's middle.
             const float middle = (ink.left + ink.right) / 2;
