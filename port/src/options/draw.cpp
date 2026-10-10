@@ -11,6 +11,7 @@
 #include "rect.hpp"
 #include "snd.hpp"
 #include "texture.hpp"
+#include "textwipe.hpp"
 
 namespace options {
 
@@ -175,6 +176,8 @@ void DrawTitleHelp(int alpha) {
 } // namespace
 
 void Draw() {
+    // The Options screen's text has its own fit (textwipe.hpp), and so has the help window it draws.
+    const textwipe::MessageContext fit(textwipe::Kind::Options);
     setbilinear(0);
 
     if (!g_screen.texture_ready) {

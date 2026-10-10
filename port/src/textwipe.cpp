@@ -53,8 +53,10 @@ bool                                                 g_tuning_loaded = false;
 int                                                  g_kind = 0;
 int                                                  g_value = 0;
 
-constexpr const char *kKindNames[] = {"message", "caption", "card"};
-constexpr const char *kKindLabels[] = {"MESSAGES", "MENU CAPTIONS", "AREA CARDS"};
+constexpr const char *kKindNames[] = {"message", "caption", "card", "options"};
+constexpr const char *kKindLabels[] = {"MESSAGES", "MENU CAPTIONS", "AREA CARDS", "OPTIONS SCREEN"};
+
+Kind g_context = Kind::Message;
 
 struct Value {
     const char *key;
@@ -87,10 +89,14 @@ std::filesystem::path TuningFile() {
 }
 
 void SaveTuning() {
-    nlohmann::json json;
+    nlohmann::json json = nlohmann::json::object();
     for (size_t k = 0; k < g_tuning.size(); k++) {
+        const Tuning locked = Locked(static_cast<Kind>(k));
         for (const Value &value : kValues) {
-            json[kKindNames[k]][value.key] = std::round(g_tuning[k].*(value.field) * 1000.0f) / 1000.0f;
+            const float now = std::round(g_tuning[k].*(value.field) * 1000.0f) / 1000.0f;
+            if (std::fabs(now - locked.*(value.field)) > 0.0005f) {
+                json[kKindNames[k]][value.key] = now;
+            }
         }
     }
     std::error_code error;
@@ -103,6 +109,9 @@ void SaveTuning() {
 
 void LoadTuning() {
     g_tuning_loaded = true;
+    for (size_t k = 0; k < g_tuning.size(); k++) {
+        g_tuning[k] = Locked(static_cast<Kind>(k));
+    }
     std::ifstream in(TuningFile());
     if (!in) {
         return;
@@ -218,7 +227,7 @@ void Update() {
         g_value = (g_value + (back ? kValueCount - 1 : 1)) % kValueCount;
     }
     if (InputDevKeyPressed("F8")) {
-        g_tuning[static_cast<size_t>(g_kind)] = Tuning{};
+        g_tuning[static_cast<size_t>(g_kind)] = Locked(static_cast<Kind>(g_kind));
         SaveTuning();
     }
     if (const int steps = g_minus.Fire(InputDevKeyHeld("-")); steps > 0) {
@@ -241,6 +250,54 @@ void Update() {
         g_divider = gfx::kLogicalWidth;
         break;
     }
+}
+
+Tuning Locked(Kind kind) {
+    Tuning t;
+    switch (kind) {
+    case Kind::Message: // dialogue, locked in 2026-10-09 from Jeff's overlay
+        t.size = 1.15f;
+        t.xscale = 0.80f;
+        t.yscale = 1.02f;
+        t.dx = 0.35f;
+        t.align = 1.0f;
+        t.lock = 1.0f;
+        break;
+    case Kind::Options:
+        t.size = 0.76f;
+        t.yscale = 1.17f;
+        t.dx = -1.10f;
+        t.dy = -0.15f;
+        t.lock = 1.0f;
+        break;
+    case Kind::Card:
+        t.size = 0.98f;
+        t.xscale = 1.15f;
+        t.yscale = 1.15f;
+        t.letter = -0.49f;
+        t.word = -0.05f;
+        t.dx = -0.10f;
+        t.dy = -0.05f;
+        t.weight = 0.05f;
+        t.lock = 1.0f;
+        break;
+    case Kind::Caption:
+    case Kind::Count:
+        break;
+    }
+    return t;
+}
+
+Kind MessageKind() {
+    return g_context;
+}
+
+MessageContext::MessageContext(Kind kind) : previous_(g_context) {
+    g_context = kind;
+}
+
+MessageContext::~MessageContext() {
+    g_context = previous_;
 }
 
 const Tuning &Get(Kind kind) {

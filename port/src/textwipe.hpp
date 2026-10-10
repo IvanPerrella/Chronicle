@@ -31,6 +31,7 @@ enum class Kind {
     Message, // dialogue, menus, help windows (clsmes.cpp)
     Caption, // the menu captions beside the icons (caption_text.cpp)
     Card,    // the area name cards (area_card.cpp)
+    Options, // the Options screen's text, which is message text drawn by options::Draw (its own fit)
     Count,
 };
 
@@ -51,8 +52,27 @@ struct Tuning {
     float shadow = 1.0f;   // messages: how strong the drop shadow is, times
 };
 
-/// The settings of a kind (the identity until tuned or loaded).
+/// The settings of a kind: the locked-in fit the code ships (Locked), changed by what the dials saved.
 const Tuning &Get(Kind kind);
+
+/// The fit that has been dialled in and locked as the code's own, which F8 returns a set to. The identity for a
+/// kind that has not been tuned.
+Tuning Locked(Kind kind);
+
+/// Which message settings the text drawn now takes: Message (dialogue and every other window) unless a screen
+/// that has its own fit says so with one of these for as long as it draws.
+Kind MessageKind();
+
+class MessageContext {
+public:
+    explicit MessageContext(Kind kind);
+    ~MessageContext();
+    MessageContext(const MessageContext &) = delete;
+    MessageContext &operator=(const MessageContext &) = delete;
+
+private:
+    Kind previous_;
+};
 
 /// Where the sweep's line is, in logical x from 0 to 640, `seconds` after the tool was turned on: it eases out
 /// to the right edge, eases back to the left, and rests a moment at each end.

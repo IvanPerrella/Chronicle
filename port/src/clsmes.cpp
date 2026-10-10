@@ -143,7 +143,7 @@ constexpr float kMinSqueeze = 0.78f;
 constexpr float kBaselineShift = 0.6f;
 
 float TtfEm(const ClsMes &mes, const ttffont::Metrics &) {
-    return mes.char_height * 0.82f * kTextHeight * textwipe::Get(textwipe::Kind::Message).size;
+    return mes.char_height * 0.82f * kTextHeight * textwipe::Get(textwipe::MessageKind()).size;
 }
 
 // Where each laid-out character of a window starts, in the window's own coordinates. A word (a run of
@@ -165,7 +165,7 @@ void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs, std::vector<float> &sque
     const ttffont::Metrics    metrics = ttffont::GetMetrics();
     const float               em = TtfEm(mes, metrics);
     const int                 em_px = static_cast<int>(em * mapping.scale_x + 0.5f);
-    const textwipe::Tuning   &tune = textwipe::Get(textwipe::Kind::Message);
+    const textwipe::Tuning   &tune = textwipe::Get(textwipe::MessageKind());
     const float               gap = em * 0.1f + tune.letter;
 
     auto glyph_of = [&](int i, ttffont::Glyph &glyph) {
@@ -267,7 +267,7 @@ bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y,
 
     // The font's line is centred in the cell's height. The bitmap's pixels are screen pixels, so a quad
     // is as many logical units as they come to.
-    const textwipe::Tuning &tune = textwipe::Get(textwipe::Kind::Message);
+    const textwipe::Tuning &tune = textwipe::Get(textwipe::MessageKind());
     const float width = glyph.width / mapping.scale_x * squeeze[static_cast<size_t>(index)];
     const float height = glyph.height / mapping.scale_y * rows * tune.yscale;
     const float base = cell_y + (mes.char_height - em * (metrics.ascent + metrics.descent)) / 2 + em * metrics.ascent + kBaselineShift;
