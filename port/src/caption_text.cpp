@@ -49,6 +49,10 @@ constexpr float kEm = 25.0f;
 constexpr float kOutlineWidth = 1.6f;
 constexpr float kLeastShrink = 0.62f;
 
+// stayframe as the disc has it, uploaded once more before its words are cleared, for the text wipe.
+unsigned g_painted_texture = 0;
+unsigned g_painted_palette = 0;
+
 bool FontReady() {
     static bool tried = false;
     if (!tried) {
@@ -193,6 +197,13 @@ void BlankPainted(const char *name, PortDecodedTexture &texture) {
         texture.levels.empty() || !FontReady()) {
         return;
     }
+    for (unsigned *key : {&g_painted_texture, &g_painted_palette}) {
+        if (*key != 0 && PortKeyLive(*key)) {
+            PortReleaseKey(*key);
+        }
+        *key = 0;
+    }
+    g_painted_texture = PortCreateTexture(texture, PortTextureOwner::Other, &g_painted_palette);
     if (texture.format == gfx::TextureFormat::Index8) {
         // The palette's own transparent entry may not exist, so the picture becomes straight RGBA first.
         std::vector<std::vector<uint8_t>> levels;
@@ -239,6 +250,15 @@ void BlankPainted(const char *name, PortDecodedTexture &texture) {
         }
     }
     texture.has_alpha = true;
+}
+
+bool PaintedKeys(unsigned &texture_key, unsigned &palette_key) {
+    if (g_painted_texture == 0 || !PortKeyLive(g_painted_texture)) {
+        return false;
+    }
+    texture_key = g_painted_texture;
+    palette_key = g_painted_palette;
+    return true;
 }
 
 bool Draw(int icon, int x, int y, int box_width, int alpha) {

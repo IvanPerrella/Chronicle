@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <optional>
 #include <cmath>
 #include <cstring>
 
@@ -906,9 +907,38 @@ void SetUiAnchor(const UiAnchor &anchor) { g.ui_anchor = anchor; }
 
 UiAnchor CurrentUiAnchor() { return g.ui_anchor; }
 
+namespace {
+
+std::optional<LogicalRect> g_draw_clip;
+
+} // namespace
+
+void SetDrawClip(const LogicalRect *clip) {
+    if (clip != nullptr) {
+        g_draw_clip = *clip;
+    } else {
+        g_draw_clip.reset();
+    }
+}
+
 void Draw2D(Primitive primitive, std::span<const Vertex2D> vertices, const TextureBinding &binding,
             const DrawState &state) {
     if (vertices.empty()) {
+        return;
+    }
+    if (g_draw_clip) {
+        DrawState clipped = state;
+        const LogicalRect own = state.scissor ? state.scissor_rect : LogicalRect{0.0f, 0.0f, kLogicalWidth, kLogicalHeight};
+        const float       left = std::max(own.x, g_draw_clip->x);
+        const float       top = std::max(own.y, g_draw_clip->y);
+        const float       right = std::min(own.x + own.w, g_draw_clip->x + g_draw_clip->w);
+        const float       bottom = std::min(own.y + own.h, g_draw_clip->y + g_draw_clip->h);
+        if (right <= left || bottom <= top) {
+            return;
+        }
+        clipped.scissor = true;
+        clipped.scissor_rect = {left, top, right - left, bottom - top};
+        Draw2DSided(primitive, vertices, binding, clipped, AnchoredSide(vertices));
         return;
     }
     Draw2DSided(primitive, vertices, binding, state, AnchoredSide(vertices));

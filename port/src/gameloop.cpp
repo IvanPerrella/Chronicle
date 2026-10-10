@@ -41,6 +41,7 @@
 #include "presence.hpp"
 #include "savedata.hpp"
 #include "snd.hpp"
+#include "textwipe.hpp"
 #include "texture.hpp"
 #include "title/opening.hpp"
 #include "title/rushmovi.hpp"
@@ -102,6 +103,7 @@ struct FpsOverlay {
 FpsOverlay g_fps;
 
 void PollFpsToggle() {
+    textwipe::Update();
     if (InputHostPressed(InputHostAction::FpsToggle)) {
         g_fps.on = !g_fps.on;
     }

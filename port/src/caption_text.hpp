@@ -32,6 +32,10 @@ bool Ready();
 /// texture, or without the font. The texture may be the disc's palette picture or a replacement of any size.
 void BlankPainted(const char *name, PortDecodedTexture &texture);
 
+/// The renderer keys (as PortCreateTexture gives them) of stayframe as it was before BlankPainted cleared the words: the
+/// painted captions, kept for the text wipe (textwipe.hpp) to show beside the text. False where none was kept.
+bool PaintedKeys(unsigned &texture_key, unsigned &palette_key);
+
 /// Draws icon's caption with its box's top-left at (x, y) on the 640-wide logical screen, `box_width` wide
 /// at most (longer text is shrunk and then condensed to fit), at alpha (0x80 solid). False where there is
 /// no font, and the painted caption is drawn instead.

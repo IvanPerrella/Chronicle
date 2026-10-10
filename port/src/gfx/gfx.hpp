@@ -447,6 +447,10 @@ bool InvertAffineTransform(const float matrix[16], float inverse[16]);
 
 void Draw2D(Primitive primitive, std::span<const Vertex2D> vertices, const TextureBinding &texture,
             const DrawState &state);
+// While a clip is set, every Draw2D is cut to it (intersected with the draw's own scissor), in the
+// logical space of the draw; nullptr clears it. A developer tool's: the text before/after wipe draws one
+// thing on each side of a line (textwipe.hpp). Set it while recording or drawing, never across frames.
+void SetDrawClip(const LogicalRect *clip);
 void DrawMesh(MeshHandle mesh, uint32_t first_index, uint32_t index_count, const MeshConstants &constants,
               const TextureBinding &texture, const DrawState &state,
               const MeshTransform *transform = nullptr);

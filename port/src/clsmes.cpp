@@ -18,6 +18,7 @@
 #include "platform/config.hpp"
 #include "platform/glyphs.hpp"
 #include "platform/ttffont.hpp"
+#include "textwipe.hpp"
 #include "rect.hpp"
 #include "snd.hpp"
 #include "text_shadow.hpp"
@@ -1081,139 +1082,147 @@ PC_OVERRIDE void ClsMes::DrawMesWin() {
 
     texture = draw2d::Get().find_texture("gaiji");
     setbilinear(0);
-    set2DSprite_Start(Vif1Packet, texture);
-    const bool                 ttf = TtfReady();
-    std::vector<gfx::Vertex2D> ttf_edges;
-    std::vector<gfx::Vertex2D> ttf_fills;
-    std::vector<float>         ttf_xs;
-    if (ttf) {
-        TtfLayoutRows(*this, ttf_xs);
-    }
-
-    for (index = this->text_from; index < this->text_no; index++) {
-        if (MesAbsDrawOff != 0) {
-            continue;
+    // The glyph pass is drawn once, as the font allows; with the text wipe on (textwipe.hpp) it is drawn twice,
+    // the game's bitmaps on one side of the line and the font's text on the other.
+    auto text_pass = [&](bool ttf) {
+        set2DSprite_Start(Vif1Packet, texture);
+        std::vector<gfx::Vertex2D> ttf_edges;
+        std::vector<gfx::Vertex2D> ttf_fills;
+        std::vector<float>         ttf_xs;
+        if (ttf) {
+            TtfLayoutRows(*this, ttf_xs);
         }
 
-        int code = this->win_line[index].code;
+        for (index = this->text_from; index < this->text_no; index++) {
+            if (MesAbsDrawOff != 0) {
+                continue;
+            }
 
-        if (code < -0x300 || code >= -0x251) {
-            continue;
-        }
+            int code = this->win_line[index].code;
 
-        if (ttf && code >= -0x2DF && QueueTtfGlyph(*this, index, dark, offset_x, offset_y, ttf_xs, ttf_edges, ttf_fills)) {
-            continue;
-        }
+            if (code < -0x300 || code >= -0x251) {
+                continue;
+            }
 
-        int gaiji_index = code + 0x300;
-        int u = GaijiDataTbl[gaiji_index][GAIJI_U];
+            if (ttf && code >= -0x2DF && QueueTtfGlyph(*this, index, dark, offset_x, offset_y, ttf_xs, ttf_edges, ttf_fills)) {
+                continue;
+            }
 
-        if (code >= -0x2DF && code < -0x251) {
-            if (this->narrow_gaiji_set != 1) {
-                if (this->narrow_gaiji_set == 2) {
-                    u += 0x80;
-                } else if (this->char_width < 0xB) {
-                    u += 0x80;
+            int gaiji_index = code + 0x300;
+            int u = GaijiDataTbl[gaiji_index][GAIJI_U];
+
+            if (code >= -0x2DF && code < -0x251) {
+                if (this->narrow_gaiji_set != 1) {
+                    if (this->narrow_gaiji_set == 2) {
+                        u += 0x80;
+                    } else if (this->char_width < 0xB) {
+                        u += 0x80;
+                    }
                 }
             }
-        }
 
-        int v = GaijiDataTbl[gaiji_index][GAIJI_V];
-        int glyph_width = GaijiDataTbl[gaiji_index][GAIJI_WIDTH];
-        int glyph_height = GaijiDataTbl[gaiji_index][GAIJI_HEIGHT];
-        int dx = (this->char_width * GaijiDataTbl[gaiji_index][GAIJI_CELLS] - glyph_width) / 2;
-        int dy = (this->char_height - glyph_height) / 2;
+            int v = GaijiDataTbl[gaiji_index][GAIJI_V];
+            int glyph_width = GaijiDataTbl[gaiji_index][GAIJI_WIDTH];
+            int glyph_height = GaijiDataTbl[gaiji_index][GAIJI_HEIGHT];
+            int dx = (this->char_width * GaijiDataTbl[gaiji_index][GAIJI_CELLS] - glyph_width) / 2;
+            int dy = (this->char_height - glyph_height) / 2;
 
-        dx += GaijiDataTbl[gaiji_index][GAIJI_X_OFF];
+            dx += GaijiDataTbl[gaiji_index][GAIJI_X_OFF];
 
-        if (this->narrow_gaiji != 0) {
-            if (GaijiDataTbl[gaiji_index][GAIJI_CODE] == -0x2BD ||
-                GaijiDataTbl[gaiji_index][GAIJI_CODE] == -0x2BA) {
-                dx -= 3;
-            }
-        }
-
-        dy += GaijiDataTbl[gaiji_index][GAIJI_Y_OFF];
-
-        if (this->char_height == 0x14) {
-            dy += 1;
-        }
-
-        int row = this->win_line[index].y / this->char_height;
-
-        if (row >= static_cast<int>(std::size(this->line_pos)) || this->line_pos[row].x < 0 ||
-            this->line_pos[row].y < 0) {
-            int      line_x = this->win_line[index].x + this->text_x;
-            int      line_y = this->win_line[index].y + this->text_y;
-            int      screen_x = offset_x + (line_x + dx);
-            CRect_i_ screen;
-            screen.x = screen_x;
-            int screen_y = offset_y + (line_y + dy) - 3;
-            screen.y = screen_y;
-            screen.width = glyph_width;
-            screen.height = glyph_height;
-            CRect_i_ texel(u, v, glyph_width, glyph_height);
-
-            if (this->win_line[index].code >= -0x2DF) {
-                this->Myset2DSprite_Fuchi(Vif1Packet, texture, screen_x, screen_y, glyph_width, glyph_height,
-                                          u, v, glyph_width, glyph_height);
+            if (this->narrow_gaiji != 0) {
+                if (GaijiDataTbl[gaiji_index][GAIJI_CODE] == -0x2BD ||
+                    GaijiDataTbl[gaiji_index][GAIJI_CODE] == -0x2BA) {
+                    dx -= 3;
+                }
             }
 
-            if (this->cursor_row < 0) {
-                this->DrawGaijiFont(texture, index, texel, screen, 0, dark);
-            } else if (this->cursor_lit == 1) {
-                if (row == this->cursor_row) {
-                    this->DrawGaijiFont(texture, index, texel, screen, 1, dark);
-                } else {
+            dy += GaijiDataTbl[gaiji_index][GAIJI_Y_OFF];
+
+            if (this->char_height == 0x14) {
+                dy += 1;
+            }
+
+            int row = this->win_line[index].y / this->char_height;
+
+            if (row >= static_cast<int>(std::size(this->line_pos)) || this->line_pos[row].x < 0 ||
+                this->line_pos[row].y < 0) {
+                int      line_x = this->win_line[index].x + this->text_x;
+                int      line_y = this->win_line[index].y + this->text_y;
+                int      screen_x = offset_x + (line_x + dx);
+                CRect_i_ screen;
+                screen.x = screen_x;
+                int screen_y = offset_y + (line_y + dy) - 3;
+                screen.y = screen_y;
+                screen.width = glyph_width;
+                screen.height = glyph_height;
+                CRect_i_ texel(u, v, glyph_width, glyph_height);
+
+                if (this->win_line[index].code >= -0x2DF) {
+                    this->Myset2DSprite_Fuchi(Vif1Packet, texture, screen_x, screen_y, glyph_width, glyph_height,
+                                              u, v, glyph_width, glyph_height);
+                }
+
+                if (this->cursor_row < 0) {
                     this->DrawGaijiFont(texture, index, texel, screen, 0, dark);
+                } else if (this->cursor_lit == 1) {
+                    if (row == this->cursor_row) {
+                        this->DrawGaijiFont(texture, index, texel, screen, 1, dark);
+                    } else {
+                        this->DrawGaijiFont(texture, index, texel, screen, 0, dark);
+                    }
+                } else {
+                    if (row == this->cursor_row) {
+                        this->DrawGaijiFont(texture, index, texel, screen, 0, dark);
+                    } else {
+                        this->DrawGaijiFont(texture, index, texel, screen, 1, dark);
+                    }
                 }
             } else {
-                if (row == this->cursor_row) {
-                    this->DrawGaijiFont(texture, index, texel, screen, 0, dark);
-                } else {
-                    this->DrawGaijiFont(texture, index, texel, screen, 1, dark);
-                }
-            }
-        } else {
-            int screen_x = this->win_line[index].x + this->line_pos[row].x;
-            int screen_y = this->win_line[index].y + this->line_pos[row].y;
-            screen_y += dy;
-            CRect_i_ screen(screen_x + dx, screen_y - row * this->char_height, glyph_width, glyph_height);
-            CRect_i_ texel(u, v, glyph_width, glyph_height);
+                int screen_x = this->win_line[index].x + this->line_pos[row].x;
+                int screen_y = this->win_line[index].y + this->line_pos[row].y;
+                screen_y += dy;
+                CRect_i_ screen(screen_x + dx, screen_y - row * this->char_height, glyph_width, glyph_height);
+                CRect_i_ texel(u, v, glyph_width, glyph_height);
 
-            if (this->win_line[index].code >= -0x2DF) {
-                this->Myset2DSprite_Fuchi(Vif1Packet, texture, screen_x + dx,
-                                          screen_y - row * this->char_height, glyph_width, glyph_height, u, v,
-                                          glyph_width, glyph_height);
-            }
-
-            if (this->cursor_row < 0) {
-                this->DrawGaijiFont(texture, index, texel, screen, 0, dark);
-            } else if (this->cursor_lit == 1) {
-                if (row == this->cursor_row) {
-                    this->DrawGaijiFont(texture, index, texel, screen, 1, dark);
-                } else {
-                    this->DrawGaijiFont(texture, index, texel, screen, 0, dark);
+                if (this->win_line[index].code >= -0x2DF) {
+                    this->Myset2DSprite_Fuchi(Vif1Packet, texture, screen_x + dx,
+                                              screen_y - row * this->char_height, glyph_width, glyph_height, u, v,
+                                              glyph_width, glyph_height);
                 }
-            } else {
-                if (row == this->cursor_row) {
+
+                if (this->cursor_row < 0) {
                     this->DrawGaijiFont(texture, index, texel, screen, 0, dark);
+                } else if (this->cursor_lit == 1) {
+                    if (row == this->cursor_row) {
+                        this->DrawGaijiFont(texture, index, texel, screen, 1, dark);
+                    } else {
+                        this->DrawGaijiFont(texture, index, texel, screen, 0, dark);
+                    }
                 } else {
-                    this->DrawGaijiFont(texture, index, texel, screen, 1, dark);
+                    if (row == this->cursor_row) {
+                        this->DrawGaijiFont(texture, index, texel, screen, 0, dark);
+                    } else {
+                        this->DrawGaijiFont(texture, index, texel, screen, 1, dark);
+                    }
                 }
             }
         }
-    }
 
-    set2DSprite_End(Vif1Packet, texture);
+        set2DSprite_End(Vif1Packet, texture);
 
-    if (!ttf_fills.empty()) {
-        const gfx::TextureBinding binding = ttffont::Binding();
-        if (!ttf_edges.empty()) {
-            gfx::Draw2D(gfx::Primitive::Quads, ttf_edges, binding, draw2d::SpriteState());
+        if (!ttf_fills.empty()) {
+            const gfx::TextureBinding binding = ttffont::Binding();
+            if (!ttf_edges.empty()) {
+                gfx::Draw2D(gfx::Primitive::Quads, ttf_edges, binding, draw2d::SpriteState());
+            }
+            gfx::Draw2D(gfx::Primitive::Quads, ttf_fills, binding, draw2d::SpriteState());
+            draw2d::RestoreTestZbuf();
         }
-        gfx::Draw2D(gfx::Primitive::Quads, ttf_fills, binding, draw2d::SpriteState());
-        draw2d::RestoreTestZbuf();
+    };
+    if (textwipe::Active() && TtfReady()) {
+        textwipe::Both(text_pass);
+    } else {
+        text_pass(TtfReady());
     }
 
     if (this->page_arrow != 0) {

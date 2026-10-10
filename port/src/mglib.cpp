@@ -1,4 +1,5 @@
 #include "mglib.hpp"
+#include "textwipe.hpp"
 #include "types.h"
 
 #include <libvu0.h>
@@ -615,6 +616,7 @@ PC_OVERRIDE void MGEndFrame() {
     gfx::SetRenderTarget(gfx::kMainTarget);
     gfx::DisplayListRef list;
     if (gfx::Recording()) {
+        textwipe::DrawDivider();
         list = gfx::EndRecording();
         GameRenderTick(list);
         sceVu0CopyMatrix(g_tick_view, mgRenderInfo.view_scaled);

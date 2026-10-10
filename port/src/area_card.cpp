@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -61,6 +62,7 @@ struct Layout {
     float             underline_pad_left = 0.0117f;
     float             underline_pad_right = 0.0169f;
     float             underline_bow = 0.0078f;
+    float             underline_wave = 0.0100f; // height of the tilde in the ribbon, of the card's height
     bool              drips = false;
     caption::LineStyle style;
     float             edge_width = 0.0039f; // of the card's width
@@ -90,24 +92,56 @@ struct Frame {
     float Y(float fy) const { return y0 + fy * h; }
 };
 
-void Stroke(std::vector<gfx::Vertex2D> &out, const Frame &frame, const Layout &layout, float left, float right, float grow,
-            const unsigned char (&rgb)[3], float fade) {
-    // The brush underline: a slim stroke, heaviest toward the left, bowed a little downward in the middle.
-    constexpr int kSteps = 48;
-    const float   k = std::clamp(fade, 0.0f, 1.0f);
-    const u_char  r = static_cast<u_char>(rgb[0] * k), g = static_cast<u_char>(rgb[1] * k), b = static_cast<u_char>(rgb[2] * k);
-    auto          point = [&](int i, float side) {
+// The ribbon under the name. Its centre line is one gentle tilde (a sine wave) across the lettering's own width, so it
+// stretches to fit any name; its thickness swells in the middle and tapers to fine points. The mesh is cut finely along
+// its length (kSteps) so the curves are smooth, and shaded across it (light on top, dark below) so it reads as a ribbon
+// rather than a flat bar. `grow` widens it all round (the outline); `feather` adds a soft outer edge fading to nothing,
+// which stands in for anti-aliasing.
+void Ribbon(std::vector<gfx::Vertex2D> &out, const Frame &frame, const Layout &layout, float left, float right, float grow,
+            float feather, const unsigned char (&top_rgb)[3], const unsigned char (&mid_rgb)[3], const unsigned char (&low_rgb)[3],
+            float fade) {
+    constexpr int   kSteps = 96;
+    constexpr float kPi = 3.14159265f;
+    const float     k = std::clamp(fade, 0.0f, 1.0f);
+    const float     aspect = frame.w / frame.h;
+    const float     amplitude = std::max(layout.underline_wave, 0.0f);
+    auto            smooth = [](float x) { x = std::clamp(x, 0.0f, 1.0f); return x * x * (3 - 2 * x); };
+    auto            shade = [&](const unsigned char (&rgb)[3], float alpha) {
+        return std::array<uint8_t, 4>{rgb[0], rgb[1], rgb[2], static_cast<uint8_t>(std::clamp(alpha * k, 0.0f, 1.0f) * 0x80 + 0.5f)};
+    };
+    auto        point = [&](int i, float at, const unsigned char (&rgb)[3], float alpha, float extra) {
         const float t = static_cast<float>(i) / kSteps;
         const float x = left - grow + (right - left + 2 * grow) * t;
-        const float thick = layout.underline_thick * (0.55f + 0.45f * std::sin(3.14159265f * std::clamp(t * 0.85f + 0.05f, 0.0f, 1.0f)));
-        const float y = layout.underline_y + layout.underline_bow * std::sin(3.14159265f * t) + side * (thick / 2 + grow * frame.w / frame.h);
-        return gfx::Vertex2D{frame.X(x), frame.Y(y), 0.0f, 0.0f, 0.0f, {r, g, b, 0x80}};
+        const float taper = smooth(t / 0.16f) * smooth((1 - t) / 0.16f);
+        const float body = 0.62f + 0.38f * std::sin(kPi * t);
+        const float half = layout.underline_thick * 0.5f * body * taper;
+        const float cy = layout.underline_y + amplitude * std::sin(2 * kPi * t);
+        const float y = cy + at * (half + (grow + extra) * aspect);
+        const auto  c = shade(rgb, alpha);
+        return gfx::Vertex2D{frame.X(x), frame.Y(y), 0.0f, 0.0f, 0.0f, {c[0], c[1], c[2], c[3]}};
     };
-    for (int i = 0; i < kSteps; i++) {
-        out.push_back(point(i, -1));
-        out.push_back(point(i + 1, -1));
-        out.push_back(point(i + 1, 1));
-        out.push_back(point(i, 1));
+    auto band = [&](float at0, const unsigned char (&rgb0)[3], float a0, float e0, float at1, const unsigned char (&rgb1)[3], float a1,
+                    float e1) {
+        for (int i = 0; i < kSteps; i++) {
+            out.push_back(point(i, at0, rgb0, a0, e0));
+            out.push_back(point(i + 1, at0, rgb0, a0, e0));
+            out.push_back(point(i + 1, at1, rgb1, a1, e1));
+            out.push_back(point(i, at1, rgb1, a1, e1));
+        }
+    };
+    if (feather > 0.0f) {
+        // Soft rim: opaque at the edge, clear a feather's width outside it, on both sides.
+        band(-1.0f, top_rgb, 0.0f, feather, -1.0f, top_rgb, 1.0f, 0.0f);
+        band(1.0f, low_rgb, 1.0f, 0.0f, 1.0f, low_rgb, 0.0f, feather);
+    }
+    // Body: light edge, true colour at the middle of the upper half, dark underside.
+    band(-1.0f, top_rgb, 1.0f, 0.0f, -0.15f, mid_rgb, 1.0f, 0.0f);
+    band(-0.15f, mid_rgb, 1.0f, 0.0f, 1.0f, low_rgb, 1.0f, 0.0f);
+}
+
+void Mix(unsigned char (&out)[3], const unsigned char (&a)[3], const unsigned char (&b)[3], float t) {
+    for (int i = 0; i < 3; i++) {
+        out[i] = static_cast<unsigned char>(a[i] + (b[i] - a[i]) * t + 0.5f);
     }
 }
 
@@ -156,6 +190,7 @@ bool Prepare(const std::string &name, PortDecodedTexture &texture) {
         layout.underline_pad_left = Number(lay, "underline_pad_left", layout.underline_pad_left);
         layout.underline_pad_right = Number(lay, "underline_pad_right", layout.underline_pad_right);
         layout.underline_bow = Number(lay, "underline_bow", layout.underline_bow);
+        layout.underline_wave = Number(lay, "underline_wave", layout.underline_wave);
         const nlohmann::json &look = json.contains("style") ? json["style"] : json;
         Colour(look, "fill", layout.style.fill);
         Colour(look, "edge", layout.style.edge);
@@ -191,6 +226,10 @@ bool Prepare(const std::string &name, PortDecodedTexture &texture) {
     return true;
 }
 
+bool Prepared() {
+    return g_card.has_value();
+}
+
 void Draw(float x0, float y0, float x1, float y1, float fade) {
     if (!g_card || fade <= 0.0f) {
         return;
@@ -214,8 +253,13 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
     const float grow = layout.edge_width;
     std::vector<gfx::Vertex2D> outline, body;
     if (layout.underline) {
-        Stroke(outline, frame, layout, left, right, grow, style.edge, fade);
-        Stroke(body, frame, layout, left, right, 0.0f, style.fill, fade);
+        // Outline (with a feathered rim) first, then the shaded body inside it.
+        const float feather = std::max(frame.w * 0.0012f, 0.5f) / frame.w;
+        unsigned char light[3], dark[3], white[3] = {255, 255, 255}, black[3] = {0, 0, 0};
+        Mix(light, style.fill, white, 0.45f);
+        Mix(dark, style.fill, black, 0.30f);
+        Ribbon(outline, frame, layout, left, right, grow, feather, style.edge, style.edge, style.edge, fade);
+        Ribbon(body, frame, layout, left, right, 0.0f, 0.0f, light, style.fill, dark, fade);
     }
     if (layout.drips) {
         // Hanging drops under the underline (Dark Heaven Castle).

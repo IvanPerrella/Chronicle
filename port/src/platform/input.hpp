@@ -223,6 +223,10 @@ bool InputHostHeld(InputHostAction action);
 // repeat) counts, so a press released before the next poll is not lost.
 bool InputHostPressed(InputHostAction action);
 
+// True once per physical press of the named key (InputScancodeFromName), with no binding: for developer tools
+// that take a function key (the text wipe, textwipe.hpp). Call it once per tick; it remembers the key's last state.
+bool InputDevKeyPressed(std::string_view name);
+
 // The keyboard and mouse the input script holds now; host actions read them beside the live devices,
 // and a key that becomes held counts as a press.
 void InputSetScriptedDevices(const InputKeyboardMouse &held);

@@ -14,6 +14,7 @@
 #include "memcard.hpp"
 #include "menu_dungeon.hpp"
 #include "caption_text.hpp"
+#include "textwipe.hpp"
 #include "menu_pointer.hpp"
 #include "rect.hpp"
 
@@ -98,10 +99,31 @@ PC_OVERRIDE void DrawMainMenuIcon(int x, int y, int icon, int selected, int brig
         x += 0x40;
         y -= 1;
     }
+    auto painted = [&](CTexture *texture) {
+        set2DSprite(GetVif1Packet(), texture, CRect_i_(x, y, info->label_width, info->label_height - 1), CRect_i_(info->label_u, info->label_v, info->label_width, info->label_height), bright, bright, bright, alpha);
+    };
+    unsigned painted_texture = 0;
+    unsigned painted_palette = 0;
+    if (textwipe::Active() && caption::Ready() && caption::PaintedKeys(painted_texture, painted_palette)) {
+        // The text wipe: the disc's painted words on one side of the line, the text on the other. The painted ones are
+        // drawn from the kept copy of stayframe, by pointing its sprite at that for a moment (set2DSprite draws at once).
+        textwipe::Both([&](bool runtime) {
+            if (runtime) {
+                caption::Draw(icon, x, y, std::max<int>(info->label_width, 0xB8), alpha);
+                return;
+            }
+            const u_long own = StayTex->tex0;
+            constexpr u_long kKeys = 0x3FFFull | (0x3FFFull << 37);
+            StayTex->tex0 = (own & ~kKeys) | painted_texture | (static_cast<u_long>(painted_palette) << 37);
+            painted(StayTex);
+            StayTex->tex0 = own;
+        });
+        return;
+    }
     if (caption::Draw(icon, x, y, std::max<int>(info->label_width, 0xB8), alpha)) {
         return;
     }
-    set2DSprite(GetVif1Packet(), StayTex, CRect_i_(x, y, info->label_width, info->label_height - 1), CRect_i_(info->label_u, info->label_v, info->label_width, info->label_height), bright, bright, bright, alpha);
+    painted(StayTex);
 }
 
 extern PERSONAL_BOARD *PerBoardPt;
