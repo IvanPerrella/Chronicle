@@ -154,7 +154,7 @@ def plate_cards(orig, out, scale):
             '_doc': 'Where and how the port draws the name over plates/<card>.png: fractions of the card (x of its width, y of its height).',
             'layout': {
                 'cap_top': round(cap_top_y / 512, 4), 'cap_height': round(cap_h / 512, 4), 'xsq': 0.56,
-                'max_width': round(max_w / 1536, 4), 'underline': 0, 'underline_y': round(ul_y / 512, 4),
+                'max_width': round(max_w / 1536, 4), 'underline': 1, 'underline_y': round(ul_y / 512, 4),
                 'underline_thick': round(ul_thick / 512, 4), 'underline_pad_left': round(18 / 1536, 4),
                 'underline_pad_right': round(26 / 1536, 4), 'underline_bow': round(4 / 512, 4),
             },
