@@ -39,6 +39,12 @@ bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out);
 // the tests look at. False where GetGlyph would say so.
 bool RenderGlyph(char32_t ch, int em_px, std::vector<unsigned char> &alpha, int &w, int &h, int &x0, int &y0);
 
+// A second font for lettering that wants a lighter stroke (the community font's thin variant), loaded beside the first. Glyphs come
+// from it between UseVariant(true) and UseVariant(false), when it is loaded; the atlas keeps both.
+bool LoadVariant(const std::filesystem::path &file);
+bool VariantLoaded();
+void UseVariant(bool variant);
+
 // An RGBA image of the caller's own (w x h, r g b a bytes) put in the atlas beside the glyphs, for lettering that is not one
 // colour: draw it with the atlas's Binding like a glyph, through out's u and v. x_offset and y_offset are 0. False where the
 // atlas cannot take it.

@@ -576,6 +576,7 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
         cap_height = (ink.bottom - ink.top) * frame.h * tune.size;
         xsq = 10.0f; // wider than any name, so the box's width is what shapes it
         style.ink_fit = true;
+        style.thin = caption::ThinReady();
         // The painted texture, outline and glow colours; the plate's json is what a card without them (no fit) uses.
         static unsigned next_field = 0;
         if (layout.field_id == 0) {

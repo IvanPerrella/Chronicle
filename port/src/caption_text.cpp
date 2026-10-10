@@ -66,6 +66,16 @@ bool FontReady() {
             }
         }
     }
+    if (ttffont::Loaded() && !ttffont::VariantLoaded()) {
+        static bool tried_thin = false;
+        if (!tried_thin) {
+            tried_thin = true;
+            const std::filesystem::path thin = LocalizeFindFile("font_thin.ttf");
+            if (!thin.empty() && ttffont::LoadVariant(thin)) {
+                std::fprintf(stderr, "font: thin variant from %s\n", thin.string().c_str());
+            }
+        }
+    }
     return ttffont::Loaded();
 }
 
@@ -193,6 +203,10 @@ std::vector<std::pair<std::string, std::string>> Strings() {
 
 bool Ready() {
     return FontReady();
+}
+
+bool ThinReady() {
+    return FontReady() && ttffont::VariantLoaded();
 }
 
 void BlankPainted(const char *name, PortDecodedTexture &texture) {
@@ -371,6 +385,11 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     if (utf8.empty() || cap_height <= 0.0f || !FontReady()) {
         return false;
     }
+    // The thin variant for as long as this line is drawn.
+    struct Variant {
+        explicit Variant(bool on) { ttffont::UseVariant(on); }
+        ~Variant() { ttffont::UseVariant(false); }
+    } variant(style.thin);
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
     const ttffont::Metrics    metrics = ttffont::GetMetrics();
     const std::u32string      text = Decode(utf8);

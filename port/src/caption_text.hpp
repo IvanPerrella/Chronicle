@@ -29,6 +29,9 @@ std::vector<std::pair<std::string, std::string>> Strings();
 /// Whether captions are drawn as text: the font is there.
 bool Ready();
 
+/// Whether the thin variant of the font (`lang/font_thin.ttf`) is loaded, for LineStyle::thin.
+bool ThinReady();
+
 /// Clears the painted words from stayframe's cells, so the text can stand alone. Does nothing for another
 /// texture, or without the font. The texture may be the disc's palette picture or a replacement of any size.
 void BlankPainted(const char *name, PortDecodedTexture &texture);
@@ -67,6 +70,7 @@ struct LineStyle {
     // cap_top and cap_height name the box the letters' own ink fills (their tops and bottoms as drawn), not the font's
     // capital height, which is what the plate's painted lettering was measured as.
     bool          ink_fit = false;
+    bool          thin = false; // draw from the thin variant of the font where it is loaded
     // Fill each letter from this field, which covers the logical rectangle (field_x, field_y, field_w, field_h), instead of
     // with the one colour fill.
     const FillField *field = nullptr;

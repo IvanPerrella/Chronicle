@@ -36,7 +36,8 @@ struct Atlas {
     std::map<std::pair<char32_t, int>, bool>  missing;
 };
 
-Font     g_font;
+Font     g_fonts[2];
+int      g_variant = 0; // which of g_fonts glyphs are drawn from
 Atlas    g_atlas;
 unsigned g_generation = 0;
 
@@ -73,19 +74,19 @@ struct Bitmap {
 // The glyph index of ch when the font draws something for it. A blank placeholder (a font that maps
 // a letter it does not have to an empty outline) counts as missing.
 int DrawnGlyph(char32_t ch) {
-    const int index = stbtt_FindGlyphIndex(&g_font.info, static_cast<int>(ch));
-    return index != 0 && !stbtt_IsGlyphEmpty(&g_font.info, index) ? index : 0;
+    const int index = stbtt_FindGlyphIndex(&g_fonts[g_variant].info, static_cast<int>(ch));
+    return index != 0 && !stbtt_IsGlyphEmpty(&g_fonts[g_variant].info, index) ? index : 0;
 }
 
 Bitmap Raster(int index, float scale_x, float scale_y) {
     Bitmap bitmap;
     int    x1, y1;
-    stbtt_GetGlyphBitmapBox(&g_font.info, index, scale_x, scale_y, &bitmap.x0, &bitmap.y0, &x1, &y1);
+    stbtt_GetGlyphBitmapBox(&g_fonts[g_variant].info, index, scale_x, scale_y, &bitmap.x0, &bitmap.y0, &x1, &y1);
     bitmap.w = x1 - bitmap.x0;
     bitmap.h = y1 - bitmap.y0;
     if (bitmap.w > 0 && bitmap.h > 0) {
         bitmap.alpha.assign(static_cast<size_t>(bitmap.w) * bitmap.h, 0);
-        stbtt_MakeGlyphBitmap(&g_font.info, bitmap.alpha.data(), bitmap.w, bitmap.h, bitmap.w, scale_x, scale_y, index);
+        stbtt_MakeGlyphBitmap(&g_fonts[g_variant].info, bitmap.alpha.data(), bitmap.w, bitmap.h, bitmap.w, scale_x, scale_y, index);
     }
     return bitmap;
 }
@@ -398,16 +399,17 @@ float AdvanceOf(char32_t ch, float scale) {
     }
     int index = DrawnGlyph(drawn);
     if (index == 0) {
-        index = stbtt_FindGlyphIndex(&g_font.info, static_cast<int>(drawn));
+        index = stbtt_FindGlyphIndex(&g_fonts[g_variant].info, static_cast<int>(drawn));
     }
     int advance = 0, bearing = 0;
-    stbtt_GetGlyphHMetrics(&g_font.info, index, &advance, &bearing);
+    stbtt_GetGlyphHMetrics(&g_fonts[g_variant].info, index, &advance, &bearing);
     return static_cast<float>(advance) * scale;
 }
 
 } // namespace
 
 bool Load(const std::filesystem::path &file) {
+    g_variant = 0;
     std::ifstream stream(file, std::ios::binary);
     if (!stream) {
         std::fprintf(stderr, "font: cannot read %s\n", PathsDisplay(file).c_str());
@@ -423,14 +425,40 @@ bool Load(const std::filesystem::path &file) {
     }
     font.loaded = true;
     // The font's data moves with the vector it is in, so the info is built on the final place.
-    g_font = std::move(font);
-    stbtt_InitFont(&g_font.info, g_font.data.data(), stbtt_GetFontOffsetForIndex(g_font.data.data(), 0));
+    g_fonts[0] = std::move(font);
+    stbtt_InitFont(&g_fonts[0].info, g_fonts[0].data.data(), stbtt_GetFontOffsetForIndex(g_fonts[0].data.data(), 0));
     ResetAtlas();
     return true;
 }
 
 bool Loaded() {
-    return g_font.loaded;
+    return g_fonts[0].loaded;
+}
+
+bool LoadVariant(const std::filesystem::path &file) {
+    std::ifstream stream(file, std::ios::binary);
+    if (!stream) {
+        return false;
+    }
+    Font font;
+    font.data.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
+    const int offset = stbtt_GetFontOffsetForIndex(font.data.data(), 0);
+    if (offset < 0 || !stbtt_InitFont(&font.info, font.data.data(), offset)) {
+        std::fprintf(stderr, "font: %s is not a TrueType font\n", PathsDisplay(file).c_str());
+        return false;
+    }
+    font.loaded = true;
+    g_fonts[1] = std::move(font);
+    stbtt_InitFont(&g_fonts[1].info, g_fonts[1].data.data(), stbtt_GetFontOffsetForIndex(g_fonts[1].data.data(), 0));
+    return true;
+}
+
+bool VariantLoaded() {
+    return g_fonts[1].loaded;
+}
+
+void UseVariant(bool variant) {
+    g_variant = variant && g_fonts[1].loaded ? 1 : 0;
 }
 
 bool GetGlyph(char32_t ch, int em_px, Glyph &out) {
@@ -438,10 +466,10 @@ bool GetGlyph(char32_t ch, int em_px, Glyph &out) {
 }
 
 bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out) {
-    if (!g_font.loaded || em_px < 4 || em_px > 512 || outline_px < 0 || outline_px > 64) {
+    if (!g_fonts[g_variant].loaded || em_px < 4 || em_px > 512 || outline_px < 0 || outline_px > 64) {
         return false;
     }
-    const auto key = std::make_pair(ch, em_px + outline_px * 1024);
+    const auto key = std::make_pair(ch, em_px + outline_px * 1024 + g_variant * (1 << 20));
     if (auto found = g_atlas.glyphs.find(key); found != g_atlas.glyphs.end()) {
         out = found->second;
         return true;
@@ -455,7 +483,7 @@ bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out) {
     }
 
     // An em of em_px pixels: stb scales by the font's units per em.
-    const float scale = stbtt_ScaleForMappingEmToPixels(&g_font.info, static_cast<float>(em_px));
+    const float scale = stbtt_ScaleForMappingEmToPixels(&g_fonts[g_variant].info, static_cast<float>(em_px));
     Bitmap      bitmap;
     if (const int index = DrawnGlyph(ch); index != 0) {
         bitmap = Raster(index, scale, scale);
@@ -567,10 +595,10 @@ unsigned Generation() {
 }
 
 bool RenderGlyph(char32_t ch, int em_px, std::vector<unsigned char> &alpha, int &w, int &h, int &x0, int &y0) {
-    if (!g_font.loaded || em_px < 4 || em_px > 512) {
+    if (!g_fonts[g_variant].loaded || em_px < 4 || em_px > 512) {
         return false;
     }
-    const float scale = stbtt_ScaleForMappingEmToPixels(&g_font.info, static_cast<float>(em_px));
+    const float scale = stbtt_ScaleForMappingEmToPixels(&g_fonts[g_variant].info, static_cast<float>(em_px));
     Bitmap      bitmap;
     if (const int index = DrawnGlyph(ch); index != 0) {
         bitmap = Raster(index, scale, scale);
@@ -594,19 +622,19 @@ gfx::TextureBinding Binding() {
 
 Metrics GetMetrics() {
     Metrics metrics = {0.8f, 0.2f, 0.6f, 0.7f};
-    if (!g_font.loaded) {
+    if (!g_fonts[g_variant].loaded) {
         return metrics;
     }
     int ascent, descent, gap;
-    stbtt_GetFontVMetrics(&g_font.info, &ascent, &descent, &gap);
-    const float em = 1.0f / stbtt_ScaleForMappingEmToPixels(&g_font.info, 1.0f);
+    stbtt_GetFontVMetrics(&g_fonts[g_variant].info, &ascent, &descent, &gap);
+    const float em = 1.0f / stbtt_ScaleForMappingEmToPixels(&g_fonts[g_variant].info, 1.0f);
     metrics.ascent = static_cast<float>(ascent) / em;
     metrics.descent = static_cast<float>(-descent) / em;
     int advance, bearing;
-    stbtt_GetCodepointHMetrics(&g_font.info, '0', &advance, &bearing);
+    stbtt_GetCodepointHMetrics(&g_fonts[g_variant].info, '0', &advance, &bearing);
     metrics.advance = static_cast<float>(advance) / em;
     int x0, y0, x1, y1;
-    if (stbtt_GetCodepointBox(&g_font.info, 'H', &x0, &y0, &x1, &y1) != 0 && y1 > y0) {
+    if (stbtt_GetCodepointBox(&g_fonts[g_variant].info, 'H', &x0, &y0, &x1, &y1) != 0 && y1 > y0) {
         metrics.cap = static_cast<float>(y1 - y0) / em;
     }
     return metrics;
