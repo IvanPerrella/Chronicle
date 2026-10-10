@@ -229,28 +229,33 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
                 }
                 bound[i + 1] = std::max(best, bound[i] + 1);
             }
+            // Each painted pixel belongs to the letter whose sheared columns hold it; a letter's slot is the real columns
+            // its pixels fill, so the lean needs no allowance.
+            std::vector<int> lo(letters.size(), 1 << 30), hi(letters.size(), -1);
+            for (int y = top; y <= bottom; y++) {
+                for (int x = 0; x < width; x++) {
+                    if (!mask[static_cast<size_t>(y) * width + x]) {
+                        continue;
+                    }
+                    const int sheared = static_cast<int>(std::lround(static_cast<float>(x) - kLean * (static_cast<float>(y - top) - rows_n / 2.0f))) + pad;
+                    size_t    item = 0;
+                    while (item + 1 < letters.size() && sheared > bound[item + 1]) {
+                        item++;
+                    }
+                    lo[item] = std::min(lo[item], x);
+                    hi[item] = std::max(hi[item], x);
+                }
+            }
             std::vector<std::array<float, 2>> slots;
-            const float                       lean_room = std::fabs(kLean) * rows_n / 2.0f;
             for (size_t i = 0; i < letters.size(); i++) {
                 if (letters[i].blank) {
                     continue;
                 }
-                int from = bound[i] + 1, to = bound[i + 1];
-                int ink_left = -1, ink_right = -1;
-                for (int x = from; x <= to && x < static_cast<int>(cols.size()); x++) {
-                    if (x >= 0 && cols[static_cast<size_t>(x)] > 0) {
-                        ink_left = ink_left < 0 ? x : ink_left;
-                        ink_right = x;
-                    }
-                }
-                if (ink_left < 0) {
+                if (hi[i] < 0) {
                     slots.clear();
                     break;
                 }
-                // Back to the card's own columns: a leaning letter spans a little more than its sheared columns.
-                const float l = static_cast<float>(ink_left - pad) - lean_room;
-                const float r = static_cast<float>(ink_right + 1 - pad) + lean_room;
-                slots.push_back({l / width, r / width});
+                slots.push_back({static_cast<float>(lo[i]) / width, static_cast<float>(hi[i] + 1) / width});
             }
             if (slots.size() == drawn) {
                 ink.slots = std::move(slots);
