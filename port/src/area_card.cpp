@@ -67,7 +67,13 @@ struct Layout {
     bool              drips = false;
     // Where the disc's own painted name stood on the card, as fractions: left, right, top, bottom of its lettering
     // (not its underline); the runtime name is drawn to the same box when the card's fit is on (textwipe.hpp).
-    std::optional<std::array<float, 4>> ink;
+    struct Ink {
+        float left, right, top, bottom; // the lettering
+        bool  has_rule = false;         // and the brush underneath it, where the card has one
+        float rule_y = 0.0f, rule_thick = 0.0f, rule_left = 0.0f, rule_right = 0.0f;
+    };
+    std::optional<Ink> ink;
+    float              underline_y0 = 0.7656f; // the plate json's, before the fit moves it
     caption::LineStyle style;
     float             edge_width = 0.0039f; // of the card's width
     float             glow_width = 0.013f;
@@ -77,7 +83,7 @@ std::optional<Layout> g_card;
 
 // The box the disc's painted name fills: the pixels near the lettering's fill colour, in the first run of rows tall
 // enough to be lettering (the brush underneath is thinner and apart from it).
-std::optional<std::array<float, 4>> MeasureInk(const PortDecodedTexture &card, const unsigned char (&fill)[3]) {
+std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsigned char (&fill)[3]) {
     const int width = static_cast<int>(card.width);
     const int height = static_cast<int>(card.height);
     if (card.levels.empty() || width < 8 || height < 8 ||
@@ -145,8 +151,39 @@ std::optional<std::array<float, 4>> MeasureInk(const PortDecodedTexture &card, c
     if (right < left || right - left + 1 < width / 8) {
         return std::nullopt;
     }
-    return std::array<float, 4>{static_cast<float>(left) / width, static_cast<float>(right + 1) / width,
-                                static_cast<float>(top) / height, static_cast<float>(bottom + 1) / height};
+    Layout::Ink ink = {static_cast<float>(left) / width, static_cast<float>(right + 1) / width,
+                       static_cast<float>(top) / height, static_cast<float>(bottom + 1) / height};
+    // The brush: the next run of rows below the lettering that holds fill-coloured pixels.
+    int rule_top = -1, rule_bottom = -1;
+    for (int y = bottom + 1; y < height; y++) {
+        if (rows[static_cast<size_t>(y)] >= 2) {
+            if (rule_top < 0) {
+                rule_top = y;
+            }
+            rule_bottom = y;
+        } else if (rule_top >= 0) {
+            break;
+        }
+    }
+    if (rule_top >= 0) {
+        int rule_left = width, rule_right = -1;
+        for (int y = rule_top; y <= rule_bottom; y++) {
+            for (int x = 0; x < width; x++) {
+                if (mask[static_cast<size_t>(y) * width + x]) {
+                    rule_left = std::min(rule_left, x);
+                    rule_right = std::max(rule_right, x);
+                }
+            }
+        }
+        if (rule_right - rule_left + 1 >= width / 4) {
+            ink.has_rule = true;
+            ink.rule_y = (static_cast<float>(rule_top + rule_bottom + 1) / 2) / height;
+            ink.rule_thick = static_cast<float>(rule_bottom - rule_top + 1) / height;
+            ink.rule_left = static_cast<float>(rule_left) / width;
+            ink.rule_right = static_cast<float>(rule_right + 1) / width;
+        }
+    }
+    return ink;
 }
 
 bool Colour(const nlohmann::json &json, const char *key, unsigned char (&out)[3]) {
@@ -289,6 +326,7 @@ bool Prepare(const std::string &name, PortDecodedTexture &texture) {
         std::fprintf(stderr, "areacard: cannot read picture %s\n", plate.string().c_str());
         return false;
     }
+    layout.underline_y0 = layout.underline_y;
     layout.ink = MeasureInk(texture, layout.style.fill); // the disc's card, before the plate takes its place
     std::vector<std::vector<uint8_t>> levels;
     for (size_t level = 0; level < std::max<size_t>(1, texture.levels.size()); level++) {
@@ -337,20 +375,30 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
     float       xsq = layout.xsq;
     float       max_width = layout.max_width * frame.w;
     if (layout.ink && tune.fit >= 0.5f) {
-        const std::array<float, 4> &ink = *layout.ink;
-        center_x = frame.X((ink[0] + ink[1]) / 2);
-        cap_top = frame.Y(ink[2]);
-        cap_height = (ink[3] - ink[2]) * frame.h * tune.size;
+        const Layout::Ink &ink = *layout.ink;
+        center_x = frame.X((ink.left + ink.right) / 2);
+        cap_top = frame.Y(ink.top);
+        cap_height = (ink.bottom - ink.top) * frame.h * tune.size;
         xsq = 10.0f; // wider than any name, so the box's width is what shapes it
-        max_width = (ink[1] - ink[0]) * frame.w * tune.size;
+        max_width = (ink.right - ink.left) * frame.w * tune.size;
+    }
+    // The brush goes where the painted one was, moved with the lettering by the dials; else the plate's place for it.
+    layout.underline_y = layout.underline_y0 + tune.dy / frame.h;
+    if (layout.ink && layout.ink->has_rule && tune.fit >= 0.5f) {
+        layout.underline_y = layout.ink->rule_y + tune.dy / frame.h;
+        layout.underline_thick = layout.ink->rule_thick;
     }
     caption::LineBounds span;
     if (!caption::DrawLine(layout.text, center_x, cap_top, cap_height, xsq, max_width, style,
                            fade, 1.0f, &span)) {
         return;
     }
-    const float left = (span.left - frame.x0) / frame.w - layout.underline_pad_left;
-    const float right = (span.right - frame.x0) / frame.w + layout.underline_pad_right;
+    float left = (span.left - frame.x0) / frame.w - layout.underline_pad_left;
+    float right = (span.right - frame.x0) / frame.w + layout.underline_pad_right;
+    if (layout.ink && layout.ink->has_rule && tune.fit >= 0.5f) {
+        left = layout.ink->rule_left;
+        right = layout.ink->rule_right;
+    }
     const float grow = layout.edge_width;
     std::vector<gfx::Vertex2D> outline, body;
     if (layout.underline) {
