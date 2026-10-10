@@ -69,6 +69,7 @@ struct Layout {
     // (not its underline); the runtime name is drawn to the same box when the card's fit is on (textwipe.hpp).
     struct Ink {
         float left, right, top, bottom; // the lettering
+        std::vector<std::array<float, 2>> slots; // each letter's left and right as fractions of the card, where it was cut
         bool  has_rule = false;         // and the brush underneath it, where the card has one
         float rule_y = 0.0f, rule_thick = 0.0f, rule_left = 0.0f, rule_right = 0.0f;
     };
@@ -83,7 +84,8 @@ std::optional<Layout> g_card;
 
 // The box the disc's painted name fills: the pixels near the lettering's fill colour, in the first run of rows tall
 // enough to be lettering (the brush underneath is thinner and apart from it).
-std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsigned char (&fill)[3]) {
+std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsigned char (&fill)[3],
+                                      const std::vector<caption::LetterWidth> &letters) {
     const int width = static_cast<int>(card.width);
     const int height = static_cast<int>(card.height);
     if (card.levels.empty() || width < 8 || height < 8 ||
@@ -172,6 +174,89 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
     }
     Layout::Ink ink = {static_cast<float>(left) / width, static_cast<float>(right + 1) / width,
                        static_cast<float>(top) / height, static_cast<float>(bottom + 1) / height};
+    // Letters: the painted letters touch, so they cannot be told apart by gaps alone. The columns of ink are counted after a
+    // shear (the lettering leans), and each cut between two letters goes at the emptiest column near where the font's own
+    // proportions put it. Only when there is one slot per drawn letter does the lettering get slots.
+    {
+        constexpr float kLean = -0.1f; // the painted lean, the same on every card (x = x' + kLean * (y - mid))
+        const int       rows_n = bottom - top + 1;
+        const int       pad = rows_n;
+        std::vector<int> cols(static_cast<size_t>(width + 2 * pad), 0);
+        for (int y = top; y <= bottom; y++) {
+            for (int x = 0; x < width; x++) {
+                if (mask[static_cast<size_t>(y) * width + x]) {
+                    const int sheared = static_cast<int>(std::lround(static_cast<float>(x) - kLean * (static_cast<float>(y - top) - rows_n / 2.0f))) + pad;
+                    if (sheared >= 0 && sheared < static_cast<int>(cols.size())) {
+                        cols[static_cast<size_t>(sheared)]++;
+                    }
+                }
+            }
+        }
+        int first = -1, last = -1;
+        for (int x = 0; x < static_cast<int>(cols.size()); x++) {
+            if (cols[static_cast<size_t>(x)] > 0) {
+                first = first < 0 ? x : first;
+                last = x;
+            }
+        }
+        float total = 0.0f;
+        size_t drawn = 0;
+        for (const caption::LetterWidth &item : letters) {
+            total += item.width;
+            drawn += item.blank ? 0 : 1;
+        }
+        if (first >= 0 && total > 0.0f && drawn >= 2) {
+            const float span = static_cast<float>(last - first + 1);
+            std::vector<int> bound(letters.size() + 1, 0);
+            bound[0] = first - 1;
+            bound[letters.size()] = last + 1;
+            float walked = 0.0f;
+            for (size_t i = 0; i + 1 < letters.size(); i++) {
+                walked += letters[i].width;
+                const float expect = static_cast<float>(first) + span * walked / total;
+                const float reach = 0.4f * std::min(letters[i].width, letters[i + 1].width) / total * span;
+                int         best = static_cast<int>(std::lround(expect));
+                int         best_count = 1 << 30;
+                for (int x = static_cast<int>(std::floor(expect - reach)); x <= static_cast<int>(std::ceil(expect + reach)); x++) {
+                    if (x < 0 || x >= static_cast<int>(cols.size())) {
+                        continue;
+                    }
+                    const int count = cols[static_cast<size_t>(x)];
+                    if (count < best_count || (count == best_count && std::fabs(static_cast<float>(x) - expect) < std::fabs(static_cast<float>(best) - expect))) {
+                        best = x;
+                        best_count = count;
+                    }
+                }
+                bound[i + 1] = std::max(best, bound[i] + 1);
+            }
+            std::vector<std::array<float, 2>> slots;
+            const float                       lean_room = std::fabs(kLean) * rows_n / 2.0f;
+            for (size_t i = 0; i < letters.size(); i++) {
+                if (letters[i].blank) {
+                    continue;
+                }
+                int from = bound[i] + 1, to = bound[i + 1];
+                int ink_left = -1, ink_right = -1;
+                for (int x = from; x <= to && x < static_cast<int>(cols.size()); x++) {
+                    if (x >= 0 && cols[static_cast<size_t>(x)] > 0) {
+                        ink_left = ink_left < 0 ? x : ink_left;
+                        ink_right = x;
+                    }
+                }
+                if (ink_left < 0) {
+                    slots.clear();
+                    break;
+                }
+                // Back to the card's own columns: a leaning letter spans a little more than its sheared columns.
+                const float l = static_cast<float>(ink_left - pad) - lean_room;
+                const float r = static_cast<float>(ink_right + 1 - pad) + lean_room;
+                slots.push_back({l / width, r / width});
+            }
+            if (slots.size() == drawn) {
+                ink.slots = std::move(slots);
+            }
+        }
+    }
     // The brush: the rows with long runs.
     int rule_top = -1, rule_bottom = -1;
     for (int y = 0; y < height; y++) {
@@ -344,9 +429,10 @@ bool Prepare(const std::string &name, PortDecodedTexture &texture) {
         return false;
     }
     layout.underline_y0 = layout.underline_y;
-    layout.ink = MeasureInk(texture, layout.style.fill);
+    const std::string text = LocalizeText(std::string("area.") + name, entry->english);
+    layout.ink = MeasureInk(texture, layout.style.fill, caption::LetterWidths(text));
     if (layout.ink) {
-        std::fprintf(stderr, "areacard: %s measured lettering %.3f..%.3f x %.3f..%.3f, rule %d at %.3f\n", name.c_str(), layout.ink->left, layout.ink->right, layout.ink->top, layout.ink->bottom, layout.ink->has_rule ? 1 : 0, layout.ink->rule_y);
+        std::fprintf(stderr, "areacard: %s measured lettering %.3f..%.3f x %.3f..%.3f, rule %d at %.3f, %zu letter slots\n", name.c_str(), layout.ink->left, layout.ink->right, layout.ink->top, layout.ink->bottom, layout.ink->has_rule ? 1 : 0, layout.ink->rule_y, layout.ink->slots.size());
     } else {
         std::fprintf(stderr, "areacard: %s: no lettering measured\n", name.c_str());
     } // the disc's card, before the plate takes its place
@@ -360,7 +446,7 @@ bool Prepare(const std::string &name, PortDecodedTexture &texture) {
     texture.format = gfx::TextureFormat::Rgba8;
     texture.has_alpha = false;
     texture.four_bit = false;
-    layout.text = LocalizeText(std::string("area.") + name, entry->english);
+    layout.text = text;
     g_card = std::move(layout);
     return true;
 }
@@ -403,6 +489,14 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
         cap_height = (ink.bottom - ink.top) * frame.h * tune.size;
         xsq = 10.0f; // wider than any name, so the box's width is what shapes it
         style.ink_fit = true;
+        if (!ink.slots.empty()) {
+            // Each glyph into the slot its painted letter stood in, moved and sized with the dials about the lettering's middle.
+            const float middle = (ink.left + ink.right) / 2;
+            for (const std::array<float, 2> &slot : ink.slots) {
+                style.slots.push_back({frame.X(middle + (slot[0] - middle) * tune.size) + tune.dx,
+                                       frame.X(middle + (slot[1] - middle) * tune.size) + tune.dx});
+            }
+        }
         max_width = (ink.right - ink.left) * frame.w * tune.size;
     }
     // The brush goes where the painted one was, moved with the lettering by the dials; else the plate's place for it.

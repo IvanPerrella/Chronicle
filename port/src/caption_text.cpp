@@ -348,6 +348,23 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
     return true;
 }
 
+std::vector<LetterWidth> LetterWidths(std::string_view utf8) {
+    std::vector<LetterWidth> out;
+    if (!FontReady()) {
+        return out;
+    }
+    constexpr int kEmPx = 64;
+    for (char32_t ch : Decode(utf8)) {
+        ttffont::Glyph glyph;
+        if (ch == U' ') {
+            out.push_back({kEmPx * 0.3f, true});
+        } else if (ttffont::GetGlyph(ch, kEmPx, glyph) && glyph.width > 0) {
+            out.push_back({static_cast<float>(glyph.width), false});
+        }
+    }
+    return out;
+}
+
 bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_height, float xsq, float max_width,
               const LineStyle &style, float fade, float rows, LineBounds *bounds) {
     if (utf8.empty() || cap_height <= 0.0f || !FontReady()) {
@@ -440,12 +457,25 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         out.push_back(draw2d::Vertex(x, y + h, 0.0f, glyph.u0, glyph.v1, r, g, b, a));
     };
 
+    size_t drawn = 0;
+    for (const Letter &letter : letters) {
+        drawn += letter.blank ? 0 : 1;
+    }
+    const bool                 use_slots = style.slots.size() == drawn;
+    size_t                     slot = 0;
     std::vector<gfx::Vertex2D> glows, edges, fills;
     float                      pen = left;
     for (const Letter &letter : letters) {
         if (letter.blank) {
             pen += (cap_height * 0.32f + style.word) * squeeze;
             continue;
+        }
+        if (use_slots) {
+            // Into the slot the painted letter stood in: its left edge, and the width its ink had.
+            const std::array<float, 2> &place = style.slots[slot++];
+            const float                 ink = letter.fill.width / mapping.scale_x * style.xscale;
+            squeeze = std::clamp((place[1] - place[0]) / std::max(ink, 0.01f), 0.55f, 1.9f);
+            pen = place[0];
         }
         ttffont::Glyph extra;
         if (glow_px > 0 && ttffont::GetOutlinedGlyph(letter.ch, em_px, glow_px, extra)) {

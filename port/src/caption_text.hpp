@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -57,6 +58,9 @@ struct LineStyle {
     // cap_top and cap_height name the box the letters' own ink fills (their tops and bottoms as drawn), not the font's
     // capital height, which is what the plate's painted lettering was measured as.
     bool          ink_fit = false;
+    // Where each letter's ink goes, left and right in logical units, one per drawn letter (spaces excluded), in order; each
+    // glyph is drawn into its slot. Empty to lay the line out by the font. Used when the painted lettering has been split.
+    std::vector<std::array<float, 2>> slots;
 };
 
 struct LineBounds {
@@ -69,6 +73,14 @@ struct LineBounds {
 /// spaced by their ink and a twelfth of a capital. `fade` (0 to 1) darkens the whole line toward black, as the card's
 /// fade does. `rows` converts logical rows to the target's (1 where the caller is already in them). False without a
 /// font. bounds gets where the lettering lies.
+/// What the letters of utf8 measure at one size: the width of each drawn character's ink and whether it is a space (which has
+/// the width of one), in the order DrawLine lays them out. Empty without the font. For cutting a picture of the same words into letters.
+struct LetterWidth {
+    float width;
+    bool  blank;
+};
+std::vector<LetterWidth> LetterWidths(std::string_view utf8);
+
 bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_height, float xsq, float max_width,
               const LineStyle &style, float fade, float rows, LineBounds *bounds);
 
