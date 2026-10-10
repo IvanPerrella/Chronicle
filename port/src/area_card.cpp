@@ -106,8 +106,13 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
                 rgb[1] = card.levels[0][i * 4 + 1];
                 rgb[2] = card.levels[0][i * 4 + 2];
             }
-            const int dr = rgb[0] - fill[0], dg = rgb[1] - fill[1], db = rgb[2] - fill[2];
-            if (dr * dr + dg * dg + db * db <= 48 * 48) {
+            // Lettering: as bright as the fill (or brighter: the painted white can be pure) and of its tint; the scenery is darker.
+            const float lum = static_cast<float>(rgb[0] + rgb[1] + rgb[2]) / 3.0f;
+            const float fill_lum = static_cast<float>(fill[0] + fill[1] + fill[2]) / 3.0f;
+            const float tr = (static_cast<float>(rgb[0]) - lum) - (static_cast<float>(fill[0]) - fill_lum);
+            const float tg = (static_cast<float>(rgb[1]) - lum) - (static_cast<float>(fill[1]) - fill_lum);
+            const float tb = (static_cast<float>(rgb[2]) - lum) - (static_cast<float>(fill[2]) - fill_lum);
+            if (lum >= fill_lum * 0.82f && tr * tr + tg * tg + tb * tb <= 60.0f * 60.0f) {
                 mask[i] = 1;
                 rows[static_cast<size_t>(y)]++;
             }
@@ -327,7 +332,12 @@ bool Prepare(const std::string &name, PortDecodedTexture &texture) {
         return false;
     }
     layout.underline_y0 = layout.underline_y;
-    layout.ink = MeasureInk(texture, layout.style.fill); // the disc's card, before the plate takes its place
+    layout.ink = MeasureInk(texture, layout.style.fill);
+    if (layout.ink) {
+        std::fprintf(stderr, "areacard: %s measured lettering %.3f..%.3f x %.3f..%.3f, rule %d at %.3f\n", name.c_str(), layout.ink->left, layout.ink->right, layout.ink->top, layout.ink->bottom, layout.ink->has_rule ? 1 : 0, layout.ink->rule_y);
+    } else {
+        std::fprintf(stderr, "areacard: %s: no lettering measured\n", name.c_str());
+    } // the disc's card, before the plate takes its place
     std::vector<std::vector<uint8_t>> levels;
     for (size_t level = 0; level < std::max<size_t>(1, texture.levels.size()); level++) {
         const int w = std::max<int>(1, static_cast<int>(texture.width >> level));
