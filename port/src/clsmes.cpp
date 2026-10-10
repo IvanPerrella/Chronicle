@@ -216,6 +216,20 @@ void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs, std::vector<float> &sque
             xs[static_cast<size_t>(k)] = start + pen[static_cast<size_t>(k - i)] * sx + extra * static_cast<float>(k - i);
             squeeze[static_cast<size_t>(k)] = sx * tune.xscale;
         }
+        if (tune.lock > 0.0f) {
+            // Cell lock: each letter centred in the cell the game gave its character, which is where the bitmap stands,
+            // blended with the flowed place by the dial. No letter's place depends on those before it, so a line cannot drift.
+            for (int k = i; k < last; k++) {
+                ttffont::Glyph letter;
+                if (!glyph_of(k, letter)) {
+                    continue;
+                }
+                const float ink = letter.width / mapping.scale_x * squeeze[static_cast<size_t>(k)];
+                const float centred = static_cast<float>(mes.win_line[k].x) + (cell_of(k) - ink) / 2;
+                float      &place = xs[static_cast<size_t>(k)];
+                place += (centred - place) * std::min(1.0f, tune.lock);
+            }
+        }
         i = last;
     }
 }

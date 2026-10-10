@@ -77,6 +77,7 @@ constexpr Value kValues[] = {
     {"opacity", "OPACITY",        &Tuning::opacity, 0.01f, 0.0f,   1.0f },
     {"shadow",  "SHADOW",         &Tuning::shadow,  0.01f, 0.0f,   3.0f },
     {"align",   "ALIGN IN CELLS", &Tuning::align,   0.01f, 0.0f,   1.0f },
+    {"lock",    "CELL LOCK (NO DRIFT)", &Tuning::lock, 0.01f, 0.0f, 1.0f},
     {"fit",     "FIT TO CELLS",   &Tuning::fit,     1.0f,  0.0f,   1.0f },
 };
 constexpr int kValueCount = static_cast<int>(std::size(kValues));
