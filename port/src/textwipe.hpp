@@ -8,6 +8,9 @@
 // both through Both(), each cut to its side of the line (gfx::SetDrawClip); with the tool off, Both() draws only the
 // runtime text, as the game does. See docs/TEXTWIPE.md for the list of places.
 //
+// It is there only with `game.text_wipe` on in config.json (off by default): off, none of its keys do anything, Both() draws
+// the runtime text alone and the text keeps the locked-in fits.
+//
 // Keys: F9 turns the tool on and off, F10 steps its mode: the line sweeps across (a slide), then holds at the
 // right (all old), at the left (all new), then OVERLAY: both looks drawn over each other, the old in red and the
 // new in cyan, so a misfit shows as a coloured fringe.
@@ -16,7 +19,7 @@
 // F12 (next value; with Shift the previous), - and = (change the value; hold for more, Shift for ten times the step,
 // Ctrl for a tenth) and F8 (reset the set). A panel lists the values. They are saved at once to
 // `<save folder>/lang/textwipe_tuning.json`, are read at the next start, and apply to the game as it is played, wipe or no
-// wipe, so a good fit can be kept; the defaults change nothing.
+// wipe (while `game.text_wipe` is on), so a good fit can be kept; the defaults change nothing.
 namespace textwipe {
 
 enum class Mode {

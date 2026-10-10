@@ -1,5 +1,9 @@
 # Text wipe: old picture text against runtime text
 
+> **Off by default.** The tool is there only when `config.json` has `"game": {"text_wipe": true}`. With it off the
+> keys below do nothing, nothing is drawn but the runtime text, and the tuning file is not read: the text keeps the
+> locked-in fits (see the end of this page). Turn it on to look at or adjust the fits.
+
 A developer tool for the text the port draws at runtime (from `font.ttf` and the language's JSON) instead of
 as the game's pictures of words. It puts a line down the screen: the **old look** (the game's bitmaps and
 painted words) on its left, the **new look** (runtime text) on its right.
@@ -59,7 +63,7 @@ Values: **size** (everything), **width** and **height** (side-to-side and up-and
 you dial, starting at the word's first cell, which is the one to use when matching the old text by hand).
 
 They are saved at once to `<save folder>/lang/textwipe_tuning.json` and read at every start, and they apply to the
-game as played, wipe or no wipe, so a good fit stays. The defaults change nothing. When a fit looks right, send
+game as played, wipe or no wipe (while `game.text_wipe` is on), so a good fit stays. The defaults change nothing. When a fit looks right, send
 the file: the numbers can be made the code's own.
 
 ## Locked-in fits

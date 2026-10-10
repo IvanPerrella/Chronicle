@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 
 #include "gfx/gfx.hpp"
+#include "platform/config.hpp"
 #include "platform/input.hpp"
 #include "platform/overlay.hpp"
 #include "platform/paths.hpp"
@@ -57,6 +58,12 @@ constexpr const char *kKindNames[] = {"message", "caption", "card", "options"};
 constexpr const char *kKindLabels[] = {"MESSAGES", "MENU CAPTIONS", "AREA CARDS", "OPTIONS SCREEN"};
 
 Kind g_context = Kind::Message;
+
+// The tool is a developer's: it is there only when config.json has game.text_wipe on. Off, its keys do nothing and the
+// text is drawn at the locked-in fits, whatever a saved tuning file says.
+bool Enabled() {
+    return ConfigGet().text_wipe;
+}
 
 struct Value {
     const char *key;
@@ -202,6 +209,10 @@ float SweepPosition(double seconds) {
 }
 
 void Update() {
+    if (!Enabled()) {
+        g_on = false;
+        return;
+    }
     if (InputDevKeyPressed("F9")) {
         g_on = !g_on;
         g_started = std::chrono::steady_clock::now();
@@ -292,6 +303,16 @@ MessageContext::~MessageContext() {
 }
 
 const Tuning &Get(Kind kind) {
+    if (!Enabled()) {
+        static const std::array<Tuning, static_cast<size_t>(Kind::Count)> locked = [] {
+            std::array<Tuning, static_cast<size_t>(Kind::Count)> all;
+            for (size_t k = 0; k < all.size(); k++) {
+                all[k] = Locked(static_cast<Kind>(k));
+            }
+            return all;
+        }();
+        return locked[static_cast<size_t>(kind)];
+    }
     if (!g_tuning_loaded) {
         LoadTuning();
     }

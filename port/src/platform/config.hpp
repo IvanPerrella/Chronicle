@@ -77,6 +77,9 @@ struct Config {
     bool              debug_mode = false;
     bool              qte_always_win = false;
     bool              element_quick_select = false;
+    // game.text_wipe: a developer tool, off for players (docs/TEXTWIPE.md). On, F9 splits the screen between the old
+    // picture text and the runtime text, and the tuning saved in lang/textwipe_tuning.json is read.
+    bool              text_wipe = false;
     ConfigPresentMode present_mode = ConfigPresentMode::Fifo;
     bool              interpolation = true;
     double            max_fps = 0.0;

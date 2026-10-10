@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include "platform/config.hpp"
 #include "textwipe.hpp"
 
 // The slide starts with everything old (the line at the right edge), rests, eases to the left edge, rests and eases back.
@@ -43,4 +44,23 @@ TEST(TextWipe, DefaultTuningChangesNothing) {
     EXPECT_FLOAT_EQ(tuning.dx, 0.0f);
     EXPECT_FLOAT_EQ(tuning.dy, 0.0f);
     EXPECT_FLOAT_EQ(tuning.fit, 1.0f);
+}
+
+// The tool is a developer's, behind game.text_wipe: off (the default) its keys do nothing and every kind of text keeps
+// the locked-in fit, whatever tuning a file holds.
+TEST(TextWipe, OffByDefaultAndTextKeepsTheLockedFits) {
+    ASSERT_FALSE(ConfigGet().text_wipe);
+    textwipe::Update();
+    EXPECT_FALSE(textwipe::Active());
+    for (int k = 0; k < static_cast<int>(textwipe::Kind::Count); k++) {
+        const auto             kind = static_cast<textwipe::Kind>(k);
+        const textwipe::Tuning locked = textwipe::Locked(kind);
+        const textwipe::Tuning &now = textwipe::Get(kind);
+        EXPECT_FLOAT_EQ(now.size, locked.size);
+        EXPECT_FLOAT_EQ(now.xscale, locked.xscale);
+        EXPECT_FLOAT_EQ(now.yscale, locked.yscale);
+        EXPECT_FLOAT_EQ(now.dx, locked.dx);
+        EXPECT_FLOAT_EQ(now.dy, locked.dy);
+        EXPECT_FLOAT_EQ(now.lock, locked.lock);
+    }
 }
