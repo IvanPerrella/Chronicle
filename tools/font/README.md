@@ -14,8 +14,8 @@ one) or start the game with `--font <file>`.
 
 ## DarkCloudCompendiumThin.ttf
 
-The THIN variant of the same font, unchanged ("THIN Dark Cloud Compendium Community Font", by Dayuppy and Moonbunny; permission to use
-it in the port was confirmed by the project owner on 2026-10-10 as for the regular one). The build copies it to `lang/font_thin.ttf`. The port
+The THIN variant of the same font, unchanged ("THIN Dark Cloud Compendium Community Font", by Dayuppy and Moonbunny; Jeff, who contributes the port's
+text work, confirmed on 2026-10-10 that he has Dayuppy's permission to use it). The build copies it to `lang/font_thin.ttf`. The port
 draws the area name cards from it when it is there (the cards' painted lettering has a lighter stroke than the regular font's); everything else
 uses `font.ttf`. Its digit 5 is the original, not the redrawn one, and no card draws a digit.
 
