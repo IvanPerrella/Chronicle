@@ -209,7 +209,8 @@ void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs, std::vector<float> &sque
             extra = std::min((span - width * sx) / static_cast<float>(last - i - 1), em * 0.25f);
         }
         const float used = width * sx + extra * static_cast<float>(last - i - 1);
-        const float start = static_cast<float>(mes.win_line[i].x) + (fit ? (span - used) / 2 : 0.0f) + tune.word * static_cast<float>(word);
+        const float start = static_cast<float>(mes.win_line[i].x) + (fit ? (span - used) / 2 : (span - used) * tune.align) +
+                            tune.word * static_cast<float>(word);
         word++;
         for (int k = i; k < last; k++) {
             xs[static_cast<size_t>(k)] = start + pen[static_cast<size_t>(k - i)] * sx + extra * static_cast<float>(k - i);
@@ -273,7 +274,7 @@ bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y,
 
     // The outline and the drop shadow sit at the offsets the bitmaps' use: the shadow is part of the
     // look (it lifts the text off the picture), and at a fraction of the offset it vanishes under the glyph.
-    const int cap = mes.edge_alpha;
+    const int cap = static_cast<int>(static_cast<float>(mes.edge_alpha) * tune.opacity);
     // A thin stroke's outline covers little of a pixel, so it is laid down nine times to read as dark as the bitmaps'.
     constexpr int passes = 9;
     auto          edge = [&](float dx, float dy, int er, int eg, int eb, int ea) {
@@ -286,7 +287,7 @@ bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y,
         // offsets reads as a hard outline instead, so it is laid in as taps the texture filter blends.
         TextShadowEach(ConfigGet().text_shadow, [&](const TextShadowTap &tap) {
             TtfQuad(edges, glyph, x + tap.dx, y + tap.dy * rows, width, height, tap.grey, tap.grey, tap.grey,
-                    std::min(cap, tap.alpha));
+                    std::min(cap, static_cast<int>(static_cast<float>(tap.alpha) * tune.shadow)));
         });
     };
     switch (mes.style) {
@@ -302,6 +303,14 @@ bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y,
         case MES_EDGE_DOUBLE:
             cast();
             break;
+    }
+    if (tune.weight > 0.0f) {
+        // Bolder: the letter again a little to each side, which the texture filter blends into a thicker stroke.
+        const float half = tune.weight / 2;
+        const float shifts[4][2] = {{-half, 0.0f}, {half, 0.0f}, {0.0f, -half}, {0.0f, half}};
+        for (const auto &shift : shifts) {
+            TtfQuad(fills, glyph, x + shift[0], y + shift[1] * rows, width, height, r, g, b, std::min(cap, alpha));
+        }
     }
     TtfQuad(fills, glyph, x, y, width, height, r, g, b, std::min(cap, alpha));
     return true;

@@ -44,6 +44,10 @@ struct Tuning {
     float dx = 0.0f;       // moves the text right, in logical pixels
     float dy = 0.0f;       // moves the text down, in logical pixels
     float fit = 1.0f;      // messages: 1 fits each word to the game's cells as the bitmaps are, 0 leaves the letters as spaced
+    float align = 0.5f;    // messages with fit off: where a word sits in the cells the game gave it, 0 left to 1 right
+    float weight = 0.0f;   // bolder: the letters are laid down again this far apart, in logical pixels
+    float opacity = 1.0f;  // how solid the text is
+    float shadow = 1.0f;   // messages: how strong the drop shadow is, times
 };
 
 /// The settings of a kind (the identity until tuned or loaded).

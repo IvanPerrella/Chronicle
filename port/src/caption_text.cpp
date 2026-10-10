@@ -195,6 +195,10 @@ bool Ready() {
 }
 
 void BlankPainted(const char *name, PortDecodedTexture &texture) {
+    if (name != nullptr && std::string_view(name) == "stayframe") {
+        std::fprintf(stderr, "textwipe: stayframe loaded %ux%u format %d levels %zu font %d\n", texture.width, texture.height,
+                     static_cast<int>(texture.format), texture.levels.size(), FontReady() ? 1 : 0);
+    }
     if (name == nullptr || std::string_view(name) != "stayframe" || texture.width == 0 || texture.height == 0 ||
         texture.levels.empty() || !FontReady()) {
         return;
@@ -279,6 +283,7 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
     }
     const Layout      layout = Lay(text, static_cast<float>(box_width));
     const textwipe::Tuning &tune = textwipe::Get(textwipe::Kind::Caption);
+    alpha = static_cast<int>(static_cast<float>(alpha) * tune.opacity);
 
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
     const float               rows = draw2d::RowScale();
@@ -307,7 +312,7 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
         }
         ttffont::Glyph edge;
         const bool     has_edge = ttffont::GetOutlinedGlyph(ch, em_px, outline_px, edge);
-        auto           place = [&](const ttffont::Glyph &glyph, std::vector<gfx::Vertex2D> &out, const unsigned char (&rgb)[3]) {
+        auto           place = [&](const ttffont::Glyph &glyph, std::vector<gfx::Vertex2D> &out, const unsigned char (&rgb)[3], float shift_x = 0.0f, float shift_y = 0.0f) {
             if (glyph.width <= 0 || glyph.height <= 0) {
                 return;
             }
@@ -317,10 +322,17 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
             float       gy = base * rows + glyph.y_offset / mapping.scale_y * tune.yscale;
             gx = snap(gx, mapping.scale_x, mapping.offset_x);
             gy = snap(gy, mapping.scale_y, mapping.offset_y);
-            Quad(out, glyph, gx, gy, width, height, rgb, alpha);
+            Quad(out, glyph, gx + shift_x, gy + shift_y * rows, width, height, rgb, alpha);
         };
         if (has_edge) {
             place(edge, edges, kOutline);
+        }
+        if (tune.weight > 0.0f) {
+            const float half = tune.weight / 2;
+            place(fill, fills, kFill, -half, 0.0f);
+            place(fill, fills, kFill, half, 0.0f);
+            place(fill, fills, kFill, 0.0f, -half);
+            place(fill, fills, kFill, 0.0f, half);
         }
         place(fill, fills, kFill);
         pen += (fill.width / mapping.scale_x * tune.xscale + layout.em * 0.1f + tune.letter) * layout.squeeze;
@@ -385,7 +397,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     const int   glow_px = style.glow_amount > 0.0f ? std::clamp(static_cast<int>(style.glow_width * mapping.scale_x + 0.5f), 0, 60) : 0;
 
     auto quad = [&](std::vector<gfx::Vertex2D> &out, const ttffont::Glyph &glyph, const ttffont::Glyph &fill, float pen,
-                    const unsigned char (&rgb)[3], int alpha) {
+                    const unsigned char (&rgb)[3], int alpha, float shift_x = 0.0f, float shift_y = 0.0f) {
         if (glyph.width <= 0 || glyph.height <= 0) {
             return;
         }
@@ -393,9 +405,9 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         const float h = glyph.height / mapping.scale_y * rows * style.yscale;
         float       x = pen + (glyph.x_offset - fill.x_offset) / mapping.scale_x * squeeze * style.xscale;
         float       y = baseline + glyph.y_offset / mapping.scale_y * style.yscale;
-        x = snap(x, mapping.scale_x, mapping.offset_x);
-        y = snap(y, mapping.scale_y, mapping.offset_y);
-        const float k = std::clamp(fade, 0.0f, 1.0f) * 0.5f;
+        x = snap(x, mapping.scale_x, mapping.offset_x) + shift_x;
+        y = snap(y, mapping.scale_y, mapping.offset_y) + shift_y * rows;
+        const float k = std::clamp(fade, 0.0f, 1.0f) * style.opacity * 0.5f;
         const u_char r = static_cast<u_char>(rgb[0] * k), g = static_cast<u_char>(rgb[1] * k), b = static_cast<u_char>(rgb[2] * k);
         const u_char a = static_cast<u_char>(std::clamp(alpha, 0, 0x80));
         out.push_back(draw2d::Vertex(x, y, 0.0f, glyph.u0, glyph.v0, r, g, b, a));
@@ -417,6 +429,13 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         }
         if (edge_px > 0 && ttffont::GetOutlinedGlyph(letter.ch, em_px, edge_px, extra)) {
             quad(edges, extra, letter.fill, pen, style.edge, 0x80);
+        }
+        if (style.weight > 0.0f) {
+            const float half = style.weight / 2;
+            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, -half, 0.0f);
+            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, half, 0.0f);
+            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, 0.0f, -half);
+            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, 0.0f, half);
         }
         quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80);
         pen += (letter.fill.width / mapping.scale_x * style.xscale + gap) * squeeze;

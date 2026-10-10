@@ -249,6 +249,8 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
     style.yscale = tune.yscale;
     style.dx = tune.dx;
     style.dy = tune.dy;
+    style.weight = tune.weight;
+    style.opacity = tune.opacity;
     const float cap_top = frame.Y(layout.cap_top);
     const float cap_height = layout.cap_height * frame.h * tune.size;
     caption::LineBounds span;

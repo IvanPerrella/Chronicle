@@ -53,6 +53,7 @@ struct LineStyle {
     // The text wipe's dials (textwipe.hpp), 1 and 0 where untuned: letter and word space added, side-to-side and
     // up-and-down size, and a move, in logical units.
     float         letter = 0.0f, word = 0.0f, xscale = 1.0f, yscale = 1.0f, dx = 0.0f, dy = 0.0f;
+    float         weight = 0.0f, opacity = 1.0f; // bolder (a spread, in logical units), and how solid
 };
 
 struct LineBounds {

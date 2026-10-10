@@ -66,14 +66,18 @@ struct Value {
 };
 
 constexpr Value kValues[] = {
-    {"size",   "SIZE",           &Tuning::size,   0.01f, 0.2f,   3.0f },
-    {"xscale", "WIDTH",          &Tuning::xscale, 0.01f, 0.2f,   3.0f },
-    {"yscale", "HEIGHT",         &Tuning::yscale, 0.01f, 0.2f,   3.0f },
-    {"letter", "LETTER SPACING", &Tuning::letter, 0.1f,  -10.0f, 10.0f},
-    {"word",   "WORD SPACING",   &Tuning::word,   0.25f, -20.0f, 40.0f},
-    {"dx",     "MOVE RIGHT",     &Tuning::dx,     0.25f, -40.0f, 40.0f},
-    {"dy",     "MOVE DOWN",      &Tuning::dy,     0.25f, -40.0f, 40.0f},
-    {"fit",    "FIT TO CELLS",   &Tuning::fit,    1.0f,  0.0f,   1.0f },
+    {"size",    "SIZE",           &Tuning::size,    0.01f, 0.2f,   3.0f },
+    {"xscale",  "WIDTH",          &Tuning::xscale,  0.01f, 0.2f,   3.0f },
+    {"yscale",  "HEIGHT",         &Tuning::yscale,  0.01f, 0.2f,   3.0f },
+    {"letter",  "LETTER SPACING", &Tuning::letter,  0.01f, -10.0f, 10.0f},
+    {"word",    "WORD SPACING",   &Tuning::word,    0.01f, -20.0f, 40.0f},
+    {"dx",      "MOVE RIGHT",     &Tuning::dx,      0.01f, -40.0f, 40.0f},
+    {"dy",      "MOVE DOWN",      &Tuning::dy,      0.01f, -40.0f, 40.0f},
+    {"weight",  "WEIGHT (BOLDER)", &Tuning::weight, 0.01f, 0.0f,   3.0f },
+    {"opacity", "OPACITY",        &Tuning::opacity, 0.01f, 0.0f,   1.0f },
+    {"shadow",  "SHADOW",         &Tuning::shadow,  0.01f, 0.0f,   3.0f },
+    {"align",   "ALIGN IN CELLS", &Tuning::align,   0.01f, 0.0f,   1.0f },
+    {"fit",     "FIT TO CELLS",   &Tuning::fit,     1.0f,  0.0f,   1.0f },
 };
 constexpr int kValueCount = static_cast<int>(std::size(kValues));
 
@@ -123,30 +127,35 @@ void LoadTuning() {
 // One press of a key, then repeats while it is held (after a short wait).
 struct Repeater {
     bool                                  down = false;
+    int                                   fired = 0;
     std::chrono::steady_clock::time_point next;
-    bool Fire(bool held) {
+    // How many steps this press is worth: one, then more the longer it is held.
+    int Fire(bool held) {
         const auto now = std::chrono::steady_clock::now();
         if (!held) {
             down = false;
-            return false;
+            fired = 0;
+            return 0;
         }
         if (!down) {
             down = true;
+            fired = 1;
             next = now + std::chrono::milliseconds(400);
-            return true;
+            return 1;
         }
         if (now >= next) {
             next = now + std::chrono::milliseconds(50);
-            return true;
+            fired++;
+            return fired > 40 ? 10 : fired > 15 ? 3 : 1;
         }
-        return false;
+        return 0;
     }
 };
 
 Repeater g_minus;
 Repeater g_plus;
 
-void Adjust(int direction) {
+void Adjust(int direction, int steps) {
     const bool   shift = InputDevKeyHeld("Left Shift") || InputDevKeyHeld("Right Shift");
     const bool   ctrl = InputDevKeyHeld("Left Ctrl") || InputDevKeyHeld("Right Ctrl");
     const Value &value = kValues[g_value];
@@ -154,7 +163,7 @@ void Adjust(int direction) {
     if (value.field == &Tuning::fit) {
         field = direction > 0 ? 1.0f : 0.0f;
     } else {
-        const float step = value.step * (shift ? 10.0f : ctrl ? 0.1f : 1.0f);
+        const float step = value.step * static_cast<float>(steps) * (shift ? 10.0f : ctrl ? 0.1f : 1.0f);
         const float grid = value.step * 0.1f;
         field = std::clamp(std::round((field + static_cast<float>(direction) * step) / grid) * grid, value.low, value.high);
     }
@@ -211,11 +220,11 @@ void Update() {
         g_tuning[static_cast<size_t>(g_kind)] = Tuning{};
         SaveTuning();
     }
-    if (g_minus.Fire(InputDevKeyHeld("-"))) {
-        Adjust(-1);
+    if (const int steps = g_minus.Fire(InputDevKeyHeld("-")); steps > 0) {
+        Adjust(-1, steps);
     }
-    if (g_plus.Fire(InputDevKeyHeld("="))) {
-        Adjust(1);
+    if (const int steps = g_plus.Fire(InputDevKeyHeld("=")); steps > 0) {
+        Adjust(1, steps);
     }
     switch (g_mode) {
     case Mode::Sweep:
@@ -334,7 +343,7 @@ void DrawDivider() {
             number = tuning.fit >= 0.5f ? "ON" : "OFF";
         } else {
             char text[32];
-            std::snprintf(text, sizeof text, "%.2f", tuning.*(kValues[v].field));
+            std::snprintf(text, sizeof text, "%.3f", tuning.*(kValues[v].field));
             number = text;
         }
         line_of(std::string(v == g_value ? "> " : "  ") + kValues[v].label + " " + number);

@@ -105,7 +105,7 @@ PC_OVERRIDE void DrawMainMenuIcon(int x, int y, int icon, int selected, int brig
     };
     unsigned painted_texture = 0;
     unsigned painted_palette = 0;
-    if (textwipe::Active()) {
+    {
         static int said = 0;
         if (said++ < 3) {
             std::fprintf(stderr, "textwipe: caption icon %d ready %d keys %d\n", icon, caption::Ready(), caption::PaintedKeys(painted_texture, painted_palette));
