@@ -65,12 +65,89 @@ struct Layout {
     float             underline_bow = 0.0078f;
     float             underline_wave = 0.0420f; // height of the tilde in the ribbon, of the card's height
     bool              drips = false;
+    // Where the disc's own painted name stood on the card, as fractions: left, right, top, bottom of its lettering
+    // (not its underline); the runtime name is drawn to the same box when the card's fit is on (textwipe.hpp).
+    std::optional<std::array<float, 4>> ink;
     caption::LineStyle style;
     float             edge_width = 0.0039f; // of the card's width
     float             glow_width = 0.013f;
 };
 
 std::optional<Layout> g_card;
+
+// The box the disc's painted name fills: the pixels near the lettering's fill colour, in the first run of rows tall
+// enough to be lettering (the brush underneath is thinner and apart from it).
+std::optional<std::array<float, 4>> MeasureInk(const PortDecodedTexture &card, const unsigned char (&fill)[3]) {
+    const int width = static_cast<int>(card.width);
+    const int height = static_cast<int>(card.height);
+    if (card.levels.empty() || width < 8 || height < 8 ||
+        card.levels[0].size() < static_cast<size_t>(width) * height * (card.format == gfx::TextureFormat::Index8 ? 1 : 4)) {
+        return std::nullopt;
+    }
+    std::vector<uint8_t> mask(static_cast<size_t>(width) * height, 0);
+    std::vector<int>     rows(static_cast<size_t>(height), 0);
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            const size_t i = static_cast<size_t>(y) * width + x;
+            int          rgb[3];
+            if (card.format == gfx::TextureFormat::Index8) {
+                const uint32_t colour = card.palette[card.levels[0][i]];
+                rgb[0] = static_cast<int>(colour & 0xFF);
+                rgb[1] = static_cast<int>((colour >> 8) & 0xFF);
+                rgb[2] = static_cast<int>((colour >> 16) & 0xFF);
+            } else {
+                rgb[0] = card.levels[0][i * 4];
+                rgb[1] = card.levels[0][i * 4 + 1];
+                rgb[2] = card.levels[0][i * 4 + 2];
+            }
+            const int dr = rgb[0] - fill[0], dg = rgb[1] - fill[1], db = rgb[2] - fill[2];
+            if (dr * dr + dg * dg + db * db <= 48 * 48) {
+                mask[i] = 1;
+                rows[static_cast<size_t>(y)]++;
+            }
+        }
+    }
+    // Runs of rows that hold lettering, a stray empty row allowed inside one.
+    const int least = std::max(6, height / 12);
+    int       top = -1, bottom = -1;
+    for (int y = 0; y < height && top < 0;) {
+        if (rows[static_cast<size_t>(y)] < 2) {
+            y++;
+            continue;
+        }
+        int end = y;
+        for (int gap = 0, k = y; k < height && gap <= 1; k++) {
+            if (rows[static_cast<size_t>(k)] >= 2) {
+                end = k;
+                gap = 0;
+            } else {
+                gap++;
+            }
+        }
+        if (end - y + 1 >= least) {
+            top = y;
+            bottom = end;
+        }
+        y = end + 1;
+    }
+    if (top < 0) {
+        return std::nullopt;
+    }
+    int left = width, right = -1;
+    for (int y = top; y <= bottom; y++) {
+        for (int x = 0; x < width; x++) {
+            if (mask[static_cast<size_t>(y) * width + x]) {
+                left = std::min(left, x);
+                right = std::max(right, x);
+            }
+        }
+    }
+    if (right < left || right - left + 1 < width / 8) {
+        return std::nullopt;
+    }
+    return std::array<float, 4>{static_cast<float>(left) / width, static_cast<float>(right + 1) / width,
+                                static_cast<float>(top) / height, static_cast<float>(bottom + 1) / height};
+}
 
 bool Colour(const nlohmann::json &json, const char *key, unsigned char (&out)[3]) {
     if (!json.contains(key) || !json[key].is_array() || json[key].size() != 3) {
@@ -212,6 +289,7 @@ bool Prepare(const std::string &name, PortDecodedTexture &texture) {
         std::fprintf(stderr, "areacard: cannot read picture %s\n", plate.string().c_str());
         return false;
     }
+    layout.ink = MeasureInk(texture, layout.style.fill); // the disc's card, before the plate takes its place
     std::vector<std::vector<uint8_t>> levels;
     for (size_t level = 0; level < std::max<size_t>(1, texture.levels.size()); level++) {
         const int w = std::max<int>(1, static_cast<int>(texture.width >> level));
@@ -251,10 +329,23 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
     style.dy = tune.dy;
     style.weight = tune.weight;
     style.opacity = tune.opacity;
-    const float cap_top = frame.Y(layout.cap_top);
-    const float cap_height = layout.cap_height * frame.h * tune.size;
+    // With the fit on and the disc's painted name measured, the name fills the box the painted one did, so it overlays it
+    // in every language; else the plate's layout.
+    float       center_x = frame.X(0.5f);
+    float       cap_top = frame.Y(layout.cap_top);
+    float       cap_height = layout.cap_height * frame.h * tune.size;
+    float       xsq = layout.xsq;
+    float       max_width = layout.max_width * frame.w;
+    if (layout.ink && tune.fit >= 0.5f) {
+        const std::array<float, 4> &ink = *layout.ink;
+        center_x = frame.X((ink[0] + ink[1]) / 2);
+        cap_top = frame.Y(ink[2]);
+        cap_height = (ink[3] - ink[2]) * frame.h * tune.size;
+        xsq = 10.0f; // wider than any name, so the box's width is what shapes it
+        max_width = (ink[1] - ink[0]) * frame.w * tune.size;
+    }
     caption::LineBounds span;
-    if (!caption::DrawLine(layout.text, frame.X(0.5f), cap_top, cap_height, layout.xsq, layout.max_width * frame.w, style,
+    if (!caption::DrawLine(layout.text, center_x, cap_top, cap_height, xsq, max_width, style,
                            fade, 1.0f, &span)) {
         return;
     }

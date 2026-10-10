@@ -270,16 +270,7 @@ Tuning Locked(Kind kind) {
         t.dy = -0.15f;
         t.lock = 1.0f;
         break;
-    case Kind::Card:
-        t.size = 0.98f;
-        t.xscale = 1.15f;
-        t.yscale = 1.15f;
-        t.letter = -0.49f;
-        t.word = -0.05f;
-        t.dx = -0.10f;
-        t.dy = -0.05f;
-        t.weight = 0.05f;
-        t.lock = 1.0f;
+    case Kind::Card: // fit on: the name fills the box the disc's painted one did (area_card.cpp), so no hand fit is needed
         break;
     case Kind::Caption:
     case Kind::Count:
