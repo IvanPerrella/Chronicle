@@ -355,9 +355,33 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     }
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
     const ttffont::Metrics    metrics = ttffont::GetMetrics();
-    const float               em = cap_height / std::max(0.2f, metrics.cap);
-    const int                 em_px = std::clamp(static_cast<int>(em * mapping.scale_x + 0.5f), 4, 512);
     const std::u32string      text = Decode(utf8);
+    float                     em = cap_height / std::max(0.2f, metrics.cap);
+    int                       em_px = std::clamp(static_cast<int>(em * mapping.scale_x + 0.5f), 4, 512);
+    float                     ink_bottom = 0.0f; // where the letters' ink ends below the baseline, in logical rows
+    if (style.ink_fit) {
+        // Size the em so the drawn letters' own tops and bottoms span cap_height, then lower the baseline so their
+        // bottoms stand at cap_top + cap_height. Twice: the second measure is of the glyphs at the size that is drawn.
+        for (int pass = 0; pass < 2; pass++) {
+            float top = 1e9f, bottom = -1e9f;
+            for (char32_t ch : text) {
+                ttffont::Glyph glyph;
+                if (ch != U' ' && ttffont::GetGlyph(ch, em_px, glyph) && glyph.width > 0) {
+                    top = std::min(top, static_cast<float>(glyph.y_offset));
+                    bottom = std::max(bottom, static_cast<float>(glyph.y_offset + glyph.height));
+                }
+            }
+            const float ink = (bottom - top) / mapping.scale_y;
+            if (ink <= 0.0f) {
+                break;
+            }
+            ink_bottom = bottom / mapping.scale_y;
+            if (pass == 0) {
+                em *= cap_height / ink;
+                em_px = std::clamp(static_cast<int>(em * mapping.scale_x + 0.5f), 4, 512);
+            }
+        }
+    }
     const float               gap = cap_height * 0.075f + style.letter;
 
     struct Letter {
@@ -391,7 +415,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     const float width = natural * squeeze;
     const float left = center_x + style.dx - width / 2;
 
-    const float baseline = (cap_top + cap_height + style.dy) * rows;
+    const float baseline = (cap_top + cap_height + style.dy) * rows - ink_bottom;
     auto        snap = [](float value, float scale, float offset) { return (std::round(value * scale + offset) - offset) / scale; };
     const int   edge_px = std::clamp(static_cast<int>(style.edge_width * mapping.scale_x + 0.5f), 0, 60);
     const int   glow_px = style.glow_amount > 0.0f ? std::clamp(static_cast<int>(style.glow_width * mapping.scale_x + 0.5f), 0, 60) : 0;

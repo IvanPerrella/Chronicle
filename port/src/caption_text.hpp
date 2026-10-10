@@ -54,6 +54,9 @@ struct LineStyle {
     // up-and-down size, and a move, in logical units.
     float         letter = 0.0f, word = 0.0f, xscale = 1.0f, yscale = 1.0f, dx = 0.0f, dy = 0.0f;
     float         weight = 0.0f, opacity = 1.0f; // bolder (a spread, in logical units), and how solid
+    // cap_top and cap_height name the box the letters' own ink fills (their tops and bottoms as drawn), not the font's
+    // capital height, which is what the plate's painted lettering was measured as.
+    bool          ink_fit = false;
 };
 
 struct LineBounds {

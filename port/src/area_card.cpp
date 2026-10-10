@@ -92,6 +92,7 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
     }
     std::vector<uint8_t> mask(static_cast<size_t>(width) * height, 0);
     std::vector<int>     rows(static_cast<size_t>(height), 0);
+    std::vector<uint8_t> rule_row(static_cast<size_t>(height), 0);
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             const size_t i = static_cast<size_t>(y) * width + x;
@@ -116,6 +117,19 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
                 mask[i] = 1;
                 rows[static_cast<size_t>(y)]++;
             }
+        }
+    }
+    // The brush is told from the lettering by its long horizontal runs: a letter's strokes are short, the ribbon is
+    // most of the name's width. Its rows are not lettering.
+    for (int y = 0; y < height; y++) {
+        int longest = 0, run = 0;
+        for (int x = 0; x < width; x++) {
+            run = mask[static_cast<size_t>(y) * width + x] ? run + 1 : 0;
+            longest = std::max(longest, run);
+        }
+        if (longest >= std::max(16, width / 4)) {
+            rule_row[static_cast<size_t>(y)] = 1;
+            rows[static_cast<size_t>(y)] = 0;
         }
     }
     // Runs of rows that hold lettering, a stray empty row allowed inside one.
@@ -158,16 +172,14 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
     }
     Layout::Ink ink = {static_cast<float>(left) / width, static_cast<float>(right + 1) / width,
                        static_cast<float>(top) / height, static_cast<float>(bottom + 1) / height};
-    // The brush: the next run of rows below the lettering that holds fill-coloured pixels.
+    // The brush: the rows with long runs.
     int rule_top = -1, rule_bottom = -1;
-    for (int y = bottom + 1; y < height; y++) {
-        if (rows[static_cast<size_t>(y)] >= 2) {
+    for (int y = 0; y < height; y++) {
+        if (rule_row[static_cast<size_t>(y)]) {
             if (rule_top < 0) {
                 rule_top = y;
             }
             rule_bottom = y;
-        } else if (rule_top >= 0) {
-            break;
         }
     }
     if (rule_top >= 0) {
@@ -390,6 +402,7 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
         cap_top = frame.Y(ink.top);
         cap_height = (ink.bottom - ink.top) * frame.h * tune.size;
         xsq = 10.0f; // wider than any name, so the box's width is what shapes it
+        style.ink_fit = true;
         max_width = (ink.right - ink.left) * frame.w * tune.size;
     }
     // The brush goes where the painted one was, moved with the lettering by the dials; else the plate's place for it.
