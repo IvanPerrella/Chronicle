@@ -61,3 +61,10 @@ you dial, starting at the word's first cell, which is the one to use when matchi
 They are saved at once to `<save folder>/lang/textwipe_tuning.json` and read at every start, and they apply to the
 game as played, wipe or no wipe, so a good fit stays. The defaults change nothing. When a fit looks right, send
 the file: the numbers can be made the code's own.
+
+## Locked-in fits
+
+The fits dialled in with the overlay are the shipped defaults (`textwipe::Locked` in `textwipe.cpp`): dialogue and
+other windows, the Options screen (its own set, taken for as long as `options::Draw` runs) and the area name cards.
+`textwipe_tuning.json` now holds only what differs from them; F8 returns a set to the locked fit. The menu captions
+have not been tuned and are as the code lays them out.
