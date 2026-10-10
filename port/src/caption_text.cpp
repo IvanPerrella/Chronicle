@@ -474,8 +474,11 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
             // Into the slot the painted letter stood in: its left edge, and the width its ink had.
             const std::array<float, 2> &place = style.slots[slot++];
             const float                 ink = letter.fill.width / mapping.scale_x * style.xscale;
-            squeeze = std::clamp((place[1] - place[0]) / std::max(ink, 0.01f), 0.55f, 1.9f);
-            pen = place[0];
+            // A letter is not stretched to a wider slot than the font's own would make it (a stretched brush letter is
+            // thick); it keeps near its own width and is centred in the slot, and a narrow slot narrows it a little.
+            const float slot_width = place[1] - place[0];
+            squeeze = std::clamp(slot_width / std::max(ink, 0.01f), 0.8f, 1.12f);
+            pen = place[0] + (slot_width - ink * squeeze) / 2;
         }
         ttffont::Glyph extra;
         if (glow_px > 0 && ttffont::GetOutlinedGlyph(letter.ch, em_px, glow_px, extra)) {
