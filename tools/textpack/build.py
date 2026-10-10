@@ -73,8 +73,11 @@ def save(out, code, name, rgba, scale):
 def sample_style(card):
     a = card.astype(np.float32)
     lum = a.mean(2)
-    band, bl = a[130:430], lum[130:430]
-    fill = np.median(band[bl >= np.percentile(bl, 95)], 0)
+    # The lettering's rows only, and its brightest 1%: a wider band or share picks up the scenery behind the name
+    # (olive on the town cards, whose lettering is white).
+    h = a.shape[0]
+    band, bl = a[int(0.27 * h):int(0.69 * h)], lum[int(0.27 * h):int(0.69 * h)]
+    fill = np.median(band[bl >= np.percentile(bl, 99)], 0)
     fl = fill.mean()
     sel = (bl > 0.18 * fl) & (bl < 0.5 * fl)
     sat = band.max(2) - band.min(2)

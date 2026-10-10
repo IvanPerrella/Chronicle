@@ -3,13 +3,19 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <array>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include "gfx/gfx.hpp"
 #include "platform/input.hpp"
 #include "platform/overlay.hpp"
+#include "platform/paths.hpp"
 
 namespace textwipe {
 
@@ -36,8 +42,123 @@ const char *ModeName() {
         return "ALL BEFORE";
     case Mode::ShowAfter:
         return "ALL AFTER";
+    case Mode::Overlay:
+        return "OVERLAY";
     }
     return "";
+}
+
+std::array<Tuning, static_cast<size_t>(Kind::Count)> g_tuning;
+bool                                                 g_tuning_loaded = false;
+int                                                  g_kind = 0;
+int                                                  g_value = 0;
+
+constexpr const char *kKindNames[] = {"message", "caption", "card"};
+constexpr const char *kKindLabels[] = {"MESSAGES", "MENU CAPTIONS", "AREA CARDS"};
+
+struct Value {
+    const char *key;
+    const char *label;
+    float Tuning::*field;
+    float           step;
+    float           low;
+    float           high;
+};
+
+constexpr Value kValues[] = {
+    {"size",   "SIZE",           &Tuning::size,   0.01f, 0.2f,   3.0f },
+    {"xscale", "WIDTH",          &Tuning::xscale, 0.01f, 0.2f,   3.0f },
+    {"yscale", "HEIGHT",         &Tuning::yscale, 0.01f, 0.2f,   3.0f },
+    {"letter", "LETTER SPACING", &Tuning::letter, 0.1f,  -10.0f, 10.0f},
+    {"word",   "WORD SPACING",   &Tuning::word,   0.25f, -20.0f, 40.0f},
+    {"dx",     "MOVE RIGHT",     &Tuning::dx,     0.25f, -40.0f, 40.0f},
+    {"dy",     "MOVE DOWN",      &Tuning::dy,     0.25f, -40.0f, 40.0f},
+    {"fit",    "FIT TO CELLS",   &Tuning::fit,    1.0f,  0.0f,   1.0f },
+};
+constexpr int kValueCount = static_cast<int>(std::size(kValues));
+
+std::filesystem::path TuningFile() {
+    return PathsSaveRoot() / "lang" / "textwipe_tuning.json";
+}
+
+void SaveTuning() {
+    nlohmann::json json;
+    for (size_t k = 0; k < g_tuning.size(); k++) {
+        for (const Value &value : kValues) {
+            json[kKindNames[k]][value.key] = std::round(g_tuning[k].*(value.field) * 1000.0f) / 1000.0f;
+        }
+    }
+    std::error_code error;
+    std::filesystem::create_directories(TuningFile().parent_path(), error);
+    std::ofstream out(TuningFile());
+    if (out) {
+        out << json.dump(2) << "\n";
+    }
+}
+
+void LoadTuning() {
+    g_tuning_loaded = true;
+    std::ifstream in(TuningFile());
+    if (!in) {
+        return;
+    }
+    try {
+        const nlohmann::json json = nlohmann::json::parse(in);
+        for (size_t k = 0; k < g_tuning.size(); k++) {
+            if (!json.contains(kKindNames[k])) {
+                continue;
+            }
+            const nlohmann::json &entry = json[kKindNames[k]];
+            for (const Value &value : kValues) {
+                if (entry.contains(value.key) && entry[value.key].is_number()) {
+                    g_tuning[k].*(value.field) = std::clamp(entry[value.key].get<float>(), value.low, value.high);
+                }
+            }
+        }
+    } catch (const std::exception &error) {
+        std::fprintf(stderr, "textwipe: cannot read %s: %s\n", TuningFile().string().c_str(), error.what());
+    }
+}
+
+// One press of a key, then repeats while it is held (after a short wait).
+struct Repeater {
+    bool                                  down = false;
+    std::chrono::steady_clock::time_point next;
+    bool Fire(bool held) {
+        const auto now = std::chrono::steady_clock::now();
+        if (!held) {
+            down = false;
+            return false;
+        }
+        if (!down) {
+            down = true;
+            next = now + std::chrono::milliseconds(400);
+            return true;
+        }
+        if (now >= next) {
+            next = now + std::chrono::milliseconds(50);
+            return true;
+        }
+        return false;
+    }
+};
+
+Repeater g_minus;
+Repeater g_plus;
+
+void Adjust(int direction) {
+    const bool   shift = InputDevKeyHeld("Left Shift") || InputDevKeyHeld("Right Shift");
+    const bool   ctrl = InputDevKeyHeld("Left Ctrl") || InputDevKeyHeld("Right Ctrl");
+    const Value &value = kValues[g_value];
+    float       &field = g_tuning[static_cast<size_t>(g_kind)].*(value.field);
+    if (value.field == &Tuning::fit) {
+        field = direction > 0 ? 1.0f : 0.0f;
+    } else {
+        const float step = value.step * (shift ? 10.0f : ctrl ? 0.1f : 1.0f);
+        const float grid = value.step * 0.1f;
+        field = std::clamp(std::round((field + static_cast<float>(direction) * step) / grid) * grid, value.low, value.high);
+    }
+    SaveTuning();
 }
 
 } // namespace
@@ -69,12 +190,32 @@ void Update() {
         std::fprintf(stderr, "textwipe: %s\n", g_on ? "on (F10 steps the mode)" : "off");
     }
     if (InputDevKeyPressed("F10") && g_on) {
-        g_mode = g_mode == Mode::Sweep ? Mode::ShowBefore : g_mode == Mode::ShowBefore ? Mode::ShowAfter : Mode::Sweep;
+        g_mode = g_mode == Mode::Sweep        ? Mode::ShowBefore
+                 : g_mode == Mode::ShowBefore ? Mode::ShowAfter
+                 : g_mode == Mode::ShowAfter  ? Mode::Overlay
+                                              : Mode::Sweep;
         g_started = std::chrono::steady_clock::now();
         std::fprintf(stderr, "textwipe: mode %s\n", ModeName());
     }
     if (!g_on) {
         return;
+    }
+    if (InputDevKeyPressed("F11")) {
+        g_kind = (g_kind + 1) % static_cast<int>(Kind::Count);
+    }
+    if (InputDevKeyPressed("F12")) {
+        const bool back = InputDevKeyHeld("Left Shift") || InputDevKeyHeld("Right Shift");
+        g_value = (g_value + (back ? kValueCount - 1 : 1)) % kValueCount;
+    }
+    if (InputDevKeyPressed("F8")) {
+        g_tuning[static_cast<size_t>(g_kind)] = Tuning{};
+        SaveTuning();
+    }
+    if (g_minus.Fire(InputDevKeyHeld("-"))) {
+        Adjust(-1);
+    }
+    if (g_plus.Fire(InputDevKeyHeld("="))) {
+        Adjust(1);
     }
     switch (g_mode) {
     case Mode::Sweep:
@@ -86,7 +227,21 @@ void Update() {
     case Mode::ShowAfter:
         g_divider = 0.0f;
         break;
+    case Mode::Overlay:
+        g_divider = gfx::kLogicalWidth;
+        break;
     }
+}
+
+const Tuning &Get(Kind kind) {
+    if (!g_tuning_loaded) {
+        LoadTuning();
+    }
+    return g_tuning[static_cast<size_t>(kind)];
+}
+
+bool Overlaying() {
+    return g_on && g_mode == Mode::Overlay;
 }
 
 bool Active() {
@@ -100,6 +255,17 @@ float Divider() {
 void Both(const std::function<void(bool runtime)> &draw) {
     if (!g_on) {
         draw(true);
+        return;
+    }
+    if (g_mode == Mode::Overlay) {
+        // Both in full: the old in red, the new in cyan, so where they agree the two blend and where they do not a colour shows.
+        static const float old_tint[4] = {1.0f, 0.25f, 0.25f, 0.75f};
+        static const float new_tint[4] = {0.3f, 1.0f, 1.0f, 0.75f};
+        gfx::SetDrawTint(&old_tint);
+        draw(false);
+        gfx::SetDrawTint(&new_tint);
+        draw(true);
+        gfx::SetDrawTint(nullptr);
         return;
     }
     const float edge = std::clamp(g_divider, 0.0f, gfx::kLogicalWidth);
@@ -138,17 +304,41 @@ void DrawDivider() {
         line.push_back(vertex(x + h, gfx::kLogicalHeight, grey));
         line.push_back(vertex(x - h, gfx::kLogicalHeight, grey));
     }
-    gfx::Draw2D(gfx::Primitive::Quads, line, {}, state);
+    if (g_mode != Mode::Overlay) {
+        gfx::Draw2D(gfx::Primitive::Quads, line, {}, state);
+    }
 
     // The labels sit either side of the line near the bottom, clear of the FPS badge at the top left.
-    const std::string before = "BEFORE: BAKED PICTURE";
-    const std::string after = std::string("AFTER: RUNTIME TEXT (") + ModeName() + ")";
+    const bool        overlay = g_mode == Mode::Overlay;
+    const std::string before = overlay ? "RED: BAKED PICTURE" : "BEFORE: BAKED PICTURE";
+    const std::string after = overlay ? std::string("CYAN: RUNTIME TEXT") : std::string("AFTER: RUNTIME TEXT (") + ModeName() + ")";
     const int         y = mapping.pixel_height - (kOverlayGlyphHeight + 4 * kOverlayPadding) * pixel;
     const int         gap = 6 * pixel;
     const int         line_px = static_cast<int>(std::lround(x * mapping.scale_x + mapping.offset_x));
     const int         before_width = static_cast<int>(before.size()) * kOverlayAdvance * pixel;
     OverlayDrawText(before, mapping, pixel, std::max(gap, line_px - gap - before_width), y);
     OverlayDrawText(after, mapping, pixel, std::min(line_px + gap, static_cast<int>(mapping.pixel_width) - gap - static_cast<int>(after.size()) * kOverlayAdvance * pixel), y);
+
+    // The tuning panel, under the FPS badge.
+    const Tuning &tuning = Get(static_cast<Kind>(g_kind));
+    int           row_y = 16 * pixel;
+    const int     row_step = (kOverlayGlyphHeight + 2 * kOverlayPadding + 1) * pixel;
+    auto          line_of = [&](const std::string &text) {
+        OverlayDrawText(text, mapping, pixel, 2 * pixel, row_y);
+        row_y += row_step;
+    };
+    line_of(std::string("TUNING ") + kKindLabels[g_kind] + "  F11 SET  F12 VALUE  -/= CHANGE  F8 RESET");
+    for (int v = 0; v < kValueCount; v++) {
+        std::string number;
+        if (kValues[v].field == &Tuning::fit) {
+            number = tuning.fit >= 0.5f ? "ON" : "OFF";
+        } else {
+            char text[32];
+            std::snprintf(text, sizeof text, "%.2f", tuning.*(kValues[v].field));
+            number = text;
+        }
+        line_of(std::string(v == g_value ? "> " : "  ") + kValues[v].label + " " + number);
+    }
 }
 
 } // namespace textwipe

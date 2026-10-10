@@ -1358,6 +1358,11 @@ bool InputHostPressed(InputHostAction action) {
     return true;
 }
 
+bool InputDevKeyHeld(std::string_view name) {
+    const int scancode = InputScancodeFromName(name);
+    return scancode >= 0 && scancode < static_cast<int>(std::size(g_keys)) && g_keys[scancode];
+}
+
 bool InputDevKeyPressed(std::string_view name) {
     static std::map<int, bool> held;
     const int                  scancode = InputScancodeFromName(name);

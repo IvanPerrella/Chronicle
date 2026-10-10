@@ -451,6 +451,9 @@ void Draw2D(Primitive primitive, std::span<const Vertex2D> vertices, const Textu
 // logical space of the draw; nullptr clears it. A developer tool's: the text before/after wipe draws one
 // thing on each side of a line (textwipe.hpp). Set it while recording or drawing, never across frames.
 void SetDrawClip(const LogicalRect *clip);
+// While a tint is set, every Draw2D's vertex colours (and alpha) are multiplied by it, each 0 to 1; nullptr
+// clears it. The text wipe's overlay mode draws the old text red and the new cyan with it.
+void SetDrawTint(const float (*tint)[4]);
 void DrawMesh(MeshHandle mesh, uint32_t first_index, uint32_t index_count, const MeshConstants &constants,
               const TextureBinding &texture, const DrawState &state,
               const MeshTransform *transform = nullptr);

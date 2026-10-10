@@ -14,6 +14,7 @@
 #include "memcard.hpp"
 #include "menu_dungeon.hpp"
 #include "caption_text.hpp"
+#include <cstdio>
 #include "textwipe.hpp"
 #include "menu_pointer.hpp"
 #include "rect.hpp"
@@ -104,6 +105,12 @@ PC_OVERRIDE void DrawMainMenuIcon(int x, int y, int icon, int selected, int brig
     };
     unsigned painted_texture = 0;
     unsigned painted_palette = 0;
+    if (textwipe::Active()) {
+        static int said = 0;
+        if (said++ < 3) {
+            std::fprintf(stderr, "textwipe: caption icon %d ready %d keys %d\n", icon, caption::Ready(), caption::PaintedKeys(painted_texture, painted_palette));
+        }
+    }
     if (textwipe::Active() && caption::Ready() && caption::PaintedKeys(painted_texture, painted_palette)) {
         // The text wipe: the disc's painted words on one side of the line, the text on the other. The painted ones are
         // drawn from the kept copy of stayframe, by pointing its sprite at that for a moment (set2DSprite draws at once).

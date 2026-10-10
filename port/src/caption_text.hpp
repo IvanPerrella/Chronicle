@@ -50,6 +50,9 @@ struct LineStyle {
     float         edge_width = 1.0f; // the outline, in logical units
     float         glow_width = 0.0f; // how far the glow reaches
     float         glow_amount = 0.0f; // 0 none, 1 as strong as the lettering
+    // The text wipe's dials (textwipe.hpp), 1 and 0 where untuned: letter and word space added, side-to-side and
+    // up-and-down size, and a move, in logical units.
+    float         letter = 0.0f, word = 0.0f, xscale = 1.0f, yscale = 1.0f, dx = 0.0f, dy = 0.0f;
 };
 
 struct LineBounds {

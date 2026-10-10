@@ -31,3 +31,16 @@ TEST(TextWipe, OffDrawsOnlyTheRuntimeLook) {
     ASSERT_EQ(drawn.size(), 1u);
     EXPECT_TRUE(drawn[0]);
 }
+
+// Untuned text is drawn as the code lays it out: every dial is at its identity.
+TEST(TextWipe, DefaultTuningChangesNothing) {
+    const textwipe::Tuning tuning;
+    EXPECT_FLOAT_EQ(tuning.size, 1.0f);
+    EXPECT_FLOAT_EQ(tuning.xscale, 1.0f);
+    EXPECT_FLOAT_EQ(tuning.yscale, 1.0f);
+    EXPECT_FLOAT_EQ(tuning.letter, 0.0f);
+    EXPECT_FLOAT_EQ(tuning.word, 0.0f);
+    EXPECT_FLOAT_EQ(tuning.dx, 0.0f);
+    EXPECT_FLOAT_EQ(tuning.dy, 0.0f);
+    EXPECT_FLOAT_EQ(tuning.fit, 1.0f);
+}

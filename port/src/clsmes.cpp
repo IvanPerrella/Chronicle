@@ -1,6 +1,7 @@
 #include "clsmes.hpp"
 #include "mathconst.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
@@ -134,8 +135,15 @@ void TtfQuad(std::vector<gfx::Vertex2D> &out, const ttffont::Glyph &glyph, float
 
 // The em the font is drawn at: its line fits 82% of the cell's height and its widest glyph the cell's
 // width, so a glyph never leaves the cell the game sized the window for.
-float TtfEm(const ClsMes &mes, const ttffont::Metrics &metrics) {
-    return std::min(mes.char_height * 0.82f, mes.char_width * 0.95f / metrics.advance);
+// The bitmap characters stand about 1.3 times taller than the 82% line, in letters squeezed narrow to the cell; the font's
+// letters are drawn that tall and squeezed to the word the game's cells gave it (see TtfLayoutRows), so the lines
+// keep the bitmaps' height and weight. kBaselineShift lowers the line to where the bitmaps' baseline sits.
+constexpr float kTextHeight = 1.28f;
+constexpr float kMinSqueeze = 0.78f;
+constexpr float kBaselineShift = 0.6f;
+
+float TtfEm(const ClsMes &mes, const ttffont::Metrics &) {
+    return mes.char_height * 0.82f * kTextHeight * textwipe::Get(textwipe::Kind::Message).size;
 }
 
 // Where each laid-out character of a window starts, in the window's own coordinates. A word (a run of
@@ -143,9 +151,10 @@ float TtfEm(const ClsMes &mes, const ttffont::Metrics &metrics) {
 // their own widths and the word is centred on the cells the game gave it, so rows, indents, centring and
 // the icons between words stay where the game put them. A glyph is never given more than its cell, so
 // a word is never wider than the game's.
-void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs) {
+void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs, std::vector<float> &squeeze) {
     const int count = mes.win_line_num;
     xs.assign(static_cast<size_t>(count), 0.0f);
+    squeeze.assign(static_cast<size_t>(count), 1.0f);
     for (int i = 0; i < count; i++) {
         xs[static_cast<size_t>(i)] = static_cast<float>(mes.win_line[i].x);
     }
@@ -156,7 +165,8 @@ void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs) {
     const ttffont::Metrics    metrics = ttffont::GetMetrics();
     const float               em = TtfEm(mes, metrics);
     const int                 em_px = static_cast<int>(em * mapping.scale_x + 0.5f);
-    const float               gap = em * 0.1f;
+    const textwipe::Tuning   &tune = textwipe::Get(textwipe::Kind::Message);
+    const float               gap = em * 0.1f + tune.letter;
 
     auto glyph_of = [&](int i, ttffont::Glyph &glyph) {
         const int      code = mes.win_line[i].code;
@@ -169,23 +179,41 @@ void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs) {
     };
 
     int i = 0;
+    int word = 0; // how many words this row has had, for the added space between them
+    int word_y = -1;
     while (i < count) {
         ttffont::Glyph glyph;
         if (!glyph_of(i, glyph)) {
             i++;
             continue;
         }
+        if (mes.win_line[i].y != word_y) {
+            word_y = mes.win_line[i].y;
+            word = 0;
+        }
         int                last = i;
         float              natural = 0.0f;
         std::vector<float> pen;
         for (; last < count && mes.win_line[last].y == mes.win_line[i].y && glyph_of(last, glyph); last++) {
             pen.push_back(natural);
-            natural += std::min(glyph.width / mapping.scale_x + gap, cell_of(last));
+            natural += glyph.width / mapping.scale_x * tune.xscale + gap;
         }
         const float span = static_cast<float>(mes.win_line[last - 1].x - mes.win_line[i].x) + cell_of(last - 1);
-        const float start = static_cast<float>(mes.win_line[i].x) + (span - (natural - gap)) / 2;
+        // The word fills the cells the game gave it, as the bitmaps do: letters wider than the cells are squeezed
+        // (to a limit), and letters narrower are spread, never centred in a gap of their own.
+        const float width = natural - gap;
+        const bool  fit = tune.fit >= 0.5f;
+        float       sx = fit ? std::clamp(span / std::max(width, 1.0f), kMinSqueeze, 1.0f) : 1.0f;
+        float       extra = 0.0f;
+        if (fit && width * sx < span && last - i > 1) {
+            extra = std::min((span - width * sx) / static_cast<float>(last - i - 1), em * 0.25f);
+        }
+        const float used = width * sx + extra * static_cast<float>(last - i - 1);
+        const float start = static_cast<float>(mes.win_line[i].x) + (fit ? (span - used) / 2 : 0.0f) + tune.word * static_cast<float>(word);
+        word++;
         for (int k = i; k < last; k++) {
-            xs[static_cast<size_t>(k)] = start + pen[static_cast<size_t>(k - i)];
+            xs[static_cast<size_t>(k)] = start + pen[static_cast<size_t>(k - i)] * sx + extra * static_cast<float>(k - i);
+            squeeze[static_cast<size_t>(k)] = sx * tune.xscale;
         }
         i = last;
     }
@@ -194,6 +222,7 @@ void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs) {
 // Queues the font's glyph for win_line[index]: an edge pass per outline and one fill. False where
 // the font has none, and the bitmap character is drawn.
 bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y, const std::vector<float> &xs,
+                   const std::vector<float> &squeeze,
                    std::vector<gfx::Vertex2D> &edges, std::vector<gfx::Vertex2D> &fills) {
     const MES_WIN_LINE &line = mes.win_line[index];
     const char32_t      ch = GameTextChar(line.code);
@@ -223,11 +252,12 @@ bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y,
 
     // The font's line is centred in the cell's height. The bitmap's pixels are screen pixels, so a quad
     // is as many logical units as they come to.
-    const float width = glyph.width / mapping.scale_x;
-    const float height = glyph.height / mapping.scale_y * rows;
-    const float base = cell_y + (mes.char_height - em * (metrics.ascent + metrics.descent)) / 2 + em * metrics.ascent;
-    float       x = origin_x + xs[static_cast<size_t>(index)];
-    float       y = (base * rows) + glyph.y_offset / mapping.scale_y;
+    const textwipe::Tuning &tune = textwipe::Get(textwipe::Kind::Message);
+    const float width = glyph.width / mapping.scale_x * squeeze[static_cast<size_t>(index)];
+    const float height = glyph.height / mapping.scale_y * rows * tune.yscale;
+    const float base = cell_y + (mes.char_height - em * (metrics.ascent + metrics.descent)) / 2 + em * metrics.ascent + kBaselineShift;
+    float       x = origin_x + xs[static_cast<size_t>(index)] + tune.dx;
+    float       y = ((base + tune.dy) * rows) + glyph.y_offset / mapping.scale_y * tune.yscale;
 
     // On whole pixels, so the edges of the strokes are not smeared across two.
     auto snap = [](float value, float scale, float offset) { return (std::round(value * scale + offset) - offset) / scale; };
@@ -1089,8 +1119,9 @@ PC_OVERRIDE void ClsMes::DrawMesWin() {
         std::vector<gfx::Vertex2D> ttf_edges;
         std::vector<gfx::Vertex2D> ttf_fills;
         std::vector<float>         ttf_xs;
+        std::vector<float>         ttf_squeeze;
         if (ttf) {
-            TtfLayoutRows(*this, ttf_xs);
+            TtfLayoutRows(*this, ttf_xs, ttf_squeeze);
         }
 
         for (index = this->text_from; index < this->text_no; index++) {
@@ -1104,7 +1135,7 @@ PC_OVERRIDE void ClsMes::DrawMesWin() {
                 continue;
             }
 
-            if (ttf && code >= -0x2DF && QueueTtfGlyph(*this, index, dark, offset_x, offset_y, ttf_xs, ttf_edges, ttf_fills)) {
+            if (ttf && code >= -0x2DF && QueueTtfGlyph(*this, index, dark, offset_x, offset_y, ttf_xs, ttf_squeeze, ttf_edges, ttf_fills)) {
                 continue;
             }
 

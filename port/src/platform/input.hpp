@@ -226,6 +226,8 @@ bool InputHostPressed(InputHostAction action);
 // True once per physical press of the named key (InputScancodeFromName), with no binding: for developer tools
 // that take a function key (the text wipe, textwipe.hpp). Call it once per tick; it remembers the key's last state.
 bool InputDevKeyPressed(std::string_view name);
+// Whether the named key is down now.
+bool InputDevKeyHeld(std::string_view name);
 
 // The keyboard and mouse the input script holds now; host actions read them beside the live devices,
 // and a key that becomes held counts as a press.

@@ -1,5 +1,6 @@
 // nlohmann/json before the game headers, whose one-letter macros it cannot stand.
 #include "area_card.hpp"
+#include "textwipe.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -62,7 +63,7 @@ struct Layout {
     float             underline_pad_left = 0.0117f;
     float             underline_pad_right = 0.0169f;
     float             underline_bow = 0.0078f;
-    float             underline_wave = 0.0100f; // height of the tilde in the ribbon, of the card's height
+    float             underline_wave = 0.0420f; // height of the tilde in the ribbon, of the card's height
     bool              drips = false;
     caption::LineStyle style;
     float             edge_width = 0.0039f; // of the card's width
@@ -115,7 +116,7 @@ void Ribbon(std::vector<gfx::Vertex2D> &out, const Frame &frame, const Layout &l
         const float taper = smooth(t / 0.16f) * smooth((1 - t) / 0.16f);
         const float body = 0.62f + 0.38f * std::sin(kPi * t);
         const float half = layout.underline_thick * 0.5f * body * taper;
-        const float cy = layout.underline_y + amplitude * std::sin(2 * kPi * t);
+        const float cy = layout.underline_y - amplitude * std::sin(2 * kPi * t - 0.35f);
         const float y = cy + at * (half + (grow + extra) * aspect);
         const auto  c = shade(rgb, alpha);
         return gfx::Vertex2D{frame.X(x), frame.Y(y), 0.0f, 0.0f, 0.0f, {c[0], c[1], c[2], c[3]}};
@@ -241,8 +242,15 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
     style.glow_width = layout.glow_width * frame.w;
 
     // The letters first; the underline is placed from where they ended, and lies clear of them below.
+    const textwipe::Tuning &tune = textwipe::Get(textwipe::Kind::Card);
+    style.letter = tune.letter;
+    style.word = tune.word;
+    style.xscale = tune.xscale;
+    style.yscale = tune.yscale;
+    style.dx = tune.dx;
+    style.dy = tune.dy;
     const float cap_top = frame.Y(layout.cap_top);
-    const float cap_height = layout.cap_height * frame.h;
+    const float cap_height = layout.cap_height * frame.h * tune.size;
     caption::LineBounds span;
     if (!caption::DrawLine(layout.text, frame.X(0.5f), cap_top, cap_height, layout.xsq, layout.max_width * frame.w, style,
                            fade, 1.0f, &span)) {
@@ -254,7 +262,7 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
     std::vector<gfx::Vertex2D> outline, body;
     if (layout.underline) {
         // Outline (with a feathered rim) first, then the shaded body inside it.
-        const float feather = std::max(frame.w * 0.0012f, 0.5f) / frame.w;
+        const float feather = std::max(frame.w * 0.0022f, 0.9f) / frame.w;
         unsigned char light[3], dark[3], white[3] = {255, 255, 255}, black[3] = {0, 0, 0};
         Mix(light, style.fill, white, 0.45f);
         Mix(dark, style.fill, black, 0.30f);
