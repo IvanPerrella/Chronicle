@@ -19,6 +19,7 @@
 #include "platform/glyphs.hpp"
 #include "platform/ttffont.hpp"
 #include "rect.hpp"
+#include "screen.hpp"
 #include "snd.hpp"
 #include "text_shadow.hpp"
 #include "texture.hpp"
@@ -676,8 +677,8 @@ PORT_OVERRIDE void ClsMes::MakeFukidashi(sceVif1Packet *packet) {
         const float                  fill_bottom = static_cast<float>(SCREEN_HALF_HEIGHT);
         std::array<gfx::Vertex2D, 4> fill = {
             draw2d::Vertex(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0),
-            draw2d::Vertex(gfx::kLogicalWidth, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0),
-            draw2d::Vertex(gfx::kLogicalWidth, fill_bottom, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0),
+            draw2d::Vertex(kScreenWidth, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0),
+            draw2d::Vertex(kScreenWidth, fill_bottom, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0),
             draw2d::Vertex(0.0f, fill_bottom, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0),
         };
         gfx::Draw2D(gfx::Primitive::Quads, fill, {}, state);

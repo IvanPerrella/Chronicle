@@ -173,6 +173,18 @@ LogicalRect ExtendClearRect(const LogicalRect &rect, const LogicalMapping &mappi
     return ExtendRect(rect, ExtentAxes(g.target), LogicalFrame(g.target), mapping);
 }
 
+// A scissor with infinite extents reaches the current target's frame edge.
+LogicalRect ScissorRect(LogicalRect rect) {
+    LogicalRect frame = LogicalFrame(g.target);
+    if (std::isinf(rect.w)) {
+        rect.w = frame.x + frame.w - rect.x;
+    }
+    if (std::isinf(rect.h)) {
+        rect.h = frame.y + frame.h - rect.y;
+    }
+    return rect;
+}
+
 // The pixels an anchored UI draw moves by: on each anchored axis, from the UI frame's edge to the
 // edge of what the main target shows.
 void UiSideShift(UiSide side, const LogicalMapping &logical, const LogicalMapping &ui, float &dx, float &dy) {
@@ -183,13 +195,13 @@ void UiSideShift(UiSide side, const LogicalMapping &logical, const LogicalMappin
         dx = visible.x * logical.scale_x + logical.offset_x - ui.offset_x;
     } else if (side.x > 0) {
         dx = (visible.x + visible.w) * logical.scale_x + logical.offset_x -
-             (kLogicalWidth * ui.scale_x + ui.offset_x);
+             (g.config.logical_width * ui.scale_x + ui.offset_x);
     }
     if (side.y < 0) {
         dy = visible.y * logical.scale_y + logical.offset_y - ui.offset_y;
     } else if (side.y > 0) {
         dy = (visible.y + visible.h) * logical.scale_y + logical.offset_y -
-             (kLogicalHeight * ui.scale_y + ui.offset_y);
+             (g.config.logical_height * ui.scale_y + ui.offset_y);
     }
     dx = std::round(dx);
     dy = std::round(dy);
@@ -372,7 +384,7 @@ bool Prepare(PipelineFamily family, VkPrimitiveTopology topology, const TextureB
         g.bound.topology = static_cast<int>(topology);
         vkCmdSetPrimitiveTopology(cmd, topology);
     }
-    VkRect2D scissor = state.scissor ? PixelRect(mapping, ExtendClearRect(state.scissor_rect, mapping))
+    VkRect2D scissor = state.scissor ? PixelRect(mapping, ExtendClearRect(ScissorRect(state.scissor_rect), mapping))
                                      : VkRect2D{
                                            {0,                   0                   },
                                            {mapping.pixel_width, mapping.pixel_height}
@@ -742,11 +754,24 @@ void Transfer(VkCommandBuffer cmd, Image &src, const VkOffset3D src_offsets[2], 
 LogicalMapping MainMapping(uint32_t width, uint32_t height) {
     float w = static_cast<float>(width);
     float h = static_cast<float>(height);
-    float scale = std::min(w / kLogicalWidth, h / kLogicalHeight);
-    return LogicalMapping{scale,
-                          scale,
-                          std::floor((w - kLogicalWidth * scale) * 0.5f),
-                          std::floor((h - kLogicalHeight * scale) * 0.5f),
+    const float logical_w = g.config.logical_width;
+    const float logical_h = g.config.logical_height;
+    const float aspect = g.config.display_aspect;
+    float       scale_x;
+    float       scale_y;
+    if (logical_w / logical_h == aspect) {
+        // Square texels keep this expression: the general form below rounds differently.
+        scale_x = std::min(w / logical_w, h / logical_h);
+        scale_y = scale_x;
+    } else {
+        float shown_w = std::min(w, h * aspect);
+        scale_x = shown_w / logical_w;
+        scale_y = shown_w / aspect / logical_h;
+    }
+    return LogicalMapping{scale_x,
+                          scale_y,
+                          std::floor((w - logical_w * scale_x) * 0.5f),
+                          std::floor((h - logical_h * scale_y) * 0.5f),
                           width,
                           height};
 }
@@ -756,14 +781,16 @@ LogicalMapping UiMapping(const LogicalMapping &mapping) {
     if (scale == 1.0f) {
         return mapping;
     }
-    float centre_x = kLogicalWidth * 0.5f * mapping.scale_x + mapping.offset_x;
-    float centre_y = kLogicalHeight * 0.5f * mapping.scale_y + mapping.offset_y;
+    float logical_w = g.config.logical_width;
+    float logical_h = g.config.logical_height;
+    float centre_x = logical_w * 0.5f * mapping.scale_x + mapping.offset_x;
+    float centre_y = logical_h * 0.5f * mapping.scale_y + mapping.offset_y;
     float scale_x = mapping.scale_x * scale;
     float scale_y = mapping.scale_y * scale;
     return LogicalMapping{scale_x,
                           scale_y,
-                          std::round(centre_x - kLogicalWidth * 0.5f * scale_x),
-                          std::round(centre_y - kLogicalHeight * 0.5f * scale_y),
+                          std::round(centre_x - logical_w * 0.5f * scale_x),
+                          std::round(centre_y - logical_h * 0.5f * scale_y),
                           mapping.pixel_width,
                           mapping.pixel_height};
 }
@@ -797,7 +824,7 @@ uint32_t ExtentAxes(TextureHandle handle) {
 LogicalRect LogicalFrame(TextureHandle handle) {
     const Texture *texture = handle == kMainTarget ? nullptr : LookupTexture(handle);
     if (texture == nullptr) {
-        return {0.0f, 0.0f, kLogicalWidth, kLogicalHeight};
+        return {0.0f, 0.0f, LogicalWidth(), LogicalHeight()};
     }
     return {0.0f, 0.0f, static_cast<float>(texture->logical_width),
             static_cast<float>(texture->logical_height)};
@@ -1241,7 +1268,7 @@ bool SnapshotFrame(TextureHandle dst) {
         return false;
     }
     return BlitTexture(kMainTarget,
-                       Rect{0, 0, static_cast<int32_t>(kLogicalWidth), static_cast<int32_t>(kLogicalHeight)},
+                       Rect{0, 0, static_cast<int32_t>(LogicalWidth()), static_cast<int32_t>(LogicalHeight())},
                        dst, Rect{0, 0, static_cast<int32_t>(info->width), static_cast<int32_t>(info->height)},
                        Filter::Linear);
 }

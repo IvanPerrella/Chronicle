@@ -17,11 +17,6 @@ struct SDL_Window;
 // colour and alpha units, reverse-Z and how GS blending maps onto Vulkan.
 namespace gfx {
 
-// The game's 2D space. 2D draws, scissors and main-target rectangles are given in it and mapped
-// to the target, letterboxed on the main target.
-inline constexpr float kLogicalWidth = 640.0f;
-inline constexpr float kLogicalHeight = 480.0f;
-
 inline constexpr uint32_t kDepthQueryCount = 16;
 
 // How the logical frame meets a window of another shape (README, "Aspect").
@@ -56,10 +51,6 @@ struct UiAnchor {
     }
 };
 
-// The frame in thirds: its corners, edges and centre each keep their own place.
-inline constexpr UiAnchor kUiAnchorThirds = {kLogicalWidth / 3.0f, kLogicalWidth * 2.0f / 3.0f,
-                                             kLogicalHeight / 3.0f, kLogicalHeight * 2.0f / 3.0f};
-
 enum class PresentMode : uint8_t {
     Fifo,
     Mailbox,
@@ -68,6 +59,12 @@ enum class PresentMode : uint8_t {
 };
 
 struct RendererConfig {
+    const char *app_name = "";
+    // The game's 2D space. 2D draws, scissors and main-target rectangles are given in it and mapped
+    // to the target, letterboxed on the main target.
+    float logical_width = 640.0f;
+    float logical_height = 480.0f;
+    float display_aspect = 4.0f / 3.0f; // width / height the logical frame is shown at
     PresentMode           present_mode = PresentMode::Fifo;
     std::filesystem::path pipeline_cache = "save/pipeline_cache.bin";
     // Pixels per logical texel of render targets; 0 derives it from the window height at init.
@@ -344,6 +341,11 @@ struct LogicalRect {
     float h;
 };
 
+// The values RendererInit was given; the defaults of RendererConfig before it.
+float       LogicalWidth();
+float       LogicalHeight();
+LogicalRect LogicalFrame();
+
 struct DrawState {
     bool      blend = false; // GS PRIM.ABE
     GsBlend   alpha;
@@ -359,7 +361,8 @@ struct DrawState {
     bool        texa_aem = true;
     uint8_t     texa_ta0 = 0x80;
     bool        scissor = false;
-    LogicalRect scissor_rect = {0.0f, 0.0f, kLogicalWidth, kLogicalHeight};
+    // Infinite extents mean the whole frame, which is only known once RendererInit has run.
+    LogicalRect scissor_rect = {0.0f, 0.0f, INFINITY, INFINITY};
     // Faces are told apart by winding, as for culling; lines are front faces.
     bool        stencil_test = false;
     StencilFace stencil_front;

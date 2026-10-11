@@ -32,6 +32,7 @@
 #include "platform/input_script.hpp"
 #include "platform/paths.hpp"
 #include "platform/window.hpp"
+#include "screen.hpp"
 #include "snd.hpp"
 #include "title/opening.hpp"
 #include "title/rushmovi.hpp"
@@ -415,6 +416,10 @@ int Run(int argc, const char **argv) {
     InputInit();
 
     gfx::RendererConfig renderer;
+    renderer.app_name = "Dark Cloud";
+    renderer.logical_width = kScreenWidth;
+    renderer.logical_height = kScreenHeight;
+    renderer.display_aspect = 4.0f / 3.0f;
     renderer.present_mode = PresentMode(config.present_mode);
     renderer.pipeline_cache = PathsSaveRoot() / "pipeline_cache.bin";
     renderer.progress = ReportShaderProgress;

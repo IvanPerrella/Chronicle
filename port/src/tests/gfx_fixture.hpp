@@ -13,6 +13,7 @@
 #include "gfx/gfx.hpp"
 #include "platform/window.hpp"
 #include "platform_fixture.hpp"
+#include "screen.hpp"
 
 namespace dc::test {
 
@@ -44,6 +45,10 @@ struct GfxFixture {
         window.vulkan = !options.offscreen;
         WindowInit(window);
         gfx::RendererConfig config;
+        config.app_name = "Dark Cloud";
+        config.logical_width = kScreenWidth;
+        config.logical_height = kScreenHeight;
+        config.display_aspect = 4.0f / 3.0f;
         config.validation = true;
         config.render_scale = render_scale;
         config.dynamic_color_write_mask = options.dynamic_color_write_mask;

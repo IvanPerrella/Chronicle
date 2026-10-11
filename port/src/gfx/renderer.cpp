@@ -122,7 +122,7 @@ void CreateInstance() {
 
     VkApplicationInfo app = {};
     app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app.pApplicationName = "Dark Cloud";
+    app.pApplicationName = g.config.app_name;
     app.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     app.pEngineName = "dcdecomp";
     app.engineVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -772,6 +772,12 @@ uint32_t PreviousFrameSlot() { return kMainTarget + (g.display_pass ? g.main_cur
 
 using namespace detail;
 
+float LogicalWidth() { return g.config.logical_width; }
+
+float LogicalHeight() { return g.config.logical_height; }
+
+LogicalRect LogicalFrame() { return {0.0f, 0.0f, LogicalWidth(), LogicalHeight()}; }
+
 void RendererInit(SDL_Window *window, const RendererConfig &config) {
     static uint64_t instances = 0;
     g = {};
@@ -802,7 +808,7 @@ void RendererInit(SDL_Window *window, const RendererConfig &config) {
     g.render_scale =
         config.render_scale > 0.0f
             ? config.render_scale
-            : std::max(1.0f, std::round(static_cast<float>(g.swapchain.extent.height) / kLogicalHeight));
+            : std::max(1.0f, std::round(static_cast<float>(g.swapchain.extent.height) / g.config.logical_height));
     CreatePipelines();
 }
 
