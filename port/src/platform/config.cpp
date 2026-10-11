@@ -14,8 +14,8 @@
 #include <string>
 #include <utility>
 
-#include "display.hpp"
-#include "paths.hpp"
+#include "platform/display.hpp"
+#include "platform/paths.hpp"
 
 namespace {
 

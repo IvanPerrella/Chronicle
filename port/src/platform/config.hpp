@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-#include "settings.hpp"
+#include "platform/settings.hpp"
 
 enum class ConfigAspect {
     Auto,

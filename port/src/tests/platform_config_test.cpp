@@ -8,9 +8,9 @@
 #include <utility>
 #include <vector>
 
-#include "../platform/config.hpp"
-#include "../platform/display.hpp"
-#include "../platform/paths.hpp"
+#include "platform/config.hpp"
+#include "platform/display.hpp"
+#include "platform/paths.hpp"
 #include "platform_fixture.hpp"
 
 TEST(PlatformConfig, Defaults) {
