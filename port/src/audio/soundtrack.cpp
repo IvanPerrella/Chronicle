@@ -10,7 +10,7 @@
 #include <string>
 #include <system_error>
 
-#include "platform/config.hpp"
+#include "platform/settings.hpp"
 #include "platform/paths.hpp"
 #include "trace.hpp"
 
@@ -106,7 +106,7 @@ bool SoundtrackEnsure() {
 }
 
 std::shared_ptr<const PcmTrack> SoundtrackFor(std::string_view sequence) {
-    if (!ConfigGet().soundtrack) {
+    if (!SettingsGet().soundtrack) {
         return nullptr;
     }
     std::lock_guard lock(g_mutex);

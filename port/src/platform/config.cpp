@@ -14,6 +14,7 @@
 #include <string>
 #include <utility>
 
+#include "display.hpp"
 #include "paths.hpp"
 
 namespace {
@@ -561,6 +562,16 @@ const Config &ConfigGet() {
     return g_config;
 }
 
+const HostSettings &SettingsGet() {
+    return ConfigGet();
+}
+
+bool SettingsChange(const HostSettings &settings) {
+    Config config = ConfigGet();
+    static_cast<HostSettings &>(config) = settings;
+    return ConfigChange(config);
+}
+
 float ConfigDetailDistance() {
     float distance = g_config.detail_distance;
     return distance > 0.0f ? distance : std::numeric_limits<float>::infinity();
@@ -703,6 +714,10 @@ void ConfigAddChangeHook(ConfigChangeHook hook) {
 
 void ConfigRemoveChangeHook(ConfigChangeHook hook) {
     std::erase(g_change_hooks, hook);
+}
+
+void ConfigDisplayChanged(const Config &before, const Config &after) {
+    DisplayChanged(before, after);
 }
 
 bool ConfigChange(const Config &config) {

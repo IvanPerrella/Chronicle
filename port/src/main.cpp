@@ -439,7 +439,7 @@ int Run(int argc, const char **argv) {
     ApplyDiscord(config);
     GameSetPresentSettings(PresentSettings(config));
     ConfigAddChangeHook(ApplyConfigChange);
-    ConfigAddChangeHook(DisplayChanged);
+    ConfigAddChangeHook(ConfigDisplayChanged);
     ConfigAddChangeHook(GameOptionsChanged);
     ConfigAddChangeHook(LocalizeConfigChanged);
 
@@ -451,7 +451,7 @@ int Run(int argc, const char **argv) {
 
     ConfigRemoveChangeHook(LocalizeConfigChanged);
     ConfigRemoveChangeHook(GameOptionsChanged);
-    ConfigRemoveChangeHook(DisplayChanged);
+    ConfigRemoveChangeHook(ConfigDisplayChanged);
     ConfigRemoveChangeHook(ApplyConfigChange);
     ClockRemovePumpHook(PumpHost);
     DiscordStop();

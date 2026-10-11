@@ -48,17 +48,17 @@ Row GameRow(const char *key, const char *label, const char *names, int game_help
             .names = names};
 }
 
-template <bool Config::*Field>
+template <auto Field>
 int GetOnOff(const Config &config) {
     return config.*Field ? 0 : 1;
 }
 
-template <bool Config::*Field>
+template <auto Field>
 void SetOnOff(Config &config, int choice) {
     config.*Field = choice == 0;
 }
 
-template <bool Config::*Field>
+template <auto Field>
 Row OnOffRow(const char *key, const char *label, const char *help) {
     return {.key = key,
             .label = label,
@@ -69,7 +69,7 @@ Row OnOffRow(const char *key, const char *label, const char *help) {
             .names = "On|Off"};
 }
 
-template <bool Config::*Field>
+template <auto Field>
 Row NamedRow(const char *key, const char *label, const char *help, const char *names) {
     return {.key = key,
             .label = label,

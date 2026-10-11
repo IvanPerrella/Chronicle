@@ -16,34 +16,34 @@ WindowMode g_shown;
 // A fullscreen change SDL took and the window has not been seen to make: true to enter.
 std::optional<bool> g_outstanding;
 // The fields of the latest change of them, and the mode they ask of the window.
-Config              g_intent;
+HostSettings        g_intent;
 WindowMode          g_intent_mode;
 std::optional<bool> g_pump_save;
 
-void CopyFields(Config &config, const Config &from) {
-    config.window_width = from.window_width;
-    config.window_height = from.window_height;
-    config.fullscreen = from.fullscreen;
+void CopyFields(HostSettings &settings, const HostSettings &from) {
+    settings.window_width = from.window_width;
+    settings.window_height = from.window_height;
+    settings.fullscreen = from.fullscreen;
 }
 
 // Fullscreen keeps the size asked for, which is the window's for later.
-void Describe(Config &config, const WindowMode &mode) {
-    config.fullscreen = mode.fullscreen;
+void Describe(HostSettings &settings, const WindowMode &mode) {
+    settings.fullscreen = mode.fullscreen;
     if (!mode.fullscreen) {
-        config.window_width = mode.width;
-        config.window_height = mode.height;
+        settings.window_width = mode.width;
+        settings.window_height = mode.height;
     }
 }
 
 // Makes the fields what the window already is, without asking anything of it.
-bool Reconcile(const Config &config) {
+bool Reconcile(const HostSettings &settings) {
     struct Scope {
         Scope() { g_reconciling = true; }
 
         ~Scope() { g_reconciling = false; }
     } scope;
 
-    return ConfigChange(config);
+    return SettingsChange(settings);
 }
 
 } // namespace
@@ -62,16 +62,16 @@ void DisplaySetOverrides(int width, int height, bool headless) {
     g_override_headless = headless;
 }
 
-WindowConfig DisplayWindowConfig(const Config &config) {
+WindowConfig DisplayWindowConfig(const HostSettings &settings) {
     WindowConfig window;
-    window.width = g_override_width > 0 ? g_override_width : config.window_width;
-    window.height = g_override_height > 0 ? g_override_height : config.window_height;
-    window.fullscreen = config.fullscreen;
+    window.width = g_override_width > 0 ? g_override_width : settings.window_width;
+    window.height = g_override_height > 0 ? g_override_height : settings.window_height;
+    window.fullscreen = settings.fullscreen;
     window.headless = g_override_headless;
     return window;
 }
 
-void DisplayChanged(const Config &before, const Config &after) {
+void DisplayChanged(const HostSettings &before, const HostSettings &after) {
     if (g_reconciling || (after.window_width == before.window_width && after.window_height == before.window_height &&
                           after.fullscreen == before.fullscreen)) {
         return;
@@ -79,10 +79,10 @@ void DisplayChanged(const Config &before, const Config &after) {
     g_report = g_ops.set_mode(DisplayWindowConfig(after));
 }
 
-bool DisplayApply(const Config &config) {
-    Config before = ConfigGet();
+bool DisplayApply(const std::function<bool()> &change) {
+    HostSettings before = SettingsGet();
     g_report.reset();
-    bool                            saved = ConfigChange(config);
+    bool                            saved = change();
     std::optional<WindowModeResult> report = std::exchange(g_report, std::nullopt);
     if (!report) {
         return saved;
@@ -95,14 +95,14 @@ bool DisplayApply(const Config &config) {
     if (g_outstanding == report->observed.fullscreen) {
         g_outstanding.reset();
     }
-    g_intent = ConfigGet();
+    g_intent = SettingsGet();
     g_intent_mode = report->requested;
     g_shown = report->observed;
     if (report->Applied()) {
         g_warning = DisplayWarning::None;
         return saved;
     }
-    Config fields = ConfigGet();
+    HostSettings fields = SettingsGet();
     if (report->observed == report->before) {
         g_warning = DisplayWarning::Kept;
         CopyFields(fields, before);
@@ -126,7 +126,7 @@ void DisplayPump() {
         return;
     }
     g_shown = observed;
-    Config fields = ConfigGet();
+    HostSettings fields = SettingsGet();
     CopyFields(fields, g_intent);
     if (observed == g_intent_mode) {
         g_warning = DisplayWarning::None;
