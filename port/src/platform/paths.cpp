@@ -27,6 +27,7 @@ std::optional<fs::path> save_override;
 std::optional<fs::path> data_root;
 std::optional<fs::path> save_root;
 fs::path                program;
+PathsConfig             config;
 
 fs::path ExecutableDirectory() { return PathsExecutable().parent_path(); }
 
@@ -65,7 +66,7 @@ fs::path Installed(const char *name) {
     fs::path base;
 #ifdef _WIN32
     if (std::optional<fs::path> local = FromEnvironment("LOCALAPPDATA")) {
-        return *local / "chronicle" / name;
+        return *local / config.app_dir / name;
     }
 #endif
     if (std::optional<fs::path> xdg = FromEnvironment("XDG_DATA_HOME"); xdg && xdg->is_absolute()) {
@@ -76,7 +77,7 @@ fs::path Installed(const char *name) {
         std::error_code error;
         return fs::current_path(error) / name;
     }
-    return base / "chronicle" / name;
+    return base / config.app_dir / name;
 }
 
 fs::path Absolute(const fs::path &path) {
@@ -86,6 +87,8 @@ fs::path Absolute(const fs::path &path) {
 }
 
 } // namespace
+
+void PathsConfigure(const PathsConfig &settings) { config = settings; }
 
 fs::path PathsExecutable() {
     std::error_code error;
@@ -175,7 +178,7 @@ void PathsSetSaveRoot(const fs::path &root) {
 
 const fs::path &PathsDataRoot() {
     if (!data_root) {
-        std::optional<fs::path> chosen = data_override ? data_override : FromEnvironment("DC_DATA");
+        std::optional<fs::path> chosen = data_override ? data_override : FromEnvironment(config.env_data.c_str());
         data_root = Absolute(chosen.value_or(Local("data").value_or(Installed("data"))));
     }
     return *data_root;
@@ -187,7 +190,7 @@ const fs::path &PathsSaveRoot() {
     if (save_root) {
         return *save_root;
     }
-    std::optional<fs::path> chosen = save_override ? save_override : FromEnvironment("DC_SAVE");
+    std::optional<fs::path> chosen = save_override ? save_override : FromEnvironment(config.env_save.c_str());
     std::vector<fs::path>   candidates;
     if (chosen) {
         candidates.push_back(Absolute(*chosen));

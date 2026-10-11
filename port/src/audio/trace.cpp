@@ -2,13 +2,14 @@
 
 #include <cstdarg>
 #include <cstdio>
-#include <cstdlib>
+
+#include "platform/settings.hpp"
 
 namespace audio {
 
 bool TraceEnabled() {
     static const bool enabled = [] {
-        const char *setting = std::getenv("DC_AUDIO_TRACE");
+        const char *setting = SettingsEnv("AUDIO_TRACE");
         return setting != nullptr && *setting != '\0' && *setting != '0';
     }();
     return enabled;

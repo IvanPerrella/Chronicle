@@ -43,7 +43,7 @@ WindowConfig DisplayWindowConfig(const HostSettings &settings);
 // nothing of the window, whatever the overrides make of its fields.
 void DisplayChanged(const HostSettings &before, const HostSettings &after);
 
-// Runs change, which applies a settings change through SettingsChange, then the display fields made
+// Runs change (the game's own settings change), then the display fields made
 // the window's mode where the window did not take the one asked for. Returns whether the settings
 // are saved.
 bool DisplayApply(const std::function<bool()> &change);

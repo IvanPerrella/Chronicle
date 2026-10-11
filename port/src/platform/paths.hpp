@@ -21,6 +21,14 @@ inline std::string PathsDisplay(const std::filesystem::path &path) {
 #endif
 }
 
+struct PathsConfig {
+    std::string app_dir;   // per-user directory name
+    std::string env_data;  // environment variable naming the data root
+    std::string env_save;  // environment variable naming the save root
+};
+
+void PathsConfigure(const PathsConfig &config);
+
 // Removes --data <dir>, --data=<dir>, --save <dir> and --save=<dir> from argv, keeping the order of
 // the rest, and returns the new argc.
 int PathsConsumeArgs(int argc, char **argv);

@@ -14,7 +14,7 @@ bool SoundtrackEnsure();
 // soundtrack/soundtrack.json beside save/ and data/ names recordings to play instead of sequences:
 //   {"version": 1, "overrides": {"e01a_a.sq": {"file": "norune.ogg", "gain": 1.0,
 //                                            "loop": true, "loop_start": 12.5, "loop_end": 150.0}}}
-// Keys are the original sequence filenames (DC_AUDIO_TRACE=1 prints them). Times are seconds.
+// Keys are the original sequence filenames (<prefix>_AUDIO_TRACE=1 prints them). Times are seconds.
 // Files are decoded when their song first starts.
 //
 // The recording for a sequence while the soundtrack option is on, or null: the option is off, the

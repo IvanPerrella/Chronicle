@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "gfx/gfx.hpp"
-#include "icon/chronicle.hpp"
 
 namespace {
 
@@ -18,6 +17,7 @@ SDL_Window                              *g_window = nullptr;
 bool                                     g_headless = false;
 bool                                     g_mode_event = false;
 std::vector<void (*)(const SDL_Event &)> g_hooks;
+WindowIdentity                          g_identity;
 
 [[noreturn]] void Fatal(const char *what) {
     std::fprintf(stderr, "%s: %s\n", what, SDL_GetError());
@@ -56,8 +56,10 @@ Placement Place(const WindowConfig &config, SDL_DisplayID display) {
 
 } // namespace
 
+void WindowSetIdentity(const WindowIdentity &identity) { g_identity = identity; }
+
 void WindowInit(const WindowConfig &config) {
-    SDL_SetAppMetadata("Dark Cloud", nullptr, "dcdecomp.darkcloud");
+    SDL_SetAppMetadata(g_identity.title, nullptr, g_identity.app_id);
     g_headless = config.headless;
     if (config.headless) {
 #ifdef _WIN32
@@ -85,7 +87,7 @@ void WindowInit(const WindowConfig &config) {
         flags |= SDL_WINDOW_FULLSCREEN;
     }
     SDL_PropertiesID props = SDL_CreateProperties();
-    SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, "Dark Cloud");
+    SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, g_identity.title);
     SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, placement.width);
     SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, placement.height);
     SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_FLAGS_NUMBER, static_cast<Sint64>(flags));
@@ -96,11 +98,13 @@ void WindowInit(const WindowConfig &config) {
     if (g_window == nullptr) {
         Fatal("SDL_CreateWindow");
     }
-    SDL_Surface *icon = SDL_CreateSurfaceFrom(kIconSize, kIconSize, SDL_PIXELFORMAT_RGBA32,
-                                              const_cast<std::uint8_t *>(kIconRgba), kIconSize * 4);
-    if (icon != nullptr) {
-        SDL_SetWindowIcon(g_window, icon);
-        SDL_DestroySurface(icon);
+    if (g_identity.icon_rgba != nullptr) {
+        SDL_Surface *icon = SDL_CreateSurfaceFrom(g_identity.icon_size, g_identity.icon_size, SDL_PIXELFORMAT_RGBA32,
+                                                  const_cast<std::uint8_t *>(g_identity.icon_rgba), g_identity.icon_size * 4);
+        if (icon != nullptr) {
+            SDL_SetWindowIcon(g_window, icon);
+            SDL_DestroySurface(icon);
+        }
     }
 }
 

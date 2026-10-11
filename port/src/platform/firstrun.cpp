@@ -23,6 +23,7 @@
 #include "exitcodes.hpp"
 #include "gfx/gfx.hpp"
 #include "overlay.hpp"
+#include "settings.hpp"
 #include "paths.hpp"
 #include "screen.hpp"
 #include "window.hpp"
@@ -482,6 +483,7 @@ void FirstRunIfNoData(bool headless) {
     renderer.display_aspect = 4.0f / 3.0f;
     renderer.pipeline_cache = PathsSaveRoot() / "pipeline_cache.bin";
     renderer.offscreen = offscreen;
+    renderer.validation = renderer.validation || SettingsEnv("VULKAN_VALIDATION") != nullptr;
     gfx::RendererInit(WindowHandle(), renderer);
 
     FirstRunOutcome         outcome;

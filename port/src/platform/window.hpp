@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -43,6 +44,17 @@ struct WindowModeResult {
 
     bool Applied() const { return observed == requested; }
 };
+
+// What the window is called: its title, SDL's app identifier and its icon (icon_size x icon_size
+// RGBA8). A null icon_rgba leaves the icon unset.
+struct WindowIdentity {
+    const char         *title = "";
+    const char         *app_id = nullptr;
+    const std::uint8_t *icon_rgba = nullptr;
+    int                 icon_size = 0;
+};
+
+void WindowSetIdentity(const WindowIdentity &identity);
 
 // Starts SDL's video subsystem and opens the window. On Windows a headless Vulkan window is hidden.
 // Elsewhere headless uses SDL's offscreen driver, which gives Vulkan a VK_EXT_headless_surface, and

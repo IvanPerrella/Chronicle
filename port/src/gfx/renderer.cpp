@@ -107,7 +107,7 @@ void CreateInstance() {
     }
     std::vector<const char *> layers;
 
-    bool wanted = g.config.validation || SDL_getenv("DC_VULKAN_VALIDATION") != nullptr;
+    bool wanted = g.config.validation;
 #ifdef NDEBUG
     wanted = false;
 #endif
@@ -124,7 +124,7 @@ void CreateInstance() {
     app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app.pApplicationName = g.config.app_name;
     app.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    app.pEngineName = "dcdecomp";
+    app.pEngineName = "Kazarov";
     app.engineVersion = VK_MAKE_VERSION(1, 0, 0);
     app.apiVersion = VK_API_VERSION_1_4;
 

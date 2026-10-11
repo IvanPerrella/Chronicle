@@ -20,7 +20,7 @@ else is internal. No game header is reachable from here: `platform/`, `gfx/` and
 - `config.offscreen` renders without a surface or swapchain: each frame is drawn to the main target
   alone, at the window's pixel size, and `EndFrame` submits it and presents nothing. `ReadbackFrame`,
   `SnapshotFrame`, `kPreviousFrame`, depth queries and resizes behave as with a swapchain, so a
-  headless run reads back the same pixels. `darkcloud --headless` uses it when the Vulkan loader has
+  headless run reads back the same pixels. a game's `--headless` run uses it when the Vulkan loader has
   no `VK_EXT_headless_surface` (SDL's offscreen driver cannot then make a Vulkan window), and
   `--offscreen` forces it.
 - `RendererResize()` after the window's pixel size changes (`WindowPollEvents` does it); the
@@ -32,12 +32,12 @@ else is internal. No game header is reachable from here: `platform/`, `gfx/` and
 
 ## Spaces
 
-- **Logical space** is the game's `RendererConfig::logical_width` x `logical_height` (Dark Cloud:
+- **Logical space** is the game's `RendererConfig::logical_width` x `logical_height` (e.g.
   640x480), y down. `Draw2D` vertices, `DrawState::scissor_rect`, `Clear` rects, `ReadDepth` rects
   and copy rects on `kMainTarget`/`kPreviousFrame` are in it. `LogicalWidth()`, `LogicalHeight()`
   and `LogicalFrame()` return it once `RendererInit` has run.
 - On the **main target** (window pixel size) the logical frame is the largest rect of aspect
-  `RendererConfig::display_aspect` (Dark Cloud: 4:3) that fits the window, centred with whole-pixel
+  `RendererConfig::display_aspect` (e.g. 4:3) that fits the window, centred with whole-pixel
   offsets. Logical space is scaled to it per axis. Coordinates outside the frame reach past it;
   nothing clips to the displayed area unless a scissor says so. `GetLogicalMapping(target)` returns
   `pixel = logical * scale + offset`. What the window shows past the frame depends on the frame
