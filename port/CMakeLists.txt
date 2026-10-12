@@ -176,6 +176,13 @@ kz_port_sce_sources(DC_SCE_SOURCES LIBS libvu0 libpad libmc sifdev sifrpc eekern
 add_library(dc_port OBJECT ${PORT_LIB_SOURCES} ${DC_SCE_SOURCES})
 target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json kz_port_headers)
 target_include_directories(dc_port PRIVATE ${PORT_DIR} ${SHADER_HEADER_DIR})
+# captionfont.cpp rasterizes with stb_truetype, which Kazarov stages (or fetches) for dc_host.
+get_target_property(dc_host_includes dc_host INCLUDE_DIRECTORIES)
+foreach(include_dir IN LISTS dc_host_includes)
+    if(EXISTS ${include_dir}/stb_truetype.h)
+        target_include_directories(dc_port PRIVATE ${include_dir})
+    endif()
+endforeach()
 # The game's headers trip a few warnings that only describe how MWCC's source
 # was written, not a problem in the port.
 target_compile_options(dc_port PRIVATE -Wall -Wno-mismatched-tags -Wno-unused-label

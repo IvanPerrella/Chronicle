@@ -117,7 +117,7 @@ void DrawCardSprite(PortTextureRef ref, bool with_lettering) {
     gfx::DrawState state;
     state.blend = true;
     state.alpha = gfx::GsBlend{0, 1, 0, 1, 0};
-    gfx::Draw2D(gfx::Primitive::Quads, quad, ref.binding, state);
+    textwipe::Draw2D(gfx::Primitive::Quads, quad, ref.binding, state);
     if (with_lettering && sprite.texture == &nl_tex && texel.x == 0 && texel.y == 0 &&
         texel.width == static_cast<int>(sprite.texture->width) && texel.height == static_cast<int>(sprite.texture->height)) {
         areacard::Draw(x0, y0, x1, y1, static_cast<float>(sprite.alpha) / 128.0f);

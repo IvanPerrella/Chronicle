@@ -1,11 +1,14 @@
 #pragma once
 
 #include <functional>
+#include <span>
+
+#include "gfx/gfx.hpp"
 
 // A developer tool for the text the port draws at runtime instead of as pictures: a line down the screen
 // with the old look on its left (the text as the game paints it: bitmaps and the pictures of words) and
 // the new on its right (text from font.ttf and the language's JSON). Every place that has both looks draws
-// both through Both(), each cut to its side of the line (gfx::SetDrawClip); with the tool off, Both() draws only the
+// both through Both(), each cut to its side of the line (Draw2D below); with the tool off, Both() draws only the
 // runtime text, as the game does. See docs/TEXTWIPE.md for the list of places.
 //
 // It is there only with `game.text_wipe` on in config.json (off by default): off, none of its keys do anything, Both() draws
@@ -100,5 +103,10 @@ void Both(const std::function<void(bool runtime)> &draw);
 
 /// The line itself and its two labels, on top of the frame. Does nothing while off.
 void DrawDivider();
+
+// gfx::Draw2D for the text the wipe compares: inside Both() it cuts the draw to its side of the line or tints it
+// (overlay mode); outside, it is gfx::Draw2D. The places that have both looks draw through it.
+void Draw2D(gfx::Primitive primitive, std::span<const gfx::Vertex2D> vertices, const gfx::TextureBinding &binding,
+            const gfx::DrawState &state);
 
 } // namespace textwipe

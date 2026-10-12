@@ -8,6 +8,7 @@
 #include "draw2d_port.hpp"
 #include "platform/config.hpp"
 #include "text_shadow.hpp"
+#include "textwipe.hpp"
 
 namespace {
 
@@ -96,7 +97,7 @@ bool GlyphDrawSlot(glyphs::Button button, const CRect_i_ &slot, int alpha, float
         });
     }
     add(0.0f, 0.0f, 0x80, 0x80, 0x80, a);
-    gfx::Draw2D(gfx::Primitive::Quads, quad, image.binding, draw2d::SpriteState());
+    textwipe::Draw2D(gfx::Primitive::Quads, quad, image.binding, draw2d::SpriteState());
     draw2d::RestoreTestZbuf();
     return true;
 }

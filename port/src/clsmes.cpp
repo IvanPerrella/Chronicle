@@ -735,13 +735,13 @@ PORT_OVERRIDE void ClsMes::MakeFukidashi(sceVif1Packet *packet) {
             draw2d::Vertex(kScreenWidth, fill_bottom, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0),
             draw2d::Vertex(0.0f, fill_bottom, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0),
         };
-        gfx::Draw2D(gfx::Primitive::Quads, fill, {}, state);
+        textwipe::Draw2D(gfx::Primitive::Quads, fill, {}, state);
 
         gfx::DrawState fans = state;
         fans.depth_write = true;
         for (const Shape &shape : g_shapes) {
             if (shape.vertices.size() >= 3) {
-                gfx::Draw2D(shape.primitive, shape.vertices, {}, fans);
+                textwipe::Draw2D(shape.primitive, shape.vertices, {}, fans);
             }
         }
 
@@ -1272,9 +1272,9 @@ PORT_OVERRIDE void ClsMes::DrawMesWin() {
         if (!ttf_fills.empty()) {
             const gfx::TextureBinding binding = ttffont::Binding();
             if (!ttf_edges.empty()) {
-                gfx::Draw2D(gfx::Primitive::Quads, ttf_edges, binding, draw2d::SpriteState());
+                textwipe::Draw2D(gfx::Primitive::Quads, ttf_edges, binding, draw2d::SpriteState());
             }
-            gfx::Draw2D(gfx::Primitive::Quads, ttf_fills, binding, draw2d::SpriteState());
+            textwipe::Draw2D(gfx::Primitive::Quads, ttf_fills, binding, draw2d::SpriteState());
             draw2d::RestoreTestZbuf();
         }
     };

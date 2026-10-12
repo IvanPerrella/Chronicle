@@ -13,7 +13,7 @@
 #include "menu_draw.hpp"
 #include "menuetc.hpp"
 #include "gametext.hpp"
-#include "platform/ttffont.hpp"
+#include "captionfont.hpp"
 #include "texture_port.hpp"
 #include "textwipe.hpp"
 
@@ -59,24 +59,24 @@ bool FontReady() {
     static bool tried = false;
     if (!tried) {
         tried = true;
-        if (!ttffont::Loaded()) {
+        if (!capfont::Loaded()) {
             std::filesystem::path file = LocalizeFindFile("font.ttf");
             if (!file.empty()) {
-                ttffont::Load(file);
+                capfont::Load(file);
             }
         }
     }
-    if (ttffont::Loaded() && !ttffont::VariantLoaded()) {
+    if (capfont::Loaded() && !capfont::VariantLoaded()) {
         static bool tried_thin = false;
         if (!tried_thin) {
             tried_thin = true;
             const std::filesystem::path thin = LocalizeFindFile("font_thin.ttf");
-            if (!thin.empty() && ttffont::LoadVariant(thin)) {
+            if (!thin.empty() && capfont::LoadVariant(thin)) {
                 std::fprintf(stderr, "font: thin variant from %s\n", thin.string().c_str());
             }
         }
     }
-    return ttffont::Loaded();
+    return capfont::Loaded();
 }
 
 // The upper case of a letter the font draws as a capital: ASCII and the Latin-1 letters the PAL languages use.
@@ -146,12 +146,12 @@ float Natural(const std::u32string &text, float em, float scale_x) {
     const int em_px = std::max(4, static_cast<int>(em * scale_x + 0.5f));
     float     total = 0.0f;
     for (char32_t ch : text) {
-        ttffont::Glyph glyph;
+        capfont::Glyph glyph;
         if (ch == U' ') {
             total += em * 0.32f + tune.word;
             continue;
         }
-        if (!ttffont::GetGlyph(ch, em_px, glyph)) {
+        if (!capfont::GetGlyph(ch, em_px, glyph)) {
             total += em * 0.5f;
             continue;
         }
@@ -180,7 +180,7 @@ Layout Lay(std::string_view utf8, float box_width) {
     return layout;
 }
 
-void Quad(std::vector<gfx::Vertex2D> &out, const ttffont::Glyph &glyph, float x, float y, float width, float height,
+void Quad(std::vector<gfx::Vertex2D> &out, const capfont::Glyph &glyph, float x, float y, float width, float height,
           const unsigned char (&rgb)[3], int alpha) {
     // The shader modulates by 255/128, so half the colour is what shows it.
     const u_char r = static_cast<u_char>(rgb[0] / 2), g = static_cast<u_char>(rgb[1] / 2), b = static_cast<u_char>(rgb[2] / 2);
@@ -206,7 +206,7 @@ bool Ready() {
 }
 
 bool ThinReady() {
-    return FontReady() && ttffont::VariantLoaded();
+    return FontReady() && capfont::VariantLoaded();
 }
 
 void BlankPainted(const char *name, PortDecodedTexture &texture) {
@@ -302,7 +302,7 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
 
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
     const float               rows = draw2d::RowScale();
-    const ttffont::Metrics    metrics = ttffont::GetMetrics();
+    const capfont::Metrics    metrics = capfont::GetMetrics();
     const int                 em_px = std::max(4, static_cast<int>(layout.em * mapping.scale_x + 0.5f));
     const int                 outline_px = std::max(1, static_cast<int>(kOutlineWidth * mapping.scale_x + 0.5f));
 
@@ -316,18 +316,18 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
     std::vector<gfx::Vertex2D> edges, fills;
     float                      pen = static_cast<float>(x) + tune.dx;
     for (char32_t ch : layout.text) {
-        ttffont::Glyph fill;
+        capfont::Glyph fill;
         if (ch == U' ') {
             pen += (layout.em * 0.32f + tune.word) * layout.squeeze;
             continue;
         }
-        if (!ttffont::GetGlyph(ch, em_px, fill)) {
+        if (!capfont::GetGlyph(ch, em_px, fill)) {
             pen += layout.em * 0.5f * layout.squeeze;
             continue;
         }
-        ttffont::Glyph edge;
-        const bool     has_edge = ttffont::GetOutlinedGlyph(ch, em_px, outline_px, edge);
-        auto           place = [&](const ttffont::Glyph &glyph, std::vector<gfx::Vertex2D> &out, const unsigned char (&rgb)[3], float shift_x = 0.0f, float shift_y = 0.0f) {
+        capfont::Glyph edge;
+        const bool     has_edge = capfont::GetOutlinedGlyph(ch, em_px, outline_px, edge);
+        auto           place = [&](const capfont::Glyph &glyph, std::vector<gfx::Vertex2D> &out, const unsigned char (&rgb)[3], float shift_x = 0.0f, float shift_y = 0.0f) {
             if (glyph.width <= 0 || glyph.height <= 0) {
                 return;
             }
@@ -353,11 +353,11 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
         pen += (fill.width / mapping.scale_x * tune.xscale + layout.em * 0.1f + tune.letter) * layout.squeeze;
     }
     if (!fills.empty()) {
-        const gfx::TextureBinding binding = ttffont::Binding();
+        const gfx::TextureBinding binding = capfont::Binding();
         if (!edges.empty()) {
-            gfx::Draw2D(gfx::Primitive::Quads, edges, binding, draw2d::SpriteState());
+            textwipe::Draw2D(gfx::Primitive::Quads, edges, binding, draw2d::SpriteState());
         }
-        gfx::Draw2D(gfx::Primitive::Quads, fills, binding, draw2d::SpriteState());
+        textwipe::Draw2D(gfx::Primitive::Quads, fills, binding, draw2d::SpriteState());
         draw2d::RestoreTestZbuf();
     }
     return true;
@@ -370,10 +370,10 @@ std::vector<LetterWidth> LetterWidths(std::string_view utf8) {
     }
     constexpr int kEmPx = 64;
     for (char32_t ch : Decode(utf8)) {
-        ttffont::Glyph glyph;
+        capfont::Glyph glyph;
         if (ch == U' ') {
             out.push_back({kEmPx * 0.3f, true});
-        } else if (ttffont::GetGlyph(ch, kEmPx, glyph) && glyph.width > 0) {
+        } else if (capfont::GetGlyph(ch, kEmPx, glyph) && glyph.width > 0) {
             out.push_back({static_cast<float>(glyph.width), false});
         }
     }
@@ -387,11 +387,11 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     }
     // The thin variant for as long as this line is drawn.
     struct Variant {
-        explicit Variant(bool on) { ttffont::UseVariant(on); }
-        ~Variant() { ttffont::UseVariant(false); }
+        explicit Variant(bool on) { capfont::UseVariant(on); }
+        ~Variant() { capfont::UseVariant(false); }
     } variant(style.thin);
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
-    const ttffont::Metrics    metrics = ttffont::GetMetrics();
+    const capfont::Metrics    metrics = capfont::GetMetrics();
     const std::u32string      text = Decode(utf8);
     float                     em = cap_height / std::max(0.2f, metrics.cap);
     int                       em_px = std::clamp(static_cast<int>(em * mapping.scale_x + 0.5f), 4, 512);
@@ -402,8 +402,8 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         for (int pass = 0; pass < 2; pass++) {
             float top = 1e9f, bottom = -1e9f;
             for (char32_t ch : text) {
-                ttffont::Glyph glyph;
-                if (ch != U' ' && ttffont::GetGlyph(ch, em_px, glyph) && glyph.width > 0) {
+                capfont::Glyph glyph;
+                if (ch != U' ' && capfont::GetGlyph(ch, em_px, glyph) && glyph.width > 0) {
                     top = std::min(top, static_cast<float>(glyph.y_offset));
                     bottom = std::max(bottom, static_cast<float>(glyph.y_offset + glyph.height));
                 }
@@ -422,7 +422,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     const float               gap = cap_height * 0.075f + style.letter;
 
     struct Letter {
-        ttffont::Glyph fill;
+        capfont::Glyph fill;
         char32_t       ch;
         bool           blank;
     };
@@ -434,7 +434,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         if (ch == U' ') {
             letter.blank = true;
             natural += cap_height * 0.32f + style.word;
-        } else if (ttffont::GetGlyph(ch, em_px, letter.fill) && letter.fill.width > 0) {
+        } else if (capfont::GetGlyph(ch, em_px, letter.fill) && letter.fill.width > 0) {
             natural += letter.fill.width / mapping.scale_x * style.xscale + gap;
         } else {
             continue;
@@ -458,7 +458,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     const int   glow_px = style.glow_amount > 0.0f ? std::clamp(static_cast<int>(style.glow_width * mapping.scale_x + 0.5f), 0, 60) : 0;
 
     // Where a letter's quad lies (x, y, width, height in logical units), snapped to whole pixels.
-    auto rect_of = [&](const ttffont::Glyph &glyph, const ttffont::Glyph &fill, float pen, float &x, float &y, float &w, float &h) {
+    auto rect_of = [&](const capfont::Glyph &glyph, const capfont::Glyph &fill, float pen, float &x, float &y, float &w, float &h) {
         w = glyph.width / mapping.scale_x * squeeze * style.xscale;
         h = glyph.height / mapping.scale_y * rows * style.yscale;
         x = pen + (glyph.x_offset - fill.x_offset) / mapping.scale_x * squeeze * style.xscale;
@@ -468,15 +468,15 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     };
     // A letter filled from the field: its coverage with each pixel's colour taken from the field where the pixel lies on the
     // card, kept in the atlas by where and how big it is drawn (made again when that changes or the atlas starts again).
-    static std::map<std::array<int, 9>, ttffont::Glyph> textured;
+    static std::map<std::array<int, 9>, capfont::Glyph> textured;
     static unsigned                                      textured_generation = 0;
-    auto textured_letter = [&](const Letter &letter, size_t index, float pen, ttffont::Glyph &out) {
+    auto textured_letter = [&](const Letter &letter, size_t index, float pen, capfont::Glyph &out) {
         if (style.field == nullptr || style.field->width <= 0 || style.field->rgb.size() < static_cast<size_t>(style.field->width) * style.field->height * 3) {
             return false;
         }
-        if (textured_generation != ttffont::Generation() || textured.size() > 96) {
+        if (textured_generation != capfont::Generation() || textured.size() > 96) {
             textured.clear();
-            textured_generation = ttffont::Generation();
+            textured_generation = capfont::Generation();
         }
         float x, y, w, h;
         rect_of(letter.fill, letter.fill, pen, x, y, w, h);
@@ -490,7 +490,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         }
         std::vector<unsigned char> coverage;
         int                        gw, gh, gx0, gy0;
-        if (!ttffont::RenderGlyph(letter.ch, em_px, coverage, gw, gh, gx0, gy0) || gw <= 0 || gh <= 0 ||
+        if (!capfont::RenderGlyph(letter.ch, em_px, coverage, gw, gh, gx0, gy0) || gw <= 0 || gh <= 0 ||
             gw != static_cast<int>(letter.fill.width) || gh != static_cast<int>(letter.fill.height)) {
             return false;
         }
@@ -514,8 +514,8 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
                 texel[3] = coverage[static_cast<size_t>(j) * gw + i];
             }
         }
-        ttffont::Glyph image;
-        if (!ttffont::AddImage(rgba, gw, gh, image)) {
+        capfont::Glyph image;
+        if (!capfont::AddImage(rgba, gw, gh, image)) {
             return false;
         }
         image.x_offset = letter.fill.x_offset;
@@ -525,7 +525,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         out = image;
         return true;
     };
-    auto quad = [&](std::vector<gfx::Vertex2D> &out, const ttffont::Glyph &glyph, const ttffont::Glyph &fill, float pen,
+    auto quad = [&](std::vector<gfx::Vertex2D> &out, const capfont::Glyph &glyph, const capfont::Glyph &fill, float pen,
                     const unsigned char (&rgb)[3], int alpha, float shift_x = 0.0f, float shift_y = 0.0f) {
         if (glyph.width <= 0 || glyph.height <= 0) {
             return;
@@ -569,11 +569,11 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
             squeeze = std::clamp(slot_width / std::max(ink, 0.01f), 0.8f, 1.12f);
             pen = place[0] + (slot_width - ink * squeeze) / 2;
         }
-        ttffont::Glyph extra;
-        if (glow_px > 0 && ttffont::GetOutlinedGlyph(letter.ch, em_px, glow_px, extra)) {
+        capfont::Glyph extra;
+        if (glow_px > 0 && capfont::GetOutlinedGlyph(letter.ch, em_px, glow_px, extra)) {
             quad(glows, extra, letter.fill, pen, style.glow, static_cast<int>(0x80 * std::min(1.0f, style.glow_amount) * 0.55f));
         }
-        if (edge_px > 0 && ttffont::GetOutlinedGlyph(letter.ch, em_px, edge_px, extra)) {
+        if (edge_px > 0 && capfont::GetOutlinedGlyph(letter.ch, em_px, edge_px, extra)) {
             quad(edges, extra, letter.fill, pen, style.edge, 0x80);
         }
         if (style.weight > 0.0f) {
@@ -585,7 +585,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         }
         {
             static const unsigned char white[3] = {255, 255, 255};
-            ttffont::Glyph             coloured;
+            capfont::Glyph             coloured;
             if (textured_letter(letter, letter_index, pen, coloured)) {
                 quad(fills, coloured, letter.fill, pen, white, 0x80);
             } else {
@@ -595,10 +595,10 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         letter_index++;
         pen += (letter.fill.width / mapping.scale_x * style.xscale + gap) * squeeze;
     }
-    const gfx::TextureBinding binding = ttffont::Binding();
+    const gfx::TextureBinding binding = capfont::Binding();
     for (std::vector<gfx::Vertex2D> *layer : {&glows, &edges, &fills}) {
         if (!layer->empty()) {
-            gfx::Draw2D(gfx::Primitive::Quads, *layer, binding, draw2d::SpriteState());
+            textwipe::Draw2D(gfx::Primitive::Quads, *layer, binding, draw2d::SpriteState());
         }
     }
     draw2d::RestoreTestZbuf();

@@ -64,7 +64,7 @@ PORT_OVERRIDE void DrawMenu2DSprite(CTexture *texture, CRect_i_ screen, CRect_i_
 // The caption beside an icon is text from the language's JSON when the font is there (caption_text.hpp), a
 // cream fill over a blue outline as sharp as the help line's; texture.cpp blanks the painted words then. The
 // icon and its place are retail's.
-PC_OVERRIDE void DrawMainMenuIcon(int x, int y, int icon, int selected, int bright, int alpha) {
+PORT_OVERRIDE void DrawMainMenuIcon(int x, int y, int icon, int selected, int bright, int alpha) {
     if (StayTex == NULL) {
         StayTex = TexManager.GetTexture("stayframe", -1);
         if (StayTex == NULL) {

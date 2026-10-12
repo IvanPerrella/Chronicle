@@ -655,8 +655,8 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
     }
     gfx::DrawState blended;
     blended.blend = true;
-    gfx::Draw2D(gfx::Primitive::Quads, outline, {}, blended);
-    gfx::Draw2D(gfx::Primitive::Quads, body, {}, blended);
+    textwipe::Draw2D(gfx::Primitive::Quads, outline, {}, blended);
+    textwipe::Draw2D(gfx::Primitive::Quads, body, {}, blended);
 }
 
 } // namespace areacard

@@ -7,9 +7,13 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include <SDL3/SDL.h>
 #include <nlohmann/json.hpp>
 
 #include "gfx/gfx.hpp"
@@ -28,7 +32,49 @@ constexpr double kRestSeconds = 0.8;  // at each end
 bool                                   g_on = false;
 Mode                                   g_mode = Mode::Sweep;
 std::chrono::steady_clock::time_point  g_started;
-float                                  g_divider = gfx::kLogicalWidth;
+float                                  g_divider = 0.0f; // set every tick while the wipe is on
+
+// The named key (InputScancodeFromName) as SDL sees it now; a developer key needs no binding.
+bool DevKeyHeld(std::string_view name) {
+    const int scancode = InputScancodeFromName(name);
+    int       count = 0;
+    const bool *keys = SDL_GetKeyboardState(&count);
+    return keys != nullptr && scancode >= 0 && scancode < count && keys[scancode];
+}
+
+// True once per physical press of the named key; call it once per tick.
+bool DevKeyPressed(std::string_view name) {
+    static std::map<int, bool> held;
+    const int                  scancode = InputScancodeFromName(name);
+    if (scancode < 0) {
+        return false;
+    }
+    bool      &before = held[scancode];
+    const bool now = DevKeyHeld(name);
+    const bool pressed = now && !before;
+    before = now;
+    return pressed;
+}
+
+// What Both() has set for the draws it wraps: a clip (logical space) or a tint (each channel 0 to 1).
+std::optional<gfx::LogicalRect>      g_clip;
+std::optional<std::array<float, 4>> g_tint;
+
+void SetDrawClip(const gfx::LogicalRect *clip) {
+    if (clip != nullptr) {
+        g_clip = *clip;
+    } else {
+        g_clip.reset();
+    }
+}
+
+void SetDrawTint(const float (*tint)[4]) {
+    if (tint != nullptr) {
+        g_tint = std::array<float, 4>{(*tint)[0], (*tint)[1], (*tint)[2], (*tint)[3]};
+    } else {
+        g_tint.reset();
+    }
+}
 
 float Smooth(double t) {
     t = std::clamp(t, 0.0, 1.0);
@@ -173,8 +219,8 @@ Repeater g_minus;
 Repeater g_plus;
 
 void Adjust(int direction, int steps) {
-    const bool   shift = InputDevKeyHeld("Left Shift") || InputDevKeyHeld("Right Shift");
-    const bool   ctrl = InputDevKeyHeld("Left Ctrl") || InputDevKeyHeld("Right Ctrl");
+    const bool   shift = DevKeyHeld("Left Shift") || DevKeyHeld("Right Shift");
+    const bool   ctrl = DevKeyHeld("Left Ctrl") || DevKeyHeld("Right Ctrl");
     const Value &value = kValues[g_value];
     float       &field = g_tuning[static_cast<size_t>(g_kind)].*(value.field);
     if (value.field == &Tuning::fit) {
@@ -194,18 +240,18 @@ float SweepPosition(double seconds) {
     const double cycle = 2.0 * (kSweepSeconds + kRestSeconds);
     double       t = std::fmod(std::max(0.0, seconds), cycle);
     if (t < kRestSeconds) {
-        return gfx::kLogicalWidth;
+        return gfx::LogicalWidth();
     }
     t -= kRestSeconds;
     if (t < kSweepSeconds) {
-        return gfx::kLogicalWidth * (1.0f - Smooth(t / kSweepSeconds));
+        return gfx::LogicalWidth() * (1.0f - Smooth(t / kSweepSeconds));
     }
     t -= kSweepSeconds;
     if (t < kRestSeconds) {
         return 0.0f;
     }
     t -= kRestSeconds;
-    return gfx::kLogicalWidth * Smooth(t / kSweepSeconds);
+    return gfx::LogicalWidth() * Smooth(t / kSweepSeconds);
 }
 
 void Update() {
@@ -213,13 +259,13 @@ void Update() {
         g_on = false;
         return;
     }
-    if (InputDevKeyPressed("F9")) {
+    if (DevKeyPressed("F9")) {
         g_on = !g_on;
         g_started = std::chrono::steady_clock::now();
         g_mode = Mode::Sweep;
         std::fprintf(stderr, "textwipe: %s\n", g_on ? "on (F10 steps the mode)" : "off");
     }
-    if (InputDevKeyPressed("F10") && g_on) {
+    if (DevKeyPressed("F10") && g_on) {
         g_mode = g_mode == Mode::Sweep        ? Mode::ShowBefore
                  : g_mode == Mode::ShowBefore ? Mode::ShowAfter
                  : g_mode == Mode::ShowAfter  ? Mode::Overlay
@@ -230,21 +276,21 @@ void Update() {
     if (!g_on) {
         return;
     }
-    if (InputDevKeyPressed("F11")) {
+    if (DevKeyPressed("F11")) {
         g_kind = (g_kind + 1) % static_cast<int>(Kind::Count);
     }
-    if (InputDevKeyPressed("F12")) {
-        const bool back = InputDevKeyHeld("Left Shift") || InputDevKeyHeld("Right Shift");
+    if (DevKeyPressed("F12")) {
+        const bool back = DevKeyHeld("Left Shift") || DevKeyHeld("Right Shift");
         g_value = (g_value + (back ? kValueCount - 1 : 1)) % kValueCount;
     }
-    if (InputDevKeyPressed("F8")) {
+    if (DevKeyPressed("F8")) {
         g_tuning[static_cast<size_t>(g_kind)] = Locked(static_cast<Kind>(g_kind));
         SaveTuning();
     }
-    if (const int steps = g_minus.Fire(InputDevKeyHeld("-")); steps > 0) {
+    if (const int steps = g_minus.Fire(DevKeyHeld("-")); steps > 0) {
         Adjust(-1, steps);
     }
-    if (const int steps = g_plus.Fire(InputDevKeyHeld("=")); steps > 0) {
+    if (const int steps = g_plus.Fire(DevKeyHeld("=")); steps > 0) {
         Adjust(1, steps);
     }
     switch (g_mode) {
@@ -252,13 +298,13 @@ void Update() {
         g_divider = SweepPosition(std::chrono::duration<double>(std::chrono::steady_clock::now() - g_started).count());
         break;
     case Mode::ShowBefore:
-        g_divider = gfx::kLogicalWidth;
+        g_divider = gfx::LogicalWidth();
         break;
     case Mode::ShowAfter:
         g_divider = 0.0f;
         break;
     case Mode::Overlay:
-        g_divider = gfx::kLogicalWidth;
+        g_divider = gfx::LogicalWidth();
         break;
     }
 }
@@ -340,26 +386,56 @@ void Both(const std::function<void(bool runtime)> &draw) {
         // Both in full: the old in red, the new in cyan, so where they agree the two blend and where they do not a colour shows.
         static const float old_tint[4] = {1.0f, 0.25f, 0.25f, 0.75f};
         static const float new_tint[4] = {0.3f, 1.0f, 1.0f, 0.75f};
-        gfx::SetDrawTint(&old_tint);
+        SetDrawTint(&old_tint);
         draw(false);
-        gfx::SetDrawTint(&new_tint);
+        SetDrawTint(&new_tint);
         draw(true);
-        gfx::SetDrawTint(nullptr);
+        SetDrawTint(nullptr);
         return;
     }
-    const float edge = std::clamp(g_divider, 0.0f, gfx::kLogicalWidth);
+    const float edge = std::clamp(g_divider, 0.0f, gfx::LogicalWidth());
     // A clip touching the logical frame's edge reaches the window's edge past it (gfx's scissors do), so a wide window is split too.
     if (edge > 0.0f) {
-        const gfx::LogicalRect left = {0.0f, 0.0f, edge, gfx::kLogicalHeight};
-        gfx::SetDrawClip(&left);
+        const gfx::LogicalRect left = {0.0f, 0.0f, edge, gfx::LogicalHeight()};
+        SetDrawClip(&left);
         draw(false);
     }
-    if (edge < gfx::kLogicalWidth) {
-        const gfx::LogicalRect right = {edge, 0.0f, gfx::kLogicalWidth - edge, gfx::kLogicalHeight};
-        gfx::SetDrawClip(&right);
+    if (edge < gfx::LogicalWidth()) {
+        const gfx::LogicalRect right = {edge, 0.0f, gfx::LogicalWidth() - edge, gfx::LogicalHeight()};
+        SetDrawClip(&right);
         draw(true);
     }
-    gfx::SetDrawClip(nullptr);
+    SetDrawClip(nullptr);
+}
+
+void Draw2D(gfx::Primitive primitive, std::span<const gfx::Vertex2D> vertices, const gfx::TextureBinding &binding,
+            const gfx::DrawState &state) {
+    if (g_tint) {
+        std::vector<gfx::Vertex2D> tinted(vertices.begin(), vertices.end());
+        for (gfx::Vertex2D &vertex : tinted) {
+            for (int c = 0; c < 4; c++) {
+                vertex.color[c] = static_cast<uint8_t>(std::clamp(vertex.color[c] * (*g_tint)[c] + 0.5f, 0.0f, 255.0f));
+            }
+        }
+        gfx::Draw2D(primitive, tinted, binding, state);
+        return;
+    }
+    if (g_clip) {
+        gfx::DrawState clipped = state;
+        const gfx::LogicalRect own = state.scissor ? state.scissor_rect : gfx::LogicalFrame();
+        const float            left = std::max(own.x, g_clip->x);
+        const float            top = std::max(own.y, g_clip->y);
+        const float            right = std::min(own.x + own.w, g_clip->x + g_clip->w);
+        const float            bottom = std::min(own.y + own.h, g_clip->y + g_clip->h);
+        if (right <= left || bottom <= top) {
+            return;
+        }
+        clipped.scissor = true;
+        clipped.scissor_rect = {left, top, right - left, bottom - top};
+        gfx::Draw2D(primitive, vertices, binding, clipped);
+        return;
+    }
+    gfx::Draw2D(primitive, vertices, binding, state);
 }
 
 void DrawDivider() {
@@ -368,7 +444,7 @@ void DrawDivider() {
     }
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::kMainTarget);
     const int                 pixel = OverlayPixelSize(gfx::GetLogicalMapping(gfx::kMainTarget));
-    const float               x = std::clamp(g_divider, 0.0f, gfx::kLogicalWidth);
+    const float               x = std::clamp(g_divider, 0.0f, gfx::LogicalWidth());
     const float               half = 1.0f / std::max(0.5f, mapping.scale_x) * static_cast<float>(pixel);
     auto                      vertex = [](float vx, float vy, unsigned char grey) {
         return gfx::Vertex2D{vx, vy, 0.0f, 0.0f, 0.0f, {grey, grey, grey, 0x80}};
@@ -380,8 +456,8 @@ void DrawDivider() {
         const float h = half * w;
         line.push_back(vertex(x - h, 0.0f, grey));
         line.push_back(vertex(x + h, 0.0f, grey));
-        line.push_back(vertex(x + h, gfx::kLogicalHeight, grey));
-        line.push_back(vertex(x - h, gfx::kLogicalHeight, grey));
+        line.push_back(vertex(x + h, gfx::LogicalHeight(), grey));
+        line.push_back(vertex(x - h, gfx::LogicalHeight(), grey));
     }
     if (g_mode != Mode::Overlay) {
         gfx::Draw2D(gfx::Primitive::Quads, line, {}, state);
