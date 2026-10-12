@@ -924,6 +924,10 @@ shape. With `video.aspect` `auto` the rest of the window is not bars:
   scene) is stretched to the window's edges instead, so it no longer leaves the
   frame's sides bare; textured HUD pieces and 4:3 pictures that do not cover the
   whole frame (the floor select's backdrop, 640x448 at y 16) are not.
+  Since Kazarov `5bec132` the flanks sample with clamped wrap whatever the
+  draw's wrap, so a full-frame draw of a repeating texture repeats its edge
+  texels past the frame instead of tiling there (no seam at the frame's
+  border); 4:3 windows are unchanged.
   `video.ui_scale` scales the depthless 2D about the window's centre.
 - **HUD.** The pieces that sit by an edge of the frame keep their distance to
   that edge of the window instead, at their own size (`gfx::UiAnchor`,
