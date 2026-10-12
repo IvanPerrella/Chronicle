@@ -1468,7 +1468,7 @@ The hit areas are the places the pages draw their brackets at (`ItemMenuModeDraw
 `SetPacketReadBuffer` (`dataset.cpp`, `dataalloc2_1.cpp`) give each arena its
 own block, an ordinary anonymous mapping wherever the system puts it
 (`tools/kazarov/port/platform/memory.hpp`), sized at four times the quadwords retail
-asked for (`kArenaHeadroom`, `port/src/arena.hpp`), because the game sizes
+asked for (`kArenaHeadroom`, `tools/kazarov/port/platform/arena.hpp`, shared with Dark Chronicle), because the game sizes
 allocations with the host's larger `sizeof`s. A guard page follows each
 block, and an overflow aborts naming the arena instead of retail's endless
 loop. A debug build stops when no block lies above 4 GiB, so a mapping that
