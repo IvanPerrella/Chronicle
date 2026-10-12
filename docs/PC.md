@@ -203,8 +203,13 @@ the player steps and draws (retail: the two nearest in front of the camera,
 within 150). A dungeon monster within it of the player draws and animates
 while still dormant: it wakes, acts, and shows on the map only at its own
 clip distance (300 unless its script sets one) and under retail's limit of
-four awake at once. The overhead view of georama mode keeps its coarse
-models, and the 1200 cull of far town parts is unchanged.
+four awake at once. The 1200 cull of far town parts is unchanged.
+
+Georama mode draws the town's parts at the levels of detail walking does, and
+the part on the cursor at its finest. Retail's `MainDraw`
+(`ps2/src/editloop.cpp:2125`) pinned every part and fixed part to level 3, its
+coarsest model, in georama mode, and `LoadObjectParts` made the cursor's part
+that level too. Every part's four levels are loaded in both modes.
 
 `video.shadow_distance` is how deep into the view a town part (a house, a
 tree, a fixed part) casts its shadow at full strength; past it the game's own
@@ -220,6 +225,16 @@ drops its shadow past it. A part within `shadow_distance` belongs to the near
 band with the precise program (`port/src/editground.cpp`). The characters'
 shadows have no such distances, the overhead view of georama mode keeps its
 own faint shadows, and a map whose `SHADOW_LEVEL` is 0 still has none.
+
+Retail draws the town's characters and shadows after its soft focus
+(`EdDrawDOF`, `ps2/src/editloop.cpp:2212`), so they are never softened, and
+it drew few of them far enough for that to show. The villagers that
+`detail_distance` keeps past retail's 150 from the player, with their
+shadows, and the part shadows that `shadow_distance` moves into the near band
+past `shadow_near` are drawn before the soft focus instead, which softens
+them with the scenery around them (`EdDrawBeyondRetailReach`,
+`port/src/editloop.cpp`). The player, the villagers retail draws and the
+shadows of its own bands keep retail's place after it.
 
 `video.vsync` is shorthand for `present_mode`: `true` is `fifo`, `false`
 `immediate`. A binding is one name or a list of names. The `bindings` shown
@@ -915,6 +930,10 @@ shape. With `video.aspect` `auto` the rest of the window is not bars:
   scene) is stretched to the window's edges instead, so it no longer leaves the
   frame's sides bare; textured HUD pieces and 4:3 pictures that do not cover the
   whole frame (the floor select's backdrop, 640x448 at y 16) are not.
+  Since Kazarov `5bec132` the flanks sample with clamped wrap whatever the
+  draw's wrap, so a full-frame draw of a repeating texture repeats its edge
+  texels past the frame instead of tiling there (no seam at the frame's
+  border); 4:3 windows are unchanged.
   `video.ui_scale` scales the depthless 2D about the window's centre.
 - **HUD.** The pieces that sit by an edge of the frame keep their distance to
   that edge of the window instead, at their own size (`gfx::UiAnchor`,
@@ -1459,7 +1478,7 @@ The hit areas are the places the pages draw their brackets at (`ItemMenuModeDraw
 `SetPacketReadBuffer` (`dataset.cpp`, `dataalloc2_1.cpp`) give each arena its
 own block, an ordinary anonymous mapping wherever the system puts it
 (`tools/kazarov/port/platform/memory.hpp`), sized at four times the quadwords retail
-asked for (`kArenaHeadroom`, `port/src/arena.hpp`), because the game sizes
+asked for (`kArenaHeadroom`, `tools/kazarov/port/platform/arena.hpp`, shared with Dark Chronicle), because the game sizes
 allocations with the host's larger `sizeof`s. A guard page follows each
 block, and an overflow aborts naming the arena instead of retail's endless
 loop. A debug build stops when no block lies above 4 GiB, so a mapping that
