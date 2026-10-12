@@ -25,6 +25,9 @@ void Clear();
 /// draw over it. False (the texture untouched) where there is no plate, no layout, no font or no name for it.
 bool Prepare(const std::string &name, PortDecodedTexture &texture);
 
+/// Whether a card is prepared: its picture is a plate and Draw has lettering to put on it.
+bool Prepared();
+
 /// Draws the lettering of the prepared card over its picture, drawn with its corners at (x0, y0) and (x1, y1) in the
 /// logical units of gfx::Draw2D, faded to `fade` (0 to 1).
 void Draw(float x0, float y0, float x1, float y1, float fade);

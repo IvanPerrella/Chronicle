@@ -73,8 +73,11 @@ def save(out, code, name, rgba, scale):
 def sample_style(card):
     a = card.astype(np.float32)
     lum = a.mean(2)
-    band, bl = a[130:430], lum[130:430]
-    fill = np.median(band[bl >= np.percentile(bl, 95)], 0)
+    # The lettering's rows only, and its brightest 1%: a wider band or share picks up the scenery behind the name
+    # (olive on the town cards, whose lettering is white).
+    h = a.shape[0]
+    band, bl = a[int(0.27 * h):int(0.69 * h)], lum[int(0.27 * h):int(0.69 * h)]
+    fill = np.median(band[bl >= np.percentile(bl, 99)], 0)
     fl = fill.mean()
     sel = (bl > 0.18 * fl) & (bl < 0.5 * fl)
     sat = band.max(2) - band.min(2)
@@ -151,7 +154,7 @@ def plate_cards(orig, out, scale):
             '_doc': 'Where and how the port draws the name over plates/<card>.png: fractions of the card (x of its width, y of its height).',
             'layout': {
                 'cap_top': round(cap_top_y / 512, 4), 'cap_height': round(cap_h / 512, 4), 'xsq': 0.56,
-                'max_width': round(max_w / 1536, 4), 'underline': 0, 'underline_y': round(ul_y / 512, 4),
+                'max_width': round(max_w / 1536, 4), 'underline': 1, 'underline_y': round(ul_y / 512, 4),
                 'underline_thick': round(ul_thick / 512, 4), 'underline_pad_left': round(18 / 1536, 4),
                 'underline_pad_right': round(26 / 1536, 4), 'underline_bow': round(4 / 512, 4),
             },

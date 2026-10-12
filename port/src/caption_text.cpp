@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <map>
 
 #include "draw2d_port.hpp"
 #include "gfx/gfx.hpp"
@@ -14,6 +15,7 @@
 #include "gametext.hpp"
 #include "platform/ttffont.hpp"
 #include "texture_port.hpp"
+#include "textwipe.hpp"
 
 namespace caption {
 
@@ -49,6 +51,10 @@ constexpr float kEm = 25.0f;
 constexpr float kOutlineWidth = 1.6f;
 constexpr float kLeastShrink = 0.62f;
 
+// stayframe as the disc has it, uploaded once more before its words are cleared, for the text wipe.
+unsigned g_painted_texture = 0;
+unsigned g_painted_palette = 0;
+
 bool FontReady() {
     static bool tried = false;
     if (!tried) {
@@ -57,6 +63,16 @@ bool FontReady() {
             std::filesystem::path file = LocalizeFindFile("font.ttf");
             if (!file.empty()) {
                 ttffont::Load(file);
+            }
+        }
+    }
+    if (ttffont::Loaded() && !ttffont::VariantLoaded()) {
+        static bool tried_thin = false;
+        if (!tried_thin) {
+            tried_thin = true;
+            const std::filesystem::path thin = LocalizeFindFile("font_thin.ttf");
+            if (!thin.empty() && ttffont::LoadVariant(thin)) {
+                std::fprintf(stderr, "font: thin variant from %s\n", thin.string().c_str());
             }
         }
     }
@@ -120,25 +136,26 @@ std::u32string Decode(std::string_view in) {
 // the em it is laid out at.
 struct Layout {
     std::u32string text;
-    float          em = kEm;
+    float          em = kEm * textwipe::Get(textwipe::Kind::Caption).size;
     float          squeeze = 1.0f; // the share of its width a condensed caption keeps
     float          width = 0.0f;
 };
 
 float Natural(const std::u32string &text, float em, float scale_x) {
+    const textwipe::Tuning &tune = textwipe::Get(textwipe::Kind::Caption);
     const int em_px = std::max(4, static_cast<int>(em * scale_x + 0.5f));
     float     total = 0.0f;
     for (char32_t ch : text) {
         ttffont::Glyph glyph;
         if (ch == U' ') {
-            total += em * 0.32f;
+            total += em * 0.32f + tune.word;
             continue;
         }
         if (!ttffont::GetGlyph(ch, em_px, glyph)) {
             total += em * 0.5f;
             continue;
         }
-        total += glyph.width / scale_x + em * 0.1f;
+        total += glyph.width / scale_x * tune.xscale + em * 0.1f + tune.letter;
     }
     return total;
 }
@@ -152,7 +169,7 @@ Layout Lay(std::string_view utf8, float box_width) {
     const float scale_x = gfx::GetUiMapping(gfx::CurrentRenderTarget()).scale_x;
     float       natural = Natural(layout.text, layout.em, scale_x);
     if (box_width > 0 && natural > box_width) {
-        layout.em = kEm * std::max(kLeastShrink, box_width / natural);
+        layout.em = kEm * textwipe::Get(textwipe::Kind::Caption).size * std::max(kLeastShrink, box_width / natural);
         natural = Natural(layout.text, layout.em, scale_x);
         if (natural > box_width) {
             layout.squeeze = box_width / natural;
@@ -188,11 +205,27 @@ bool Ready() {
     return FontReady();
 }
 
+bool ThinReady() {
+    return FontReady() && ttffont::VariantLoaded();
+}
+
 void BlankPainted(const char *name, PortDecodedTexture &texture) {
+    if (name != nullptr && std::string_view(name) == "stayframe") {
+        std::fprintf(stderr, "textwipe: stayframe loaded %ux%u format %d levels %zu font %d\n", texture.width, texture.height,
+                     static_cast<int>(texture.format), texture.levels.size(), FontReady() ? 1 : 0);
+    }
     if (name == nullptr || std::string_view(name) != "stayframe" || texture.width == 0 || texture.height == 0 ||
         texture.levels.empty() || !FontReady()) {
         return;
     }
+    for (unsigned *key : {&g_painted_texture, &g_painted_palette}) {
+        if (*key != 0 && PortKeyLive(*key)) {
+            PortReleaseKey(*key);
+        }
+        *key = 0;
+    }
+    g_painted_texture = PortCreateTexture(texture, PortTextureOwner::Other, &g_painted_palette);
+    std::fprintf(stderr, "textwipe: stayframe kept as key %u palette %u\n", g_painted_texture, g_painted_palette);
     if (texture.format == gfx::TextureFormat::Index8) {
         // The palette's own transparent entry may not exist, so the picture becomes straight RGBA first.
         std::vector<std::vector<uint8_t>> levels;
@@ -241,6 +274,15 @@ void BlankPainted(const char *name, PortDecodedTexture &texture) {
     texture.has_alpha = true;
 }
 
+bool PaintedKeys(unsigned &texture_key, unsigned &palette_key) {
+    if (g_painted_texture == 0 || !PortKeyLive(g_painted_texture)) {
+        return false;
+    }
+    texture_key = g_painted_texture;
+    palette_key = g_painted_palette;
+    return true;
+}
+
 bool Draw(int icon, int x, int y, int box_width, int alpha) {
     if (icon < 0 || icon >= kIcons || !FontReady()) {
         return false;
@@ -255,6 +297,8 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
         text = kEntries[icon].english;
     }
     const Layout      layout = Lay(text, static_cast<float>(box_width));
+    const textwipe::Tuning &tune = textwipe::Get(textwipe::Kind::Caption);
+    alpha = static_cast<int>(static_cast<float>(alpha) * tune.opacity);
 
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
     const float               rows = draw2d::RowScale();
@@ -265,16 +309,16 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
     // The line sits in the middle of the 30-pixel cell, on the baseline the font's own proportions give.
     constexpr float kCell = 30.0f;
     const float     base = static_cast<float>(y) + (kCell - layout.em * (metrics.ascent + metrics.descent)) / 2 +
-                       layout.em * metrics.ascent;
+                       layout.em * metrics.ascent + tune.dy;
 
     auto snap = [](float value, float scale, float offset) { return (std::round(value * scale + offset) - offset) / scale; };
 
     std::vector<gfx::Vertex2D> edges, fills;
-    float                      pen = static_cast<float>(x);
+    float                      pen = static_cast<float>(x) + tune.dx;
     for (char32_t ch : layout.text) {
         ttffont::Glyph fill;
         if (ch == U' ') {
-            pen += layout.em * 0.32f * layout.squeeze;
+            pen += (layout.em * 0.32f + tune.word) * layout.squeeze;
             continue;
         }
         if (!ttffont::GetGlyph(ch, em_px, fill)) {
@@ -283,23 +327,30 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
         }
         ttffont::Glyph edge;
         const bool     has_edge = ttffont::GetOutlinedGlyph(ch, em_px, outline_px, edge);
-        auto           place = [&](const ttffont::Glyph &glyph, std::vector<gfx::Vertex2D> &out, const unsigned char (&rgb)[3]) {
+        auto           place = [&](const ttffont::Glyph &glyph, std::vector<gfx::Vertex2D> &out, const unsigned char (&rgb)[3], float shift_x = 0.0f, float shift_y = 0.0f) {
             if (glyph.width <= 0 || glyph.height <= 0) {
                 return;
             }
-            const float width = glyph.width / mapping.scale_x * layout.squeeze;
-            const float height = glyph.height / mapping.scale_y * rows;
+            const float width = glyph.width / mapping.scale_x * layout.squeeze * tune.xscale;
+            const float height = glyph.height / mapping.scale_y * rows * tune.yscale;
             float       gx = pen + glyph.x_offset / mapping.scale_x * layout.squeeze;
-            float       gy = base * rows + glyph.y_offset / mapping.scale_y;
+            float       gy = base * rows + glyph.y_offset / mapping.scale_y * tune.yscale;
             gx = snap(gx, mapping.scale_x, mapping.offset_x);
             gy = snap(gy, mapping.scale_y, mapping.offset_y);
-            Quad(out, glyph, gx, gy, width, height, rgb, alpha);
+            Quad(out, glyph, gx + shift_x, gy + shift_y * rows, width, height, rgb, alpha);
         };
         if (has_edge) {
             place(edge, edges, kOutline);
         }
+        if (tune.weight > 0.0f) {
+            const float half = tune.weight / 2;
+            place(fill, fills, kFill, -half, 0.0f);
+            place(fill, fills, kFill, half, 0.0f);
+            place(fill, fills, kFill, 0.0f, -half);
+            place(fill, fills, kFill, 0.0f, half);
+        }
         place(fill, fills, kFill);
-        pen += (fill.width / mapping.scale_x + layout.em * 0.1f) * layout.squeeze;
+        pen += (fill.width / mapping.scale_x * tune.xscale + layout.em * 0.1f + tune.letter) * layout.squeeze;
     }
     if (!fills.empty()) {
         const gfx::TextureBinding binding = ttffont::Binding();
@@ -312,17 +363,63 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
     return true;
 }
 
+std::vector<LetterWidth> LetterWidths(std::string_view utf8) {
+    std::vector<LetterWidth> out;
+    if (!FontReady()) {
+        return out;
+    }
+    constexpr int kEmPx = 64;
+    for (char32_t ch : Decode(utf8)) {
+        ttffont::Glyph glyph;
+        if (ch == U' ') {
+            out.push_back({kEmPx * 0.3f, true});
+        } else if (ttffont::GetGlyph(ch, kEmPx, glyph) && glyph.width > 0) {
+            out.push_back({static_cast<float>(glyph.width), false});
+        }
+    }
+    return out;
+}
+
 bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_height, float xsq, float max_width,
               const LineStyle &style, float fade, float rows, LineBounds *bounds) {
     if (utf8.empty() || cap_height <= 0.0f || !FontReady()) {
         return false;
     }
+    // The thin variant for as long as this line is drawn.
+    struct Variant {
+        explicit Variant(bool on) { ttffont::UseVariant(on); }
+        ~Variant() { ttffont::UseVariant(false); }
+    } variant(style.thin);
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
     const ttffont::Metrics    metrics = ttffont::GetMetrics();
-    const float               em = cap_height / std::max(0.2f, metrics.cap);
-    const int                 em_px = std::clamp(static_cast<int>(em * mapping.scale_x + 0.5f), 4, 512);
     const std::u32string      text = Decode(utf8);
-    const float               gap = cap_height * 0.075f;
+    float                     em = cap_height / std::max(0.2f, metrics.cap);
+    int                       em_px = std::clamp(static_cast<int>(em * mapping.scale_x + 0.5f), 4, 512);
+    float                     ink_bottom = 0.0f; // where the letters' ink ends below the baseline, in logical rows
+    if (style.ink_fit) {
+        // Size the em so the drawn letters' own tops and bottoms span cap_height, then lower the baseline so their
+        // bottoms stand at cap_top + cap_height. Twice: the second measure is of the glyphs at the size that is drawn.
+        for (int pass = 0; pass < 2; pass++) {
+            float top = 1e9f, bottom = -1e9f;
+            for (char32_t ch : text) {
+                ttffont::Glyph glyph;
+                if (ch != U' ' && ttffont::GetGlyph(ch, em_px, glyph) && glyph.width > 0) {
+                    top = std::min(top, static_cast<float>(glyph.y_offset));
+                    bottom = std::max(bottom, static_cast<float>(glyph.y_offset + glyph.height));
+                }
+            }
+            const float ink = (bottom - top) / mapping.scale_y;
+            if (ink <= 0.0f) {
+                break;
+            }
+            ink_bottom = bottom / mapping.scale_y;
+            if (pass == 0) {
+                em *= cap_height / ink;
+                em_px = std::clamp(static_cast<int>(em * mapping.scale_x + 0.5f), 4, 512);
+            }
+        }
+    }
+    const float               gap = cap_height * 0.075f + style.letter;
 
     struct Letter {
         ttffont::Glyph fill;
@@ -336,9 +433,9 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         letter.ch = ch;
         if (ch == U' ') {
             letter.blank = true;
-            natural += cap_height * 0.32f;
+            natural += cap_height * 0.32f + style.word;
         } else if (ttffont::GetGlyph(ch, em_px, letter.fill) && letter.fill.width > 0) {
-            natural += letter.fill.width / mapping.scale_x + gap;
+            natural += letter.fill.width / mapping.scale_x * style.xscale + gap;
         } else {
             continue;
         }
@@ -353,25 +450,93 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         squeeze = max_width / natural;
     }
     const float width = natural * squeeze;
-    const float left = center_x - width / 2;
+    const float left = center_x + style.dx - width / 2;
 
-    const float baseline = (cap_top + cap_height) * rows;
+    const float baseline = (cap_top + cap_height + style.dy) * rows - ink_bottom;
     auto        snap = [](float value, float scale, float offset) { return (std::round(value * scale + offset) - offset) / scale; };
     const int   edge_px = std::clamp(static_cast<int>(style.edge_width * mapping.scale_x + 0.5f), 0, 60);
     const int   glow_px = style.glow_amount > 0.0f ? std::clamp(static_cast<int>(style.glow_width * mapping.scale_x + 0.5f), 0, 60) : 0;
 
+    // Where a letter's quad lies (x, y, width, height in logical units), snapped to whole pixels.
+    auto rect_of = [&](const ttffont::Glyph &glyph, const ttffont::Glyph &fill, float pen, float &x, float &y, float &w, float &h) {
+        w = glyph.width / mapping.scale_x * squeeze * style.xscale;
+        h = glyph.height / mapping.scale_y * rows * style.yscale;
+        x = pen + (glyph.x_offset - fill.x_offset) / mapping.scale_x * squeeze * style.xscale;
+        y = baseline + glyph.y_offset / mapping.scale_y * style.yscale;
+        x = snap(x, mapping.scale_x, mapping.offset_x);
+        y = snap(y, mapping.scale_y, mapping.offset_y);
+    };
+    // A letter filled from the field: its coverage with each pixel's colour taken from the field where the pixel lies on the
+    // card, kept in the atlas by where and how big it is drawn (made again when that changes or the atlas starts again).
+    static std::map<std::array<int, 9>, ttffont::Glyph> textured;
+    static unsigned                                      textured_generation = 0;
+    auto textured_letter = [&](const Letter &letter, size_t index, float pen, ttffont::Glyph &out) {
+        if (style.field == nullptr || style.field->width <= 0 || style.field->rgb.size() < static_cast<size_t>(style.field->width) * style.field->height * 3) {
+            return false;
+        }
+        if (textured_generation != ttffont::Generation() || textured.size() > 96) {
+            textured.clear();
+            textured_generation = ttffont::Generation();
+        }
+        float x, y, w, h;
+        rect_of(letter.fill, letter.fill, pen, x, y, w, h);
+        const std::array<int, 9> key = {static_cast<int>(style.field->id), static_cast<int>(index), em_px,
+                                        static_cast<int>(std::lround(x * 8)), static_cast<int>(std::lround(y * 8)),
+                                        static_cast<int>(std::lround(w * 8)), static_cast<int>(std::lround(h * 8)),
+                                        static_cast<int>(std::lround(style.field_x * 8)), static_cast<int>(std::lround(style.field_y * 8))};
+        if (auto found = textured.find(key); found != textured.end()) {
+            out = found->second;
+            return true;
+        }
+        std::vector<unsigned char> coverage;
+        int                        gw, gh, gx0, gy0;
+        if (!ttffont::RenderGlyph(letter.ch, em_px, coverage, gw, gh, gx0, gy0) || gw <= 0 || gh <= 0 ||
+            gw != static_cast<int>(letter.fill.width) || gh != static_cast<int>(letter.fill.height)) {
+            return false;
+        }
+        const FillField           &field = *style.field;
+        std::vector<unsigned char> rgba(static_cast<size_t>(gw) * gh * 4);
+        for (int j = 0; j < gh; j++) {
+            for (int i = 0; i < gw; i++) {
+                const float lx = x + (static_cast<float>(i) + 0.5f) / gw * w;
+                const float ly = y + (static_cast<float>(j) + 0.5f) / gh * h;
+                const float u = std::clamp((lx - style.field_x) / style.field_w * field.width - 0.5f, 0.0f, field.width - 1.001f);
+                const float v = std::clamp((ly - style.field_y) / style.field_h * field.height - 0.5f, 0.0f, field.height - 1.001f);
+                const int   u0 = static_cast<int>(u), v0 = static_cast<int>(v);
+                const float fu = u - u0, fv = v - v0;
+                unsigned char *texel = &rgba[(static_cast<size_t>(j) * gw + i) * 4];
+                for (int c = 0; c < 3; c++) {
+                    auto at = [&](int xx, int yy) { return static_cast<float>(field.rgb[(static_cast<size_t>(yy) * field.width + xx) * 3 + c]); };
+                    const float top = at(u0, v0) * (1 - fu) + at(u0 + 1, v0) * fu;
+                    const float bottom = at(u0, v0 + 1) * (1 - fu) + at(u0 + 1, v0 + 1) * fu;
+                    texel[c] = static_cast<unsigned char>(std::clamp(top * (1 - fv) + bottom * fv, 0.0f, 255.0f));
+                }
+                texel[3] = coverage[static_cast<size_t>(j) * gw + i];
+            }
+        }
+        ttffont::Glyph image;
+        if (!ttffont::AddImage(rgba, gw, gh, image)) {
+            return false;
+        }
+        image.x_offset = letter.fill.x_offset;
+        image.y_offset = letter.fill.y_offset;
+        image.advance = letter.fill.advance;
+        textured[key] = image;
+        out = image;
+        return true;
+    };
     auto quad = [&](std::vector<gfx::Vertex2D> &out, const ttffont::Glyph &glyph, const ttffont::Glyph &fill, float pen,
-                    const unsigned char (&rgb)[3], int alpha) {
+                    const unsigned char (&rgb)[3], int alpha, float shift_x = 0.0f, float shift_y = 0.0f) {
         if (glyph.width <= 0 || glyph.height <= 0) {
             return;
         }
-        const float w = glyph.width / mapping.scale_x * squeeze;
-        const float h = glyph.height / mapping.scale_y * rows;
-        float       x = pen + (glyph.x_offset - fill.x_offset) / mapping.scale_x * squeeze;
-        float       y = baseline + glyph.y_offset / mapping.scale_y;
-        x = snap(x, mapping.scale_x, mapping.offset_x);
-        y = snap(y, mapping.scale_y, mapping.offset_y);
-        const float k = std::clamp(fade, 0.0f, 1.0f) * 0.5f;
+        const float w = glyph.width / mapping.scale_x * squeeze * style.xscale;
+        const float h = glyph.height / mapping.scale_y * rows * style.yscale;
+        float       x = pen + (glyph.x_offset - fill.x_offset) / mapping.scale_x * squeeze * style.xscale;
+        float       y = baseline + glyph.y_offset / mapping.scale_y * style.yscale;
+        x = snap(x, mapping.scale_x, mapping.offset_x) + shift_x;
+        y = snap(y, mapping.scale_y, mapping.offset_y) + shift_y * rows;
+        const float k = std::clamp(fade, 0.0f, 1.0f) * style.opacity * 0.5f;
         const u_char r = static_cast<u_char>(rgb[0] * k), g = static_cast<u_char>(rgb[1] * k), b = static_cast<u_char>(rgb[2] * k);
         const u_char a = static_cast<u_char>(std::clamp(alpha, 0, 0x80));
         out.push_back(draw2d::Vertex(x, y, 0.0f, glyph.u0, glyph.v0, r, g, b, a));
@@ -380,12 +545,29 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         out.push_back(draw2d::Vertex(x, y + h, 0.0f, glyph.u0, glyph.v1, r, g, b, a));
     };
 
+    size_t drawn = 0;
+    for (const Letter &letter : letters) {
+        drawn += letter.blank ? 0 : 1;
+    }
+    const bool                 use_slots = style.slots.size() == drawn;
+    size_t                     slot = 0;
     std::vector<gfx::Vertex2D> glows, edges, fills;
     float                      pen = left;
+    size_t                     letter_index = 0;
     for (const Letter &letter : letters) {
         if (letter.blank) {
-            pen += cap_height * 0.32f * squeeze;
+            pen += (cap_height * 0.32f + style.word) * squeeze;
             continue;
+        }
+        if (use_slots) {
+            // Into the slot the painted letter stood in: its left edge, and the width its ink had.
+            const std::array<float, 2> &place = style.slots[slot++];
+            const float                 ink = letter.fill.width / mapping.scale_x * style.xscale;
+            // A letter is not stretched to a wider slot than the font's own would make it (a stretched brush letter is
+            // thick); it keeps near its own width and is centred in the slot, and a narrow slot narrows it a little.
+            const float slot_width = place[1] - place[0];
+            squeeze = std::clamp(slot_width / std::max(ink, 0.01f), 0.8f, 1.12f);
+            pen = place[0] + (slot_width - ink * squeeze) / 2;
         }
         ttffont::Glyph extra;
         if (glow_px > 0 && ttffont::GetOutlinedGlyph(letter.ch, em_px, glow_px, extra)) {
@@ -394,8 +576,24 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         if (edge_px > 0 && ttffont::GetOutlinedGlyph(letter.ch, em_px, edge_px, extra)) {
             quad(edges, extra, letter.fill, pen, style.edge, 0x80);
         }
-        quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80);
-        pen += (letter.fill.width / mapping.scale_x + gap) * squeeze;
+        if (style.weight > 0.0f) {
+            const float half = style.weight / 2;
+            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, -half, 0.0f);
+            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, half, 0.0f);
+            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, 0.0f, -half);
+            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, 0.0f, half);
+        }
+        {
+            static const unsigned char white[3] = {255, 255, 255};
+            ttffont::Glyph             coloured;
+            if (textured_letter(letter, letter_index, pen, coloured)) {
+                quad(fills, coloured, letter.fill, pen, white, 0x80);
+            } else {
+                quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80);
+            }
+        }
+        letter_index++;
+        pen += (letter.fill.width / mapping.scale_x * style.xscale + gap) * squeeze;
     }
     const gfx::TextureBinding binding = ttffont::Binding();
     for (std::vector<gfx::Vertex2D> *layer : {&glows, &edges, &fills}) {
