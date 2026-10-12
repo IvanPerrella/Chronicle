@@ -13,9 +13,11 @@
 #include "frame.hpp"
 #include "frameattr.hpp"
 #include "framevu1.hpp"
+#include "gfx/gfx.hpp"
 #include "mathutil.hpp"
 #include "mglib.hpp"
 #include "rect.hpp"
+#include "screen.hpp"
 #include "snd.hpp"
 #include "texture.hpp"
 #include "textureanime.hpp"
@@ -23,7 +25,7 @@
 
 // Retail's, with the cell picked for a character's key door addressed on the whole pointer.
 
-PC_OVERRIDE void CDungeonMap::BuildCharaSpecialParts() {
+PORT_OVERRIDE void CDungeonMap::BuildCharaSpecialParts() {
     int          list[128];
     int          roll;
     int          num;
@@ -254,7 +256,7 @@ PC_OVERRIDE void CDungeonMap::BuildCharaSpecialParts() {
     }
 }
 
-PC_OVERRIDE int CDungeonMap::SetCharaDoor(int chara_no) {
+PORT_OVERRIDE int CDungeonMap::SetCharaDoor(int chara_no) {
     int          list[128];
     int          num;
     int          pick;
@@ -335,7 +337,7 @@ PC_OVERRIDE int CDungeonMap::SetCharaDoor(int chara_no) {
     return num;
 }
 
-PC_OVERRIDE void CDungeonMap::DrawMap(CCameraFollow *camera, CFrameVu1 *player) {
+PORT_OVERRIDE void CDungeonMap::DrawMap(CCameraFollow *camera, CFrameVu1 *player) {
     float           cam_pos[4];
     float           cam_ref[4];
     float           view_delta[4];
@@ -424,11 +426,22 @@ PC_OVERRIDE void CDungeonMap::DrawMap(CCameraFollow *camera, CFrameVu1 *player) 
                     cam_ref[3] = 1.0f;
                     sceVu0Normalize(cam_ref, cam_ref);
                     float facing = sceVu0InnerProduct(view, cam_ref);
+                    // Fill keeps the game's vertical FOV and reveals more world at the sides.
+                    // Treat a cell as in front through the angle from the frame edge to the
+                    // visible viewport edge, rather than using the 4:3 center-plane cutoff.
+                    float horizontal_margin = 0.0f;
+                    gfx::FrameLayout layout = gfx::CurrentFrameLayout();
+                    if (layout.aspect == gfx::AspectMode::Fill) {
+                        gfx::LogicalRect visible = gfx::VisibleLogicalRect(gfx::kMainTarget);
+                        horizontal_margin = std::max(0.0f, visible.w - kScreenWidth) /
+                                            kScreenWidth;
+                    }
+                    float facing_limit = -horizontal_margin / std::hypot(1.0f, horizontal_margin);
                     int georama = UserStatus->cur_georama;
                     if (georama == 5 && this->cells[cell_no].parts_no == MAP_PARTS_URA_ROAD) {
                         facing = 1.0f;
                     }
-                    if (facing <= 0.0f && !(dist < 160.0f)) {
+                    if (facing <= facing_limit && !(dist < 160.0f)) {
                         draw = false;
                     }
                     if (this->cells[cell_no].parts_no >= MAP_PARTS_URA_ENTRANCE_NORTH &&
@@ -551,7 +564,7 @@ PC_OVERRIDE void CDungeonMap::DrawMap(CCameraFollow *camera, CFrameVu1 *player) 
     }
 }
 
-PC_OVERRIDE void CDungeonMap::DrawDummyModel(CCamera *camera) {
+PORT_OVERRIDE void CDungeonMap::DrawDummyModel(CCamera *camera) {
     float pos[4];
 
     if (this->dummy_num == 0) {
@@ -572,7 +585,7 @@ PC_OVERRIDE void CDungeonMap::DrawDummyModel(CCamera *camera) {
 }
 
 // Moon Sea places Atla across an open field, so distance from the player does not hide them.
-PC_OVERRIDE void CDungeonMap::DrawAtraBoll(float *pos) {
+PORT_OVERRIDE void CDungeonMap::DrawAtraBoll(float *pos) {
     float draw_pos[4];
 
     if (this->atra_model == NULL) {

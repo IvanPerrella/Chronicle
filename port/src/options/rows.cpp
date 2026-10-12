@@ -9,6 +9,8 @@
 #include <string_view>
 #include <vector>
 
+#include <SDL3/SDL.h>
+
 #include "localize.hpp"
 #include "menu_option.hpp"
 #include "platform/input.hpp"
@@ -46,17 +48,17 @@ Row GameRow(const char *key, const char *label, const char *names, int game_help
             .names = names};
 }
 
-template <bool Config::*Field>
+template <auto Field>
 int GetOnOff(const Config &config) {
     return config.*Field ? 0 : 1;
 }
 
-template <bool Config::*Field>
+template <auto Field>
 void SetOnOff(Config &config, int choice) {
     config.*Field = choice == 0;
 }
 
-template <bool Config::*Field>
+template <auto Field>
 Row OnOffRow(const char *key, const char *label, const char *help) {
     return {.key = key,
             .label = label,
@@ -67,7 +69,7 @@ Row OnOffRow(const char *key, const char *label, const char *help) {
             .names = "On|Off"};
 }
 
-template <bool Config::*Field>
+template <auto Field>
 Row NamedRow(const char *key, const char *label, const char *help, const char *names) {
     return {.key = key,
             .label = label,
@@ -90,6 +92,12 @@ Row SettingRow(const char *key, const char *label, const char *help, int (*count
             .text = text,
             .names = names,
             .restore = restore};
+}
+
+void QuitGame() {
+    SDL_Event event{};
+    event.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&event);
 }
 
 std::string ChoiceName(const char *names, int choice) {
@@ -463,7 +471,7 @@ void SetGyro(Config &config, int choice) {
 }
 
 int GlyphDeviceCount(const Config &) {
-    return 9;
+    return 10;
 }
 
 int GlyphDeviceChoice(const Config &config) {
@@ -584,6 +592,8 @@ const Row kGameRows[] = {
                                              "\"Discord Rich Presence\"\nShows what you are\nplaying on Discord."),
     OnOffRow<&Config::element_quick_select>("game.element_quick_select", "Element Quick Select",
                                             "\"Element Quick Select\"\nD-pad Up in a dungeon\npicks the element."),
+    Row{.key = "quit_game", .label = "Quit Game", .help = "Exit the game and return to the desktop.",
+        .activate = QuitGame},
 };
 
 const Row kDisplayRows[] = {
@@ -674,7 +684,10 @@ const Row kTextRows[] = {
                                   "Original|New"),
     SettingRow("input.glyph_device", "Symbols Shown",
                "\"Symbols Shown\"\nAuto: the device you\nuse. Or always show one\nof the others.", GlyphDeviceCount,
-               GlyphDeviceChoice, SetGlyphDevice, nullptr, "Auto|PS3|PS4|PS5|Xbox|Switch|Steam Deck|Steam Controller|Keyboard"),
+               GlyphDeviceChoice, SetGlyphDevice, nullptr, "Auto|PS3|PS4|PS5|PS5 Colored|Xbox|Switch|Steam Deck|Steam Controller|Keyboard"),
+    NamedRow<&Config::font_sharp>("video.text_font", "Text Font",
+                                  "\"Text Font\"\nSharp: a clear font at\nthe screen's size.\nOriginal: the game's.",
+                                  "Original|Sharp"),
     SettingRow("video.text_shadow", "Text Shadow",
                "\"Text Shadow\"\nHow dark the shadow\nunder the letters is.\n50% is the soft one.", ShadowCount,
                TextShadowChoice, SetTextShadow, TextShadowText),

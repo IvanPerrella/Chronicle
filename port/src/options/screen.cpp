@@ -115,7 +115,7 @@ void ShowPageTab() {
 }
 
 void Apply(const Config &config) {
-    g_screen.save_failed = !DisplayApply(config);
+    g_screen.save_failed = !DisplayApply([&] { return ConfigChange(config); });
     ListResolutions();
 }
 
@@ -384,8 +384,14 @@ void RunMouse() {
             return;
         } else if (over_row >= 0) {
             const Row &row = CurrentPage().rows[over_row];
-            if (row.action != nullptr) {
+            if (row.activate != nullptr) {
+                if (x < kValueX) {
+                    row.activate();
+                }
+            } else if (row.action != nullptr) {
                 BeginBinding(over_row);
+            } else if (x < kValueX - 8) {
+                // A setting's label has no action; clicking it only selects the row.
             } else if (x >= kValueX - 8 && x < kValueX + 24) {
                 Step(row, -1, false);
             } else if (x >= kValueRight - 16) {
@@ -451,7 +457,9 @@ void RunKeys() {
         if (direction != 0) {
             Step(*row, direction, false);
         } else if ((actions & PAD_CROSS) != 0) {
-            if (row->action != nullptr) {
+            if (row->activate != nullptr) {
+                row->activate();
+            } else if (row->action != nullptr) {
                 BeginBinding(g_screen.row);
             } else {
                 Step(*row, 1, true);
@@ -475,6 +483,9 @@ Texts::Texts() {
     l1.Set(PAD_GLYPH_L1);
     r1.Set(PAD_GLYPH_R1);
     shortcuts.Set(LocalizeText("options.shortcuts", kShortcutsText));
+    l1.RefreshGlyphs();
+    r1.RefreshGlyphs();
+    shortcuts.RefreshGlyphs();
     help.Set(kSaveHelp, LocalizeText("options.help.save_failed", kSaveHelpText));
     help.Set(kDisplayHelp, LocalizeText("options.help.display_kept", kDisplayHelpText));
     help.Set(kExitHelp, LocalizeText("options.help.exit", kExitHelpText));
@@ -482,12 +493,14 @@ Texts::Texts() {
     for (int p = 0; p < static_cast<int>(Pages().size()); ++p) {
         const Page &page = Pages()[p];
         tabs.emplace_back().Set(LocalizeText(PageKey(page.name), page.name));
+        tabs.back().RefreshGlyphs();
         help.Set(kPageHelp + p, LocalizeText(PageKey(page.name) + ".help", page.help) + "\n" +
                                     LocalizeText("options.help.turn_page", kTurnPageText));
         labels.emplace_back();
         values.emplace_back();
         for (const Row &row : page.rows) {
             labels.back().emplace_back().Set(LocalizeText("options." + std::string(row.key) + ".label", row.label));
+            labels.back().back().RefreshGlyphs();
             values.back().emplace_back();
             if (row.help != nullptr) {
                 help.Set(kRowHelp + index, LocalizeText("options." + std::string(row.key) + ".help", row.help));
