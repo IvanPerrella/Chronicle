@@ -178,6 +178,11 @@ PORT_OVERRIDE void CEditGround::DrawPartsCursor(int plot, float *position, float
     position[3] = 0.0f;
     preview = fits != 0 ? PreviewFrame(source, source->preview_frame) : PreviewFrame(source, source->blocked_preview_frame);
 
+    // The preview is the part's finest level of detail, where retail showed its coarsest.
+    if (preview != NULL && source->frame[0] != NULL) {
+        preview = source->frame[0];
+    }
+
     if (width % 2 == 1) {
         position[0] += 0.5f * area->GetUnitSize();
     }

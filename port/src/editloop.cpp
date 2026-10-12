@@ -1216,16 +1216,12 @@ static void EditMainDraw() {
             TexAnime.TexAnime(1);
             pEditGround->DrawBaseGround();
 
+            // Georama mode draws the parts at walking's levels of detail, where retail drew them all at
+            // their coarsest.
             float far_lod;
             float near_lod = 2.0f;
             far_lod = 0.0f;
             float mid_lod = 0.0f;
-
-            if (edit_mode_draw != 0) {
-                near_lod = 3.0f;
-                far_lod = 3.0f;
-                mid_lod = 3.0f;
-            }
 
             pEditGround->Draw(NowTime, 1, (int) far_lod, (int) near_lod, (int) mid_lod, (int) near_lod);
 

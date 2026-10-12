@@ -202,8 +202,13 @@ the player steps and draws (retail: the two nearest in front of the camera,
 within 150). A dungeon monster within it of the player draws and animates
 while still dormant: it wakes, acts, and shows on the map only at its own
 clip distance (300 unless its script sets one) and under retail's limit of
-four awake at once. The overhead view of georama mode keeps its coarse
-models, and the 1200 cull of far town parts is unchanged.
+four awake at once. The 1200 cull of far town parts is unchanged.
+
+Georama mode draws the town's parts at the levels of detail walking does, and
+the part on the cursor at its finest. Retail's `MainDraw`
+(`ps2/src/editloop.cpp:2125`) pinned every part and fixed part to level 3, its
+coarsest model, in georama mode, and `LoadObjectParts` made the cursor's part
+that level too. Every part's four levels are loaded in both modes.
 
 `video.shadow_distance` is how deep into the view a town part (a house, a
 tree, a fixed part) casts its shadow at full strength; past it the game's own
