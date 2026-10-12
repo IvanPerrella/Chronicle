@@ -167,9 +167,10 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Copy-Item $env:VULKAN_RUNTIME/vulkan-1.dll port/build/windows
 
-      # The renderer's cases run on Linux and macOS.
+      # The renderer's cases run on Linux and macOS: this runner's Vulkan loader has no surface extension, so the cases
+      # that open a window (GfxMeshDc2, GfxTim2's upload) cannot start here.
       - name: Test
-        run: ctest --test-dir port/build/windows --output-on-failure -j4 -E '^(GfxMisc|TexDecode)\.'
+        run: ctest --test-dir port/build/windows --output-on-failure -j4 -E '^(GfxMisc|TexDecode|GfxMeshDc2)\.|^GfxTim2\.UploadRgbaAndIndexed$'
 
       - name: Package the Windows build
         run: |
