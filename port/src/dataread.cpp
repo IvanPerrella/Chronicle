@@ -27,6 +27,13 @@ std::unordered_map<std::string, fs::path> data_index;
 bool                                      data_indexed;
 BG_READ_INFO                              bg_read_info[32];
 
+// Disc paths can contain names outside the active Windows code page. Index UTF-8 bytes directly;
+// generic_string() converts through that code page and can throw while scanning extracted data.
+std::string GenericUtf8(const fs::path &path) {
+    const std::u8string utf8 = path.generic_u8string();
+    return {reinterpret_cast<const char *>(utf8.data()), utf8.size()};
+}
+
 // Everything up to the first colon is a device, as retail's LoadFile2 has it; sim: and host:
 // were development devices that reached the same tree, so they are dropped like cdrom0:.
 std::string_view StripDevice(std::string_view path) {
@@ -129,7 +136,7 @@ PORT_OVERRIDE void InitCDFile() {
          it.increment(error)) {
         std::error_code entry_error;
         if (it->is_regular_file(entry_error)) {
-            std::string relative = it->path().lexically_relative(root).generic_string();
+            std::string relative = GenericUtf8(it->path().lexically_relative(root));
             data_index.emplace(dcdata::FoldPath(relative), it->path());
         }
     }
@@ -137,7 +144,7 @@ PORT_OVERRIDE void InitCDFile() {
     if (fs::is_directory(normalized)) {
         for (const fs::directory_entry &entry : fs::recursive_directory_iterator(normalized)) {
             if (entry.is_regular_file()) {
-                std::string path = entry.path().lexically_relative(normalized).generic_string();
+                std::string path = GenericUtf8(entry.path().lexically_relative(normalized));
                 data_index[dcdata::FoldPath(path)] = entry.path();
             }
         }

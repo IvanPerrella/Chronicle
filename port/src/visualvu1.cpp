@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <span>
@@ -9,7 +11,10 @@
 
 #include "dataalloc.hpp"
 #include "dataset.hpp"
+#include "dungeon.h"
 #include "draw3d.hpp"
+#include "gfx/materialmaps.hpp"
+#include "main.hpp"
 #include "mdt.hpp"
 #include "mglib.hpp"
 #include "renderinfo.hpp"
@@ -22,6 +27,8 @@ constexpr uint32_t kBlockTag = 0x44334443; // "CD3D"
 
 std::unordered_map<const void *, std::unique_ptr<Draw3DVisual>> g_visuals;
 std::unordered_map<const void *, std::unique_ptr<Draw3DVisual>> g_transient;
+bool g_enhanced_lighting = false;
+float g_normal_detail_strength = 1.0f;
 
 void Release(Draw3DVisual &visual) {
     if (visual.mesh != gfx::kNullMesh) {
@@ -78,6 +85,20 @@ void TakeMaterial(Draw3DStrip &strip, const MDT_MATERIAL &material) {
     std::memcpy(strip.diffuse, material.diffuse, sizeof(strip.diffuse));
     std::memcpy(strip.ambient, material.ambient, sizeof(strip.ambient));
     std::memcpy(strip.specular, material.specular, sizeof(strip.specular));
+}
+
+bool ShipwreckMapMaterial(const Draw3DStrip &strip) {
+    return std::strncmp(strip.texture_name, "d03b", 4) == 0;
+}
+
+bool ToanClothOrSkin(const Draw3DStrip &strip) {
+    // The body uses several c01d atlases, including the simulated immediate cloth mesh.
+    // c01w is the independently textured weapon and keeps its separate finish.
+    return std::strncmp(strip.texture_name, "c01d", 4) == 0;
+}
+
+gfx::MaterialProfile ShipwreckProfile(const Draw3DStrip &strip) {
+    return gfx::MaterialProfileForTexture(strip.texture_name);
 }
 
 // VU1 took normalised STQ, and the GS scales S and T by 2^TW and 2^TH; the renderer normalises to
@@ -392,6 +413,15 @@ void SpanWholeTexture(Draw3DVisual &visual, std::span<const TextureRun> runs) {
 
 } // namespace
 
+void SetEnhancedLighting(bool enabled) { g_enhanced_lighting = enabled; }
+bool EnhancedLightingEnabled() { return g_enhanced_lighting; }
+
+namespace gfx {
+void SetNormalDetailStrength(float strength) {
+    g_normal_detail_strength = std::clamp(strength, 0.0f, 1.0f);
+}
+} // namespace gfx
+
 // ---- Records ---------------------------------------------------------------------------------
 
 Draw3DVisual *Draw3DFindVisual(const void *block) {
@@ -465,10 +495,15 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
     }
     bool lit = info.shadow_pass == 0 && info.unlit == 0;
     bool fog = info.fog_enabled != 0 && info.shadow_pass == 0;
+    bool shipwreck_scene = !projected && g_enhanced_lighting &&
+                           MapNo == 200 + DUNGEON_SHIPWRECK;
+    bool shipwreck_fog = shipwreck_scene && gfx::ShipwreckFogEnabled();
+    bool effective_fog = fog || shipwreck_fog;
 
     gfx::MeshConstants constants = {};
     gfx::MeshTransform transform;
     Draw3DSceneConstants(constants, info, model, &transform);
+    constants.normal_detail_strength = g_normal_detail_strength;
     // A visual drawn outside a CFrame is known by its record, unless the record lasts one tick.
     bool unkeyed = gfx::CurrentInterpKey() == 0 && !visual.immediate;
     if (unkeyed) {
@@ -477,11 +512,12 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
     if (projected) {
         constants.flags = gfx::kMeshShadow;
     } else {
-        constants.flags = (lit ? gfx::kMeshLit : 0u) | (visual.vertex_colour ? gfx::kMeshVertexColor : 0u) |
-                          (fog ? gfx::kMeshFog : 0u);
+        constants.flags = (lit ? gfx::kMeshLit : 0u) | (g_enhanced_lighting ? gfx::kMeshMaterialLighting : 0u) |
+                          (visual.vertex_colour ? gfx::kMeshVertexColor : 0u) |
+                          (effective_fog ? gfx::kMeshFog : 0u) |
+                          (shipwreck_fog ? gfx::kMeshShipwreckFog : 0u);
     }
-
-    gfx::DrawState state = Draw3DState(info, fog);
+    gfx::DrawState state = Draw3DState(info, effective_fog);
     // Clip flag 4 (the 'S' frame-name code, program_option) sends the vertices through Vu_prog0f's
     // culling outputs (OUTPUTCN, OUTPUTCN_STR and the scissored kick): a triangle whose screen
     // cross product has negative z, clockwise on the y-down GS window, is kicked with ADC set and
@@ -504,7 +540,29 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
         if (projected && strip.ground_transition) {
             continue;
         }
-        constants.flags = base_flags | (strip.ground_world_uv ? gfx::kMeshWorldUv : 0u);
+        // The 58-strip, 1300-vertex c01d02 visual is Toan, not the deck. Identify the
+        // authored map and character atlases per strip so their finishes never cross over.
+        bool map_material = shipwreck_scene && ShipwreckMapMaterial(strip);
+        bool character_matte = shipwreck_scene && lit && ToanClothOrSkin(strip);
+        constants.flags = base_flags | (strip.ground_world_uv ? gfx::kMeshWorldUv : 0u) |
+                          (map_material ? gfx::kMeshShipwreckWorld : 0u) |
+                          (map_material && lit ? gfx::kMeshWetTimber : 0u) |
+                          (character_matte ? gfx::kMeshCharacterMatte : 0u);
+        constants.material_normal_slot = 0;
+        constants.material_orm_slot = 0;
+        constants.material_profile = static_cast<uint32_t>(gfx::MaterialProfile::Flat);
+        if (shipwreck_scene) {
+            gfx::MaterialProfile profile = strip.texture >= 0 ? ShipwreckProfile(strip) :
+                                           gfx::MaterialProfile::Prop;
+            constants.material_normal_slot = gfx::MaterialNormalMap(profile) & 0xffffu;
+            constants.material_orm_slot = gfx::MaterialOrmMap(profile) & 0xffffu;
+            constants.material_profile = static_cast<uint32_t>(profile);
+        }
+        if (shipwreck_fog && strip.ground_transition) {
+            // Ground transitions are alpha-blended over an already fogged opaque floor. Fogging
+            // the overlay again would double the in-scattering within its rectangular strips.
+            constants.flags &= ~(gfx::kMeshFog | gfx::kMeshShipwreckFog);
+        }
         if (strip.ground_world_uv) {
             for (int axis = 0; axis < 4; axis++) {
                 constants.world_uv[0][axis] = model[axis][0] / strip.ground_uv_period;
@@ -548,6 +606,7 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
         if (strip.ground_transition) {
             strip_state.alpha = {0, 1, 0, 1, 0x80};
             strip_state.depth_write = false;
+            if (shipwreck_fog) strip_state.fog = false;
         }
 
         if (visual.immediate) {

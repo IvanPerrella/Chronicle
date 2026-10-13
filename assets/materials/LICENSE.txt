@@ -1,0 +1,7 @@
+SPDX-License-Identifier: CC0-1.0
+
+The PNG material maps in this directory are original procedural assets made for
+this project by tools/materials/generate_material_maps.py. They use only Python's
+standard library and no third-party image inputs. The generated maps are offered
+under the Creative Commons CC0 1.0 Universal public-domain dedication.
+The original Dark Cloud game artwork and its authored UVs are not included here.

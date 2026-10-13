@@ -37,6 +37,7 @@ PORT_OVERRIDE int CCloth::CreateVUData(u_int *packet) {
     CTexture *texture = TexManager.GetTexture(material.texture, -1);
     if (texture != nullptr) {
         strip.texture = TexManager.GetTextureHandle(material.texture, -1);
+        std::strncpy(strip.texture_name, texture->name, sizeof(strip.texture_name) - 1);
         strip.tex0 = texture->tex0;
         strip.tex1 = texture->tex1;
         if (texture->width > 0 && texture->height > 0) {

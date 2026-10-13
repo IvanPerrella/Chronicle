@@ -17,8 +17,11 @@ function Find-WindowsTool([string]$Name, [string]$Fallback) {
 
 function Find-WindowsPython {
     $command = Get-Command py -ErrorAction SilentlyContinue
-    if ($command) { $python = & $command.Source -3 -c 'import sys; print(sys.executable)' }
-    else { $python = & (Find-WindowsTool python '') -c 'import sys; print(sys.executable)' }
+    if ($command) {
+        $python = & $command.Source -3 -c 'import sys; print(sys.executable)' 2>$null
+        if ($LASTEXITCODE -eq 0 -and $python) { return $python }
+    }
+    $python = & (Find-WindowsTool python '') -c 'import sys; print(sys.executable)'
     if ($LASTEXITCODE) { throw 'Cannot locate Python 3' }
     return $python
 }

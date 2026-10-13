@@ -15,8 +15,11 @@
 #include <vector>
 
 #include "context.hpp"
+#include "raytracing.hpp"
 #include "platform/paths.hpp"
 #include "shaders/draw.frag.spv.hpp"
+#include "shaders/draw_ray.frag.spv.hpp"
+#include "shaders/draw_early_ray.frag.spv.hpp"
 #include "shaders/draw2d.vert.spv.hpp"
 #include "shaders/mesh.vert.spv.hpp"
 
@@ -288,7 +291,7 @@ void CreatePipelineLayout() {
     constants_binding.binding = 0;
     constants_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     constants_binding.descriptorCount = 1;
-    constants_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    constants_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo constants_layout = {};
     constants_layout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     constants_layout.bindingCount = 1;
@@ -327,12 +330,13 @@ void CreatePipelineLayout() {
     Check(vkCreateDescriptorPool(g.device, &constants_pool, nullptr, &g.constants_pool),
           "vkCreateDescriptorPool");
 
-    VkDescriptorSetLayout      layouts[2] = {g.texture_set_layout, g.constants_set_layout};
+    VkDescriptorSetLayout      layouts[3] = {g.texture_set_layout, g.constants_set_layout,
+                                             RayDescriptorSetLayout()};
     VkPushConstantRange        push = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                        sizeof(PushConstants)};
     VkPipelineLayoutCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    info.setLayoutCount = 2;
+    info.setLayoutCount = RayTracingProvisioned() ? 3 : 2;
     info.pSetLayouts = layouts;
     info.pushConstantRangeCount = 1;
     info.pPushConstantRanges = &push;
@@ -375,6 +379,13 @@ void CreatePipelines() {
     VkShaderModule draw2d_module = CreateShader(draw2d_vert, sizeof(draw2d_vert));
     VkShaderModule mesh_module = CreateShader(mesh_vert, sizeof(mesh_vert));
     VkShaderModule frag_module = CreateShader(draw_frag, sizeof(draw_frag));
+    VkShaderModule ray_frag_module = RayTracingProvisioned()
+                                         ? CreateShader(draw_ray_frag, sizeof(draw_ray_frag))
+                                         : VK_NULL_HANDLE;
+    VkShaderModule early_ray_frag_module = RayTracingProvisioned()
+                                               ? CreateShader(draw_early_ray_frag,
+                                                              sizeof(draw_early_ray_frag))
+                                               : VK_NULL_HANDLE;
 
     VkVertexInputBindingDescription   binding_2d = {0, sizeof(Vertex2D), VK_VERTEX_INPUT_RATE_VERTEX};
     VkVertexInputAttributeDescription attributes_2d[4] = {
@@ -457,6 +468,9 @@ void CreatePipelines() {
     rendering.pColorAttachmentFormats = &color_format;
     rendering.depthAttachmentFormat = g.depth_format;
     rendering.stencilAttachmentFormat = g.depth_format;
+    VkFormat hdr_color_format = kHdrFormat;
+    VkPipelineRenderingCreateInfo hdr_rendering = rendering;
+    hdr_rendering.pColorAttachmentFormats = &hdr_color_format;
 
     std::vector<VkPipelineColorBlendAttachmentState> attachments(g.blend_slot_count);
     std::vector<VkPipelineColorBlendStateCreateInfo> blends(g.blend_slot_count);
@@ -482,18 +496,23 @@ void CreatePipelines() {
     struct Specialization {
         int32_t  mode;
         VkBool32 alpha_test;
+        VkBool32 hdr_output;
+        VkBool32 profile_rays;
     };
 
-    VkSpecializationMapEntry spec_entries[2] = {
+    VkSpecializationMapEntry spec_entries[4] = {
         {0, offsetof(Specialization, mode),       sizeof(int32_t) },
         {1, offsetof(Specialization, alpha_test), sizeof(VkBool32)},
+        {2, offsetof(Specialization, hdr_output), sizeof(VkBool32)},
+        {3, offsetof(Specialization, profile_rays), sizeof(VkBool32)},
     };
     Specialization       spec_data[kTextureModeCount][2];
     VkSpecializationInfo spec_info[kTextureModeCount][2];
     for (uint32_t mode = 0; mode < kTextureModeCount; mode++) {
         for (uint32_t test = 0; test < 2; test++) {
-            spec_data[mode][test] = {static_cast<int32_t>(mode), test ? VK_TRUE : VK_FALSE};
-            spec_info[mode][test] = {2, spec_entries, sizeof(Specialization), &spec_data[mode][test]};
+            spec_data[mode][test] = {static_cast<int32_t>(mode), test ? VK_TRUE : VK_FALSE,
+                                    VK_FALSE, RayProfileCountersEnabled() ? VK_TRUE : VK_FALSE};
+            spec_info[mode][test] = {4, spec_entries, sizeof(Specialization), &spec_data[mode][test]};
         }
     }
 
@@ -508,7 +527,14 @@ void CreatePipelines() {
     uint32_t blended = kFamilyCount * g.blend_slot_count * kTextureModeCount * 2;
     uint32_t families = kFamilyCount;
     uint32_t modes = kTextureModeCount;
-    uint32_t total = blended + (g.dynamic_color_write_mask ? 0 : families * modes * 2);
+    uint32_t base_total = blended + (g.dynamic_color_write_mask ? 0 : families * modes * 2);
+    uint32_t ray_count = RayTracingProvisioned()
+                             ? g.blend_slot_count * modes * 2 +
+                                   (g.dynamic_color_write_mask ? 0 : modes * 2)
+                             : 0;
+    uint32_t base_variants = base_total + ray_count;
+    g.hdr_pipeline_offset = g.config.enhanced_hdr ? base_variants : 0;
+    uint32_t total = base_variants + g.hdr_pipeline_offset;
 
     std::vector<VkPipelineShaderStageCreateInfo> stages(total * 2);
     std::vector<VkGraphicsPipelineCreateInfo>    infos(total);
@@ -553,6 +579,54 @@ void CreatePipelines() {
                 }
             }
         }
+    }
+
+    // Only the mesh family needs the ray-enabled shader. Keep the ordinary pipelines available
+    // until a completed TLAS exists, and for devices without ray-query support.
+    if (RayTracingProvisioned()) {
+        auto variant = [&](uint32_t source, bool alpha_test) {
+            uint32_t target = RayPipelineIndex(source);
+            stages[target * 2] = stages[source * 2];
+            stages[target * 2 + 1] = stages[source * 2 + 1];
+            stages[target * 2 + 1].module = alpha_test ? ray_frag_module : early_ray_frag_module;
+            infos[target] = infos[source];
+            infos[target].pStages = &stages[target * 2];
+        };
+        for (uint32_t blend = 0; blend < g.blend_slot_count; blend++) {
+            for (uint32_t mode = 0; mode < kTextureModeCount; mode++) {
+                for (uint32_t test = 0; test < 2; test++) {
+                    variant(PipelineIndex(kFamilyMesh, blend, static_cast<TextureMode>(mode), test != 0),
+                            test != 0);
+                }
+            }
+        }
+        if (!g.dynamic_color_write_mask) {
+            for (uint32_t mode = 0; mode < kTextureModeCount; mode++) {
+                for (uint32_t test = 0; test < 2; test++) {
+                    variant(NoColorPipelineIndex(kFamilyMesh, static_cast<TextureMode>(mode), test != 0),
+                            test != 0);
+                }
+            }
+        }
+    }
+
+    // The canonical GS feedback remains RGBA8. The display target has separate
+    // floating-point pipeline variants so direct and bounced light can exceed 1.
+    std::vector<Specialization> hdr_spec_data(g.hdr_pipeline_offset);
+    std::vector<VkSpecializationInfo> hdr_spec_info(g.hdr_pipeline_offset);
+    for (uint32_t source = 0; source < g.hdr_pipeline_offset; ++source) {
+        uint32_t target = source + g.hdr_pipeline_offset;
+        stages[target * 2] = stages[source * 2];
+        stages[target * 2 + 1] = stages[source * 2 + 1];
+        const auto *normal = static_cast<const Specialization *>(
+            stages[source * 2 + 1].pSpecializationInfo->pData);
+        hdr_spec_data[source] = *normal;
+        hdr_spec_data[source].hdr_output = VK_TRUE;
+        hdr_spec_info[source] = {4, spec_entries, sizeof(Specialization), &hdr_spec_data[source]};
+        stages[target * 2 + 1].pSpecializationInfo = &hdr_spec_info[source];
+        infos[target] = infos[source];
+        infos[target].pNext = &hdr_rendering;
+        infos[target].pStages = &stages[target * 2];
     }
 
     // Pipeline creation is thread-safe against one cache, and on a cold cache it is the whole
@@ -601,6 +675,12 @@ void CreatePipelines() {
     vkDestroyShaderModule(g.device, draw2d_module, nullptr);
     vkDestroyShaderModule(g.device, mesh_module, nullptr);
     vkDestroyShaderModule(g.device, frag_module, nullptr);
+    if (ray_frag_module != VK_NULL_HANDLE) {
+        vkDestroyShaderModule(g.device, ray_frag_module, nullptr);
+    }
+    if (early_ray_frag_module != VK_NULL_HANDLE) {
+        vkDestroyShaderModule(g.device, early_ray_frag_module, nullptr);
+    }
     SaveCache(g.config.pipeline_cache);
     g.pipeline_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     std::fprintf(stderr, "gfx: %u pipelines ready in %.2f s\n", total, g.pipeline_seconds);

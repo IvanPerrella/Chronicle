@@ -826,7 +826,10 @@ int LocalizeExport(const fs::path &out, bool verify) {
         if (!it->is_regular_file(entry_error)) {
             continue;
         }
-        const std::string key = dcdata::FoldPath(it->path().lexically_relative(root).generic_string());
+        // Windows path::generic_string() uses the active narrow locale and throws for the
+        // disc's non-ASCII filenames. Keep generic '/' separators and convert as UTF-8.
+        const auto relative = it->path().lexically_relative(root).generic_u8string();
+        const std::string key = dcdata::FoldPath(std::string(relative.begin(), relative.end()));
         const bool        mes = IsMessageName(key);
         if (!mes && !IsPackName(key)) {
             continue;

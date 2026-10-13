@@ -87,6 +87,30 @@ const char *PresentModeName(ConfigPresentMode mode) {
     }
 }
 
+bool ReadDlssQuality(const Json &value, ConfigDlssQuality &out) {
+    if (!value.is_string()) return false;
+    std::string mode = Lower(value.get<std::string>());
+    if (mode == "off") out = ConfigDlssQuality::Off;
+    else if (mode == "dlaa") out = ConfigDlssQuality::DLAA;
+    else if (mode == "quality") out = ConfigDlssQuality::Quality;
+    else if (mode == "balanced") out = ConfigDlssQuality::Balanced;
+    else if (mode == "performance") out = ConfigDlssQuality::Performance;
+    else if (mode == "ultra_performance") out = ConfigDlssQuality::UltraPerformance;
+    else return false;
+    return true;
+}
+
+const char *DlssQualityName(ConfigDlssQuality mode) {
+    switch (mode) {
+        case ConfigDlssQuality::Off: return "off";
+        case ConfigDlssQuality::DLAA: return "dlaa";
+        case ConfigDlssQuality::Balanced: return "balanced";
+        case ConfigDlssQuality::Performance: return "performance";
+        case ConfigDlssQuality::UltraPerformance: return "ultra_performance";
+        default: return "quality";
+    }
+}
+
 bool ReadFpsDetail(const Json &value, ConfigFpsDetail &out) {
     if (!value.is_string()) {
         return false;
@@ -443,6 +467,36 @@ bool Apply(Config &config, std::string_view name, const Json &value) {
     if (name == "video.interpolation") {
         return ReadBool(value, config.interpolation);
     }
+    if (name == "video.enhanced_lighting") {
+        return ReadBool(value, config.enhanced_lighting);
+    }
+    if (name == "video.bloom") {
+        return ReadBool(value, config.bloom);
+    }
+    if (name == "video.ray_tracing") {
+        return ReadBool(value, config.ray_tracing);
+    }
+    if (name == "video.shipwreck_fog") {
+        return ReadBool(value, config.shipwreck_fog);
+    }
+    if (name == "video.shipwreck_local_lights") {
+        return ReadBool(value, config.shipwreck_local_lights);
+    }
+    if (name == "video.normal_detail_strength") {
+        double strength = 0.0;
+        if (!ReadNumber(value, strength) || !std::isfinite(strength) || strength < 0.0 ||
+            strength > 1.0) {
+            return false;
+        }
+        config.normal_detail_strength = static_cast<float>(strength);
+        return true;
+    }
+    if (name == "video.dlss_quality") {
+        return ReadDlssQuality(value, config.dlss_quality);
+    }
+    if (name == "video.frame_generation") {
+        return ReadBool(value, config.frame_generation);
+    }
     if (name == "video.max_fps") {
         double fps = 0.0;
         if (!ReadNumber(value, fps) || !(fps >= 0.0) || !std::isfinite(fps)) {
@@ -637,6 +691,14 @@ std::string ConfigSerialize(const Config &config) {
     root["video"]["boss_shadow"] = config.boss_shadow;
     root["video"]["present_mode"] = PresentModeName(config.present_mode);
     root["video"]["interpolation"] = config.interpolation;
+    root["video"]["enhanced_lighting"] = config.enhanced_lighting;
+    root["video"]["bloom"] = config.bloom;
+    root["video"]["ray_tracing"] = config.ray_tracing;
+    root["video"]["shipwreck_fog"] = config.shipwreck_fog;
+    root["video"]["shipwreck_local_lights"] = config.shipwreck_local_lights;
+    root["video"]["normal_detail_strength"] = Shortest(config.normal_detail_strength);
+    root["video"]["dlss_quality"] = DlssQualityName(config.dlss_quality);
+    root["video"]["frame_generation"] = config.frame_generation;
     root["video"]["max_fps"] = config.max_fps;
     root["video"]["width"] = config.window_width;
     root["video"]["height"] = config.window_height;

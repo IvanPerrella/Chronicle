@@ -1,6 +1,7 @@
 #include "battlemenu.hpp"
 
 #include "clsmes.hpp"
+#include "gfx/gfx.hpp"
 #include "memcard.hpp"
 #include "menu_draw.hpp"
 #include "menu_manual.hpp"
@@ -155,6 +156,9 @@ char g_frame_image_name[] = "frame_image";
 } // namespace
 
 PORT_OVERRIDE void BattleMenuDraw() {
+    // The frozen dungeon backdrop is already tone-mapped SDR. Menu sprites belong
+    // on the display UI target, so the saved background is not tone-mapped twice.
+    gfx::CaptureBloomScene();
     MenuMouseNoteBattleMenu();
     int text_x = 0;
     int text_y = 0;

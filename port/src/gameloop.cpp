@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <format>
 #include <string_view>
 #include <thread>
@@ -36,6 +37,7 @@
 #include "platform/config.hpp"
 #include "platform/input.hpp"
 #include "platform/overlay.hpp"
+#include "platform/paths.hpp"
 #include "presence.hpp"
 #include "savedata.hpp"
 #include "snd.hpp"
@@ -76,6 +78,7 @@ gfx::DisplayListRef g_list;
 gfx::DisplayListRef g_previous_list;
 bool                g_tick_shown = true;
 GamePresentStats    g_stats;
+std::int64_t        g_frames;
 
 using PresentClock = std::chrono::steady_clock;
 PresentClock::time_point g_last_present;
@@ -161,6 +164,42 @@ void NotePresented() {
     g_fps.frames.Count(PresentClock::now());
 }
 
+void CaptureRegressionFrame(float alpha) {
+    // Opt-in QA of completed presentation frames. A camera sweep or opening can
+    // be inspected without repeatedly relaunching at fixed poses.
+    const char *prefix = std::getenv("DC_CAPTURE_PREFIX");
+    if (prefix == nullptr || prefix[0] == '\0') return;
+    const auto number = [](const char *name, std::int64_t fallback) {
+        const char *value = std::getenv(name);
+        if (value == nullptr || value[0] == '\0') return fallback;
+        std::int64_t parsed = fallback;
+        auto [end, error] = std::from_chars(value, value + std::strlen(value), parsed);
+        return error == std::errc{} && *end == '\0' ? parsed : fallback;
+    };
+    const std::int64_t start = number("DC_CAPTURE_START", 0);
+    const std::int64_t end = number("DC_CAPTURE_END", start);
+    const std::int64_t step = std::max<std::int64_t>(1, number("DC_CAPTURE_STEP", 1));
+    if (g_frames < start || g_frames > end || (g_frames - start) % step != 0) return;
+    static std::int64_t captured_tick = -1;
+    static int subframe = 0;
+    if (captured_tick != g_frames) {
+        captured_tick = g_frames;
+        subframe = 0;
+    }
+    std::vector<std::uint8_t> pixels;
+    std::uint32_t width = 0, height = 0;
+    if (!GameScreenshot(pixels, width, height)) return;
+    std::filesystem::path path = PathsFromUtf8(
+        std::format("{}-{:05}-{:02}.png", prefix, g_frames, subframe++));
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (!gfx::WritePng(path, pixels.data(), width, height))
+        std::fprintf(stderr, "DC_CAPTURE_PREFIX: failed to write %s\n", path.string().c_str());
+    else
+        std::fprintf(stderr, "DC_CAPTURE_FRAME tick=%lld alpha=%.4f mode=%d task=%d file=%s\n",
+                     static_cast<long long>(g_frames), alpha, mode, gameTask, path.string().c_str());
+}
+
 bool DisplayFrame(float alpha, bool present) {
     PresentClock::time_point start = PresentClock::now();
     gfx::RenderOptions       options = {.previous = g_previous_list.get(),
@@ -173,17 +212,22 @@ bool DisplayFrame(float alpha, bool present) {
         if (present) {
             NotePresented();
         }
+        if (present || (ClockUnbounded() &&
+                        (std::getenv("DC_CAPTURE_SUBFRAMES") != nullptr || alpha >= 1.0f)))
+            CaptureRegressionFrame(alpha);
     }
     return shown;
 }
 
 // The canonical image as it is, or a display render of the overlay alone, which starts from it.
 bool PresentCanonicalFrame() {
+    gfx::ResetMotionHistory();
     const gfx::DisplayList *overlay = FpsOverlayList();
     bool                    shown = overlay != nullptr ? gfx::RenderList(*overlay, 1.0f, {.present = true, .host = true})
                                                        : gfx::PresentCanonical();
     if (shown) {
         NotePresented();
+        CaptureRegressionFrame(1.0f);
     }
     return shown;
 }
@@ -203,7 +247,6 @@ int g_developer_return_menu_no = 0;
 bool g_developer_return_pending = false;
 
 std::int64_t g_frame_budget = -1;
-std::int64_t g_frames;
 bool         g_stop;
 
 // Retail's save_data and config_data are static in main.cpp, so the port
@@ -710,7 +753,8 @@ bool GamePresentBetweenTicks(double fraction, std::chrono::steady_clock::time_po
     PollFpsToggle();
     if (!g_present.interpolation) {
         if (!g_tick_shown) {
-            PresentCanonicalFrame();
+            if (ConfigGet().enhanced_lighting) DisplayFrame(1.0f, true);
+            else PresentCanonicalFrame();
             g_tick_shown = true;
         }
         return false;
@@ -746,7 +790,16 @@ void GamePresentTickEnd() {
             DisplayFrame(static_cast<float>(frame) / static_cast<float>(g_present.display_per_tick), false);
         }
     }
-    PresentCanonicalFrame();
+    // A headless enhanced frame needs the world/HUD split and tone mapping from a full
+    // display replay. Presenting only the canonical frame would replace that result with raw
+    // HDR and leave a later presentation readback without a mapped image.
+    if (ConfigGet().enhanced_lighting) {
+        // In a headless screenshot run, the final replay can include the FPS overlay without
+        // a swapchain. PresentSettings enables that overlay only for --screenshot-fps.
+        DisplayFrame(1.0f, !ClockUnbounded() || g_present.show_fps);
+    } else {
+        PresentCanonicalFrame();
+    }
     g_last_present = PresentClock::now();
     g_tick_shown = true;
 }
@@ -770,15 +823,28 @@ std::string GameFpsText() {
     return text;
 }
 
-// kPreviousFrame outside a frame is the newest main image: the canonical render, or the loading
-// screen's frame after it. ReadbackFrame would read a display frame, overlay and all.
+// A screenshot of enhanced rendering must come from the final SDR presentation, after HDR
+// tone mapping, DLSS, bloom and HUD composition. The canonical texture is still retained for
+// gameplay feedback and for the original renderer's screenshot behavior.
 bool GameScreenshot(std::vector<std::uint8_t> &rgba, std::uint32_t &width, std::uint32_t &height) {
+    if (ConfigGet().enhanced_lighting) return gfx::ReadbackFrame(rgba, width, height);
     return gfx::ReadbackTexture(gfx::kPreviousFrame, rgba, width, height);
 }
 
 bool GameScreenshotWithFps(std::vector<std::uint8_t> &rgba, std::uint32_t &width, std::uint32_t &height) {
+    // The latest enhanced presentation already includes the visible FPS overlay if enabled.
+    // Replaying a display list after the frame budget stops can use released game resources.
+    if (ConfigGet().enhanced_lighting) return gfx::ReadbackFrame(rgba, width, height);
     const gfx::DisplayList *overlay = FpsOverlayList();
-    return overlay != nullptr && gfx::RenderList(*overlay, 1.0f, {.present = false, .host = true}) &&
+    if (overlay == nullptr || g_list == nullptr) return false;
+    // A headless display tick has already replayed the complete scene and HUD. Replaying its
+    // display list after the frame budget stops can dereference resources released by the game.
+    // Read the actual presentation instead; this also includes the HDR tone map and bloom.
+    if (g_stats.display_frames > 0 &&
+        (g_present.display_per_tick > 0 || ConfigGet().enhanced_lighting)) {
+        return gfx::ReadbackFrame(rgba, width, height);
+    }
+    return gfx::RenderList(*g_list, 1.0f, {.present = true, .overlay = overlay}) &&
            gfx::ReadbackFrame(rgba, width, height);
 }
 

@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -11,11 +12,13 @@
 #include "audio/soundtrack.hpp"
 #include "battle_globals.hpp"
 #include "dataread.hpp"
+#include "draw3d.hpp"
 #include "dun/gameloop.hpp"
 #include "exitcodes.hpp"
 #include "gameloop.hpp"
 #include "gamemode.hpp"
 #include "gfx/gfx.hpp"
+#include "gfx/materialmaps.hpp"
 #include "identity.hpp"
 #include "langset.hpp"
 #include "localize.hpp"
@@ -83,7 +86,7 @@ Options g_options;
                  "  --offscreen        --headless without a Vulkan surface: render to an image only (what\n"
                  "                     --headless does when there is no VK_EXT_headless_surface)\n"
                  "  --frames N         stop after N frames of the game's main loop\n"
-                 "  --screenshot PATH  write the last tick's image (no FPS counter) to PATH on exit\n"
+                 "  --screenshot PATH  write the last presented image (no FPS counter) to PATH on exit\n"
                  "  --input FILE       drive pad 1 from a script (default: DC_INPUT); see docs/PC.md\n"
                  "  --width, --height  window size in pixels (default: config.json, then the monitor's)\n"
                  "  --screenshot-fps   with --screenshot and --show-fps: the image as a window shows it, the\n"
@@ -218,6 +221,8 @@ void BgmTestPump() {
     SndBgmPlay(track);
 }
 
+void PumpLiveGraphicsTest();
+
 void PumpHost() {
     BgmTestPump();
     if (!WindowPollEvents()) {
@@ -235,6 +240,7 @@ void PumpHost() {
     }
     InputPoll();
     InputScriptApply(GameFrameCount());
+    PumpLiveGraphicsTest();
 }
 
 void LoadInputScript(const char *path) {
@@ -291,11 +297,28 @@ gfx::PresentMode PresentMode(ConfigPresentMode mode) {
     }
 }
 
+gfx::DlssQuality DlssQuality(ConfigDlssQuality quality) {
+    switch (quality) {
+        case ConfigDlssQuality::Off: return gfx::DlssQuality::Off;
+        case ConfigDlssQuality::DLAA: return gfx::DlssQuality::DLAA;
+        case ConfigDlssQuality::Balanced: return gfx::DlssQuality::Balanced;
+        case ConfigDlssQuality::Performance: return gfx::DlssQuality::Performance;
+        case ConfigDlssQuality::UltraPerformance: return gfx::DlssQuality::UltraPerformance;
+        default: return gfx::DlssQuality::Quality;
+    }
+}
+
 GamePresentSettings PresentSettings(const Config &config) {
+    // With enhanced screenshots the frame we save is the actual presented SDR image. Decide
+    // whether to draw the FPS overlay during that run; the screenshot flag must not select a
+    // different world-rendering/readback path.
+    bool capture_overlay = !config.enhanced_lighting || g_options.screenshot == nullptr ||
+                           g_options.screenshot_fps;
     return {.interpolation = config.interpolation,
             .max_fps = config.max_fps,
             .display_per_tick = g_options.display_per_tick,
-            .show_fps = g_options.show_fps || (config.show_fps && !g_options.headless),
+            .show_fps = capture_overlay &&
+                        (g_options.show_fps || (config.show_fps && !g_options.headless)),
             .fps_detail = config.fps_detail};
 }
 
@@ -316,14 +339,72 @@ void ApplyConfigChange(const Config &before, const Config &after) {
         ClockSetTickRate(after.tick_rate);
     }
     if (after.interpolation != before.interpolation || after.max_fps != before.max_fps ||
+        after.enhanced_lighting != before.enhanced_lighting ||
         after.show_fps != before.show_fps || after.fps_detail != before.fps_detail) {
         GameSetPresentSettings(PresentSettings(after));
     }
     gfx::SetPresentMode(PresentMode(after.present_mode));
+    if (after.dlss_quality != before.dlss_quality)
+        gfx::SetDlssQuality(DlssQuality(after.dlss_quality));
+    if (after.frame_generation != before.frame_generation)
+        gfx::SetFrameGeneration(after.frame_generation);
+    if (after.enhanced_lighting != before.enhanced_lighting)
+        gfx::SetEnhancedHdr(after.enhanced_lighting);
+    if (after.ray_tracing != before.ray_tracing)
+        gfx::SetRayTracing(after.ray_tracing);
+    if (after.shipwreck_fog != before.shipwreck_fog)
+        gfx::SetShipwreckFog(after.shipwreck_fog);
+    if (after.shipwreck_local_lights != before.shipwreck_local_lights)
+        gfx::SetShipwreckLocalLights(after.shipwreck_local_lights);
+    if (after.normal_detail_strength != before.normal_detail_strength)
+        gfx::SetNormalDetailStrength(after.normal_detail_strength);
     gfx::SetAnisotropy(after.anisotropy);
+    gfx::SetBloom(after.bloom);
+    SetEnhancedLighting(after.enhanced_lighting);
     if (after.discord_rich_presence != before.discord_rich_presence) {
         ApplyDiscord(after);
     }
+}
+
+// Opt-in integration exercise for the same ConfigChange path used by the Options screen.
+// Run it with a disposable --save directory because ConfigChange saves each transition.
+void PumpLiveGraphicsTest() {
+    const char *enabled = std::getenv("DC_LIVE_GRAPHICS_TEST");
+    if (enabled == nullptr || *enabled == '\0' || *enabled == '0' || gfx::InFrame()) return;
+    static unsigned next = 0;
+    constexpr unsigned kFrames[] = {820, 840, 860, 880, 900, 920, 940, 960, 980, 1000, 1020,
+                                    1040, 1060, 1080, 1100, 1120, 1140, 1160, 1180};
+    constexpr const char *kNames[] = {"HDR off", "HDR on", "RT off", "RT on",
+                                      "DLSS Performance", "DLAA", "DLSS Quality",
+                                      "FG on", "FG off", "Bloom off", "Bloom on",
+                                      "Fog off", "Fog on", "Local lights off", "Local lights on",
+                                      "DLSS off", "DLSS Quality", "Surface detail off", "Surface detail full"};
+    if (next >= std::size(kFrames) || GameFrameCount() < kFrames[next]) return;
+    Config changed = ConfigGet();
+    switch (next) {
+        case 0: changed.enhanced_lighting = false; break;
+        case 1: changed.enhanced_lighting = true; break;
+        case 2: changed.ray_tracing = false; break;
+        case 3: changed.ray_tracing = true; break;
+        case 4: changed.dlss_quality = ConfigDlssQuality::Performance; break;
+        case 5: changed.dlss_quality = ConfigDlssQuality::DLAA; break;
+        case 6: changed.dlss_quality = ConfigDlssQuality::Quality; break;
+        case 7: changed.frame_generation = true; break;
+        case 8: changed.frame_generation = false; break;
+        case 9: changed.bloom = false; break;
+        case 10: changed.bloom = true; break;
+        case 11: changed.shipwreck_fog = false; break;
+        case 12: changed.shipwreck_fog = true; break;
+        case 13: changed.shipwreck_local_lights = false; break;
+        case 14: changed.shipwreck_local_lights = true; break;
+        case 15: changed.dlss_quality = ConfigDlssQuality::Off; break;
+        case 16: changed.dlss_quality = ConfigDlssQuality::Quality; break;
+        case 17: changed.normal_detail_strength = 0.0f; break;
+        case 18: changed.normal_detail_strength = 1.0f; break;
+    }
+    std::fprintf(stderr, "Live graphics test frame %u: %s\n", kFrames[next], kNames[next]);
+    ConfigChange(changed);
+    ++next;
 }
 
 // DC_PRESENT_STATS=1: what the ticks drew and what rendering them cost.
@@ -427,10 +508,20 @@ int Run(int argc, const char **argv) {
     renderer.pipeline_cache = PathsSaveRoot() / "pipeline_cache.bin";
     renderer.progress = ReportShaderProgress;
     renderer.offscreen = offscreen;
+    renderer.ray_tracing = config.ray_tracing;
+    renderer.enhanced_hdr = config.enhanced_lighting;
+    renderer.dlss_quality = DlssQuality(config.dlss_quality);
+    renderer.frame_generation = config.frame_generation;
     renderer.layout = Layout(config);
     renderer.validation = renderer.validation || SettingsEnv("VULKAN_VALIDATION") != nullptr;
     gfx::RendererInit(WindowHandle(), renderer);
+    gfx::LoadMaterialMaps(PathsExecutable());
+    gfx::SetShipwreckFog(config.shipwreck_fog);
+    gfx::SetShipwreckLocalLights(config.shipwreck_local_lights);
+    gfx::SetNormalDetailStrength(config.normal_detail_strength);
     gfx::SetAnisotropy(config.anisotropy);
+    gfx::SetBloom(config.bloom);
+    SetEnhancedLighting(config.enhanced_lighting);
 
     audio::DefaultMixer().SetMasterGain(config.master_volume);
     AudioSetSurround(config.surround);
@@ -461,6 +552,7 @@ int Run(int argc, const char **argv) {
     DiscordStop();
     AudioOutputStop();
     InputShutdown();
+    gfx::UnloadMaterialMaps();
     gfx::RendererShutdown();
     WindowShutdown();
     return status;

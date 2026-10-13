@@ -346,6 +346,10 @@ Nothing the renderer calls was introduced by Vulkan 1.4, so 1.3 is the floor:
 
 Optional, used when present:
 
+- A capable GPU provisions `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, device
+  addresses, and their required deferred host operations extension at startup, so the Video
+  setting can turn ray tracing on or off during play. The ordinary shader and pipeline remain
+  available when any of these are absent.
 - `VK_EXT_extended_dynamic_state3` with `extendedDynamicState3ColorWriteMask` (below); without it
   the colourless pipelines are added. Chosen by the device's capability, and
   `config.dynamic_color_write_mask = false` forces the fallback.
@@ -362,8 +366,50 @@ Optional, used when present:
   reinterpretation, constant-alpha blend factors, mip LOD bias and comparison samplers are not used.
 - `VK_EXT_debug_utils` and `VK_LAYER_KHRONOS_validation` for validation.
 
-Shaders are compiled for `--target-env vulkan1.4`, which emits SPIR-V 1.6 with no capability beyond
-what 1.3 supports (`spirv-val --target-env vulkan1.3` accepts all three).
+Shaders are compiled for `--target-env vulkan1.4`. The baseline shaders use no capability beyond
+what Vulkan 1.3 supports; the separately compiled ray fragment variant needs `VK_KHR_ray_query`.
+
+When ray tracing is enabled, persistent `DrawMesh` geometry gets a bottom-level acceleration
+structure. Each canonical frame collects its mesh transforms into a top-level structure for the
+subsequent display replay and uploads indexed vertices and per-instance lighting material data. Ray queries
+shade only the interpolated display pass; the canonical image used by PS2 feedback retains its
+ordinary raster appearance. Enhanced
+lit mesh materials trace hemisphere rays for local ambient occlusion, one ray to the strongest
+facing light for a hard shadow, a roughness-aware reflection ray, and a cosine-weighted
+diffuse bounce. Reflection and bounce radiance use the actual hit's authored UV texture/palette,
+alpha test, material normal/ORM map, vertex colour and light data; the shaders do not sample
+prior-frame colour.
+Contact rays fade with hit distance and have bounded influence on the game's authored lighting.
+Secondary radiance is conservatively bounded. The display pass varies its ray budget with
+resolution, roughness and expected contribution; reflection and diffuse bounce estimates use
+few samples and can remain incomplete in some views.
+Off-camera surfaces can contribute if their mesh was drawn in the preceding canonical replay.
+Current-pose immediate cloth geometry enters the display ray scene, while other immediate meshes
+can still be absent. Secondary light occlusion is not traced, so reflected or bounced radiance
+can differ from a textured surface's raster colour.
+The diffuse contribution is deliberately attenuated; this is one approximate indirect bounce,
+not converged global illumination. In enhanced Shipwreck with ray queries, the original flame
+draws supply up to eight nearby world-space fire positions and their existing flicker signal.
+These drive bounded local illumination, shadow rays, and warm fog in-scattering. The old
+rectangular framebuffer-copy fire overlays are omitted in this mode; the flame sprites remain.
+The display pass reconstructs depth once per pixel for distance- and height-dependent
+Beer-Lambert extinction and cool teal scattering before drawing the HUD. Other maps retain
+their original treatment.
+An active run logs `ray queries enabled`, the first TLAS instance/vertex count, and the first
+ray-query mesh pipeline bind. Current-pose cloth `DrawMeshImmediate` joins the display TLAS;
+other immediate geometry, including water, is not universally represented. Alpha-tested ray
+candidates sample the hit material before confirmation. The first frame uses ordinary raster
+lighting until a scene structure exists.
+
+`DC_RAY_PROFILE=1` enables diagnostic GPU timestamps and shader ray-query counters. Every 60
+canonical or display frames, the log reports ray-enabled mesh draws, TLAS instances, BLAS
+updates, CPU scene preparation time, GPU TLAS time, the first-to-last ray mesh draw GPU span,
+and ray launches by AO, contact shadow, reflection, diffuse bounce, and local-light shadow.
+The draw span can include intervening commands and is not isolated shader time. Shipwreck's
+fullscreen fog pass reports its separate GPU time. Profiling inserts per-draw timestamps and
+atomic shader counters, so use a run without this option for final frame-rate comparisons.
+`DC_RAY_PROFILE=timing` keeps CPU counts and GPU timestamps but skips shader atomics, giving a
+less-perturbed timing sample; compare both modes with an unprofiled run of the same scene.
 
 ## Not done here
 

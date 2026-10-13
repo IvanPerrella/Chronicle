@@ -38,7 +38,8 @@ passed on to it.
 
 With no configuration, the scripts use the port for the host's operating system. PS2 builds must name
 their configuration. The Linux and PS2 configurations build in a container, which needs Docker or Podman;
-the macOS and Windows ports build on the host, with the dependencies in `docs/MACOS.md` and `docs/WINDOWS.md` installed.
+the Windows port cross-builds in Docker Desktop's Linux engine and needs only Docker on the Windows host.
+The macOS port builds on the host with the dependencies in `docs/MACOS.md`.
 
 `CLEAN=1` discards the configuration's build directory before building, and `JOBS=N` sets the number of
 parallel jobs. The configurations and their settings are listed in `kazarov.conf` and `tools/kazarov/README.md`.

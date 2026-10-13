@@ -225,6 +225,24 @@ void SetPresentMode(Config &config, int choice) {
     config.present_mode = kPresentModes[choice];
 }
 
+constexpr ConfigDlssQuality kDlssQualities[] = {
+    ConfigDlssQuality::Off, ConfigDlssQuality::DLAA, ConfigDlssQuality::Quality,
+    ConfigDlssQuality::Balanced, ConfigDlssQuality::Performance,
+    ConfigDlssQuality::UltraPerformance};
+
+int DlssQualityCount(const Config &) {
+    return static_cast<int>(std::size(kDlssQualities));
+}
+
+int DlssQualityChoice(const Config &config) {
+    return static_cast<int>(std::ranges::find(kDlssQualities, config.dlss_quality) -
+                            std::begin(kDlssQualities));
+}
+
+void SetDlssQuality(Config &config, int choice) {
+    config.dlss_quality = kDlssQualities[choice];
+}
+
 constexpr ConfigFpsDetail kFpsDetails[] = {ConfigFpsDetail::Fps, ConfigFpsDetail::Ticks, ConfigFpsDetail::All};
 
 int FpsDetailCount(const Config &) {
@@ -258,6 +276,16 @@ std::string MaxFpsText(const Config &config) {
 }
 
 constexpr int kAnisotropy[] = {0, 2, 4, 8, 16};
+
+int NormalDetailCount(const Config &) { return 5; }
+
+int NormalDetailChoice(const Config &config) {
+    return std::clamp(static_cast<int>(std::lround(config.normal_detail_strength * 4.0f)), 0, 4);
+}
+
+void SetNormalDetail(Config &config, int choice) {
+    config.normal_detail_strength = std::clamp(choice, 0, 4) / 4.0f;
+}
 
 int AnisotropyCount(const Config &) {
     return static_cast<int>(std::size(kAnisotropy));
@@ -614,6 +642,26 @@ const Row kDisplayRows[] = {
                UiScaleChoice, SetUiScale, UiScaleText),
     OnOffRow<&Config::interpolation>("video.interpolation", "Smooth Motion",
                                      "\"Smooth Motion\"\nDraws frames between\nthe game's steps."),
+    OnOffRow<&Config::enhanced_lighting>("video.enhanced_lighting", "Atmospheric Lighting",
+                                         "\"Atmospheric Lighting\"\nAdds material highlights\nand depth haze to the\n3D world."),
+    OnOffRow<&Config::bloom>("video.bloom", "Bloom",
+                             "\"Bloom\"\nSoftens bright lamps\nand other highlights."),
+    OnOffRow<&Config::ray_tracing>("video.ray_tracing", "Ray Tracing",
+                                   "\"Ray Tracing\"\nAdds traced contact\nshading and highlights.\nNeeds GPU support."),
+    OnOffRow<&Config::shipwreck_fog>("video.shipwreck_fog", "Shipwreck Fog",
+                                     "\"Shipwreck Fog\"\nCool depth haze and\nlantern mist on the\nShipwreck."),
+    OnOffRow<&Config::shipwreck_local_lights>("video.shipwreck_local_lights", "Shipwreck Lamps",
+                                              "\"Shipwreck Lamps\"\nDynamic light and\nshadows from fires on\nthe Shipwreck."),
+    SettingRow("video.normal_detail_strength", "Surface Detail",
+               "\"Surface Detail\"\nBump detail on wood,\ncloth and other world\nmaterials.",
+               NormalDetailCount, NormalDetailChoice, SetNormalDetail, nullptr,
+               "Off|Low|Medium|High|Full"),
+    SettingRow("video.dlss_quality", "DLSS Quality",
+               "\"DLSS Quality\"\nAI image reconstruction.\nNeeds NVIDIA support.\nChanges between frames.",
+               DlssQualityCount, DlssQualityChoice, SetDlssQuality, nullptr,
+               "Off|DLAA|Quality|Balanced|Performance|Ultra Perf."),
+    OnOffRow<&Config::frame_generation>("video.frame_generation", "Frame Generation",
+                                        "\"Frame Generation\"\nCreates extra frames.\nTurns V-Sync off while on.\nNeeds NVIDIA support."),
     OnOffRow<&Config::show_fps>("video.show_fps", "FPS Counter", "\"FPS Counter\"\nShows the frame rate\nin the corner."),
     SettingRow("video.fps_detail", "FPS Info", "\"FPS Info\"\nWhat the counter shows:\nthe frame rate alone,\nwith ticks, or all.",
                FpsDetailCount, FpsDetailChoice, SetFpsDetail, nullptr, "FPS|FPS+Ticks|All"),

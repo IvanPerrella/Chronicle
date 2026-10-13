@@ -1,10 +1,19 @@
 #include "dun/gameloop.hpp"
+#include "dun/shipwreck_lights.hpp"
 
 #include <libvu0.h>
 
 #include <cmath>
+#include <algorithm>
+#include <array>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <limits>
+#include <iterator>
+#include <typeinfo>
+#include <vector>
 
 #include "battlemenu.hpp"
 #include "btactstatus.hpp"
@@ -17,14 +26,17 @@
 #include "clothread.hpp"
 #include "clsmes.hpp"
 #include "collisiondata.hpp"
+#include "collision.hpp"
 #include "dataread.hpp"
 #include "debugfont.hpp"
 #include "dispctrl.hpp"
 #include "dngmessageman.hpp"
 #include "dngstatusdata.hpp"
+#include "draw3d.hpp"
 #include "dranmapfield.hpp"
 #include "dungeoneventman.hpp"
 #include "dungeonmap.hpp"
+#include "dungeon.h"
 #include "edit.hpp"
 #include "editloop3.hpp"
 #include "effectmacro.hpp"
@@ -33,6 +45,14 @@
 #include "gamepad.hpp"
 #include "gameutil.hpp"
 #include "gfx/gfx.hpp"
+#include "gfx/raytracing.hpp"
+#include "gfx/shipwreck_fog.hpp"
+
+namespace gfx::detail {
+void ShipwreckFogTracePlayer(int room, int cell_x, int cell_z,
+                            float player_y, float ground_height, int visible_cells,
+                            int newly_visible_cells, int first_new_cell);
+}
 #include "healeffect.hpp"
 #include "hit_machingun_effect.hpp"
 #include "hitmark.hpp"
@@ -104,6 +124,7 @@ extern s32             autoDemo;
 extern CFrame         *bicCursorFrame;
 extern CFrame         *bombCursorFrame;
 extern s32             exitMenuFlag;
+extern s32             gameTask;
 extern char            floor_name[32];
 extern s32             infoMap;
 extern s32             itemNowSel;
@@ -161,9 +182,232 @@ CTexture *NamedTexture(const char *name) {
     return TexManager.GetTexture(const_cast<char *>(name), -1);
 }
 
+// The lower Shipwreck medium belongs to the map, not the player's latest floor.
+// Collision models are shared between instances of a part, so save and restore their
+// transform around each one-time floor probe.
+int CollisionPolygonBound(CFrame *frame, int &visits, int depth = 0) {
+    if (!frame) return 0;
+    if (++visits > 4096 || depth > 64) return -1;
+    if (frame->flags == 4) return 0;
+    int count = 0;
+    if (frame->collision && (frame->flags & 1)) {
+        auto *mesh = dynamic_cast<CCollisionMDT *>(frame->collision);
+        if (!mesh || typeid(*frame->collision) != typeid(CCollisionMDT) ||
+            mesh->mesh_count < 0 || mesh->mesh_count > 32768 ||
+            (mesh->mesh_count && !mesh->mesh)) return -1;
+        count = mesh->mesh_count;
+    }
+    if (!(frame->flags & 2) && !(frame->flags & 4)) {
+        for (CFrame *child = frame->child; child; child = child->brother) {
+            int child_count = CollisionPolygonBound(child, visits, depth + 1);
+            if (child_count < 0 || child_count > 32768 - count) return -1;
+            count += child_count;
+        }
+    }
+    return count;
+}
+
+void InvalidateCollisionWorld(CFrame *frame, int &visits, int depth = 0) {
+    if (!frame || ++visits > 4096 || depth > 64) return;
+    frame->world_valid = false;
+    for (CFrame *child = frame->child; child; child = child->brother)
+        InvalidateCollisionWorld(child, visits, depth + 1);
+}
+
+float ShipwreckCellDeck(CDungeonMap &map, int x, int z) {
+    const MAP_CELL &cell = map.cells[x + z * 20];
+    if (cell.parts_no < 0 || cell.parts_no >= static_cast<int>(std::size(map.parts)) || cell.direction < 0 ||
+        cell.direction > 3) return std::numeric_limits<float>::quiet_NaN();
+    CFrame *frame = map.parts[cell.parts_no].collision;
+    if (!frame) return std::numeric_limits<float>::quiet_NaN();
+    int visits = 0;
+    int bound = CollisionPolygonBound(frame, visits);
+    if (bound <= 0 || bound > 32768) return std::numeric_limits<float>::quiet_NaN();
+
+    sceVu0FVECTOR saved_position, saved_rotation;
+    sceVu0FMATRIX saved_local;
+    sceVu0CopyVector(saved_position, frame->position);
+    frame->GetRotation(saved_rotation);
+    std::memcpy(saved_local, frame->local, sizeof(saved_local));
+    const int saved_no_rotation = frame->no_rotation;
+    const int saved_rot_type = frame->rot_type;
+    const int saved_srt = frame->srt;
+    int turn = cell.direction + map.parts[cell.parts_no].collision_turn;
+    if (turn > 3) turn -= 3;
+    if (turn == 3) turn = -1;
+    frame->SetRotation(0.0f, PI * (-90.0f * turn) / 180.0f, 0.0f);
+    frame->SetPosition(160.0f * x, 0.0f, 160.0f * z);
+
+    CBoxVu0 box = {};
+    box.min[0] = 160.0f * x - 12.0f;
+    box.max[0] = 160.0f * x + 12.0f;
+    box.min[1] = -75.0f;
+    box.max[1] = 25.0f;
+    box.min[2] = 160.0f * z - 12.0f;
+    box.max[2] = 160.0f * z + 12.0f;
+    std::vector<CCPoly> polys(static_cast<size_t>(bound));
+    int count = frame->PickUpNearPoly(polys.data(), box);
+
+    frame->SetRotation(saved_rotation[0], saved_rotation[1], saved_rotation[2]);
+    frame->SetPosition(saved_position);
+    std::memcpy(frame->local, saved_local, sizeof(saved_local));
+    frame->no_rotation = saved_no_rotation;
+    frame->rot_type = saved_rot_type;
+    frame->srt = saved_srt;
+    int invalidated = 0;
+    InvalidateCollisionWorld(frame, invalidated);
+
+    if (count <= 0 || count > bound) return std::numeric_limits<float>::quiet_NaN();
+    // A downward foot ray should only consider walkable upward surfaces, not a
+    // wall, underside, or the overhead rail of the same authored part.
+    int floors = 0;
+    for (int i = 0; i < count; ++i) {
+        if (polys[i].normal[1] > 0.45f) polys[floors++] = polys[i];
+    }
+    if (!floors) return std::numeric_limits<float>::quiet_NaN();
+    sceVu0FVECTOR probe = {160.0f * x, 25.0f, 160.0f * z, 1.0f};
+    sceVu0FVECTOR hit = {};
+    CCPoly floor = {};
+    if (!GetFootPoly(probe, 100.0f, &floor, hit, polys.data(), floors, 0))
+        return std::numeric_limits<float>::quiet_NaN();
+    return hit[1] - 2.0f;
+}
+
+void UpdateShipwreckDeckField(CDungeonMap &map, int floor_number) {
+    static const CDungeonMap *cached_map = nullptr;
+    static int cached_seed = 0;
+    static int cached_floor = -1;
+    static uint64_t cached_layout = 0;
+    static std::array<float, 400> heights = {};
+    uint64_t layout = 1469598103934665603ull;
+    int occupied = 0;
+    for (const MAP_CELL &cell : map.cells) {
+        layout = (layout ^ static_cast<uint32_t>(cell.parts_no + 1)) * 1099511628211ull;
+        layout = (layout ^ static_cast<uint32_t>(cell.direction + 1)) * 1099511628211ull;
+        if (cell.parts_no >= 0 && cell.parts_no < static_cast<int>(std::size(map.parts))) {
+            CFrame *collision = map.parts[cell.parts_no].collision;
+            layout = (layout ^ reinterpret_cast<uintptr_t>(collision)) * 1099511628211ull;
+            if (collision) {
+                auto *mesh = dynamic_cast<CCollisionMDT *>(collision->collision);
+                layout = (layout ^ static_cast<uint32_t>(mesh ? mesh->mesh_count : 0)) *
+                         1099511628211ull;
+            }
+        }
+        occupied += cell.parts_no >= 0;
+    }
+    if (map.map_type != 1 || map.room_num <= 0 || occupied < 8) return;
+    if (cached_map != &map || cached_seed != map.map_seed ||
+        cached_floor != floor_number || cached_layout != layout) {
+        std::array<float, 400> candidate;
+        candidate.fill(std::numeric_limits<float>::quiet_NaN());
+        int measured_count = 0;
+        for (int z = 0; z < 20; ++z) {
+            for (int x = 0; x < 20; ++x) {
+                float measured = ShipwreckCellDeck(map, x, z);
+                candidate[x + z * 20] = measured;
+                measured_count += std::isfinite(measured);
+            }
+        }
+        if (measured_count == 0) {
+            // Some floor layouts appear before their collision resources do.
+            // Reprobe on the next draw instead of caching an all-empty layout.
+            std::array<float, 400> fallback;
+            fallback.fill(8.0f);
+            gfx::detail::ShipwreckFogSetDeckField(fallback);
+            return;
+        }
+        // Empty cells and door centres inherit the nearest measured walkable
+        // elevation. This is a stable map fallback, never the player's height.
+        const auto measured = candidate;
+        for (int z = 0; z < 20; ++z) {
+            for (int x = 0; x < 20; ++x) {
+                float &height = candidate[x + z * 20];
+                if (std::isfinite(height)) continue;
+                int nearest = std::numeric_limits<int>::max();
+                height = 8.0f;
+                for (int other_z = 0; other_z < 20; ++other_z) {
+                    for (int other_x = 0; other_x < 20; ++other_x) {
+                        float neighboring_height = measured[other_x + other_z * 20];
+                        if (!std::isfinite(neighboring_height)) continue;
+                        int delta_x = x - other_x, delta_z = z - other_z;
+                        int distance = delta_x * delta_x + delta_z * delta_z;
+                        if (distance < nearest) {
+                            nearest = distance;
+                            height = neighboring_height;
+                        }
+                    }
+                }
+            }
+        }
+        heights = candidate;
+        cached_map = &map;
+        cached_seed = map.map_seed;
+        cached_floor = floor_number;
+        cached_layout = layout;
+        if (std::getenv("DC_SHIPWRECK_FOG_TRACE")) {
+            std::fprintf(stderr, "FogDeckField seed=%d floor=%d measured_corridor=%.2f measured_room2=%.2f\n",
+                         map.map_seed, floor_number, heights[10 + 5 * 20], heights[8 + 5 * 20]);
+        }
+    }
+    gfx::detail::ShipwreckFogSetDeckField(heights);
+}
+
 } // namespace
 
 PORT_OVERRIDE void DunMainDraw() {
+    // Temporary isolated regression pose: derive the target from this generated
+    // floor's room layout instead of assuming the same random seed every run.
+    static bool sweep_pose_applied = false;
+    static int sweep_play_draws = 0;
+    static int sweep_pose_holds = 0;
+    static float sweep_x = 0.0f, sweep_y = 0.0f, sweep_z = 0.0f;
+    if (gameTask == GAME_TASK_PLAY && selectMapNo == DUNGEON_SHIPWRECK)
+        ++sweep_play_draws;
+    if (!sweep_pose_applied && sweep_play_draws >= 80 &&
+        gameTask == GAME_TASK_PLAY && selectMapNo == DUNGEON_SHIPWRECK &&
+        std::getenv("DC_SHIPWRECK_SWEEP_POSE") && NowDngMap && NowDngMap->room_num > 2) {
+        const ROOM_INFO &target = NowDngMap->rooms[2];
+        const int cell_x = target.x + target.width / 2;
+        // The interior deck is just south of room 2's northern cell; its
+        // geometric centre lies on the cross-beam/void in this room layout.
+        const int cell_z = target.y + 1;
+        if (target.width > 0 && target.height > 0 && cell_x >= 0 && cell_x < 20 &&
+            cell_z >= 0 && cell_z < 20) {
+            const float deck_y = ShipwreckCellDeck(*NowDngMap, cell_x, cell_z);
+            if (std::isfinite(deck_y)) {
+                sweep_x = 160.0f * cell_x;
+                sweep_y = deck_y + 2.0f;
+                sweep_z = 160.0f * cell_z + 40.0f;
+                NowCamera__3->SetAngleSoon(0.0f);
+                NowCamera__3->SetHeight(30.0f);
+                NowCamera__3->FollowOn();
+                sweep_pose_applied = true;
+                std::fprintf(stderr, "DC_SHIPWRECK_SWEEP_POSE seed=%d rooms=%d target_cell=%d,%d deck=%.2f pos=%.1f,%.1f,%.1f after %d play draws\n",
+                             NowDngMap->map_seed, NowDngMap->room_num, cell_x, cell_z,
+                             deck_y, sweep_x, sweep_y, sweep_z, sweep_play_draws);
+                for (int room = 0; room < NowDngMap->room_num; ++room) {
+                    const ROOM_INFO &bounds = NowDngMap->rooms[room];
+                    std::fprintf(stderr, "DC_SHIPWRECK_SWEEP_POSE room%d bounds=%d,%d %dx%d\n",
+                                 room, bounds.x, bounds.y, bounds.width, bounds.height);
+                }
+            }
+        }
+    }
+    if (sweep_pose_applied) {
+        CharaFrame->SetPosition(sweep_x, sweep_y, sweep_z);
+        NowCamera__3->SetFollow(sweep_x, sweep_y, sweep_z);
+        // Reapply translation after MoveChara each draw. The input still owns
+        // next_angle and height, so the isolated sweep can yaw and pitch.
+        NowCamera__3->Step(-1);
+        ++sweep_pose_holds;
+        if (sweep_pose_holds == 1 || sweep_pose_holds == 24 || sweep_pose_holds % 120 == 0) {
+            sceVu0FVECTOR camera_eye;
+            NowCamera__3->GetPos(camera_eye);
+            std::fprintf(stderr, "DC_SHIPWRECK_SWEEP_POSE hold=%d char=%.1f,%.1f,%.1f camera=%.1f,%.1f,%.1f\n",
+                         sweep_pose_holds, CharaFrame->position[0], CharaFrame->position[1],
+                         CharaFrame->position[2], camera_eye[0], camera_eye[1], camera_eye[2]);
+        }
+    }
     sceVu0FMATRIX camera;
     sceVu0FVECTOR eye;
     sceVu0FMATRIX view;
@@ -171,6 +415,7 @@ PORT_OVERRIDE void DunMainDraw() {
     sceGsTex0     frame_tex;
     sceGsTex0     water_tex;
     int           i;
+    bool          scene_captured = false;
 
     EdEventInfo.main_texture_animation = NULL;
     NowCamera__3->GetPos(eye);
@@ -179,6 +424,58 @@ PORT_OVERRIDE void DunMainDraw() {
     sceVu0MulMatrix(view, unit, camera);
     MGSetViewMatrix(view, eye);
     SndSetCamera(NowCamera__3);
+
+    // The entry script begins its camera move before Toan reaches the hook shot. Keep the
+    // dungeon fade closed until the camera has settled and Toan is about to enter the frame.
+    struct ShipwreckEntryReveal {
+        bool holding = false;
+        bool revealed = false;
+        int settled = 0;
+        float eye[3] = {};
+    };
+    static ShipwreckEntryReveal entry_reveal;
+    const bool entry_script = selectMapNo == DUNGEON_SHIPWRECK &&
+                              gameTask == GAME_TASK_SCRIPT_RUN && BtEventInfo.running_script_no == 100;
+    if (!entry_script) {
+        if (entry_reveal.holding) DispFade__3.FadeInStart(8.0f);
+        entry_reveal = {};
+    } else if (BtAllDrawFlag != 0) {
+        if (!entry_reveal.holding && !entry_reveal.revealed && DispFade__3.GetRate() > 0.0f) {
+            DispFade__3.FadeInStart(0.0f);
+            entry_reveal.holding = true;
+            std::copy_n(eye, 3, entry_reveal.eye);
+        }
+        if (entry_reveal.holding) {
+            const float dx = eye[0] - entry_reveal.eye[0];
+            const float dy = eye[1] - entry_reveal.eye[1];
+            const float dz = eye[2] - entry_reveal.eye[2];
+            entry_reveal.settled = dx * dx + dy * dy + dz * dz < 0.75f * 0.75f
+                                       ? entry_reveal.settled + 1 : 0;
+            std::copy_n(eye, 3, entry_reveal.eye);
+            sceVu0FVECTOR toan_head;
+            sceVu0CopyVector(toan_head, CharaFrame->position);
+            toan_head[1] += 12.0f;
+            toan_head[3] = 1.0f;
+            int screen[4] = {};
+            const bool in_front = MGRotTransPers2D(screen, toan_head, 0) != 0;
+            // The foreground deck hides Toan below roughly four fifths of this shot.
+            const bool above_deck = in_front && screen[0] >= 0 && screen[0] < 640 &&
+                                    screen[1] >= 0 && screen[1] < SCREEN_HEIGHT * 4 / 5;
+            if (entry_reveal.settled >= 3 && BtActStatus.player_visible &&
+                EdEventInfo.player_draw && above_deck) {
+                DispFade__3.FadeInStart(8.0f);
+                entry_reveal.holding = false;
+                entry_reveal.revealed = true;
+            }
+        }
+    }
+    if (std::getenv("DC_CAMERA_TRACE") && selectMapNo == DUNGEON_SHIPWRECK) {
+        static int trace_draw = 0;
+        std::fprintf(stderr,
+                     "DC_HOOK_FADE draw=%d task=%d demo=%d fade=%.2f all_draw=%d eye=(%.2f,%.2f,%.2f)\n",
+                     trace_draw++, gameTask, autoDemo, DispFade__3.GetRate(), BtAllDrawFlag,
+                     eye[0], eye[1], eye[2]);
+    }
 
     if (BtAllDrawFlag == 0) {
         if (BtItemListCashFlag != 0) {
@@ -341,14 +638,65 @@ PORT_OVERRIDE void DunMainDraw() {
     sceVu0FVECTOR raster_pos;
 
     sceVu0CopyVector(raster_pos, CharaFrame->position);
-    TexManager.ReloadTexture(Vif1Packet, 0xE);
-    NowDngMap->DrawRaster(CharaFrame);
+    // Shipwreck's collision ground is two units above the visible d03b deck
+    // (runtime first-room measurements: character/nav Y=10, deck Y≈8).
+    if (ConfigGet().enhanced_lighting && selectMapNo == DUNGEON_SHIPWRECK) {
+        UpdateShipwreckDeckField(*NowDngMap, UserStatus->cur_floor);
+        int cell_x = static_cast<int>((80.0f + CharaFrame->position[0]) / 160.0f);
+        int cell_z = static_cast<int>((80.0f + CharaFrame->position[2]) / 160.0f);
+        int room = -1;
+        for (int i = 0; i < NowDngMap->room_num; ++i) {
+            const auto &bounds = NowDngMap->rooms[i];
+            if (cell_x >= bounds.x && cell_x < bounds.x + bounds.width &&
+                cell_z >= bounds.y && cell_z < bounds.y + bounds.height) room = i;
+        }
+        static const bool trace_fog = [] {
+            const char *value = std::getenv("DC_SHIPWRECK_FOG_TRACE");
+            return value != nullptr && value[0] != '\0' && value[0] != '0';
+        }();
+        if (trace_fog) {
+            static const CDungeonMap *previous_map = nullptr;
+            static bool previous_visible[400] = {};
+            if (previous_map != NowDngMap) {
+                std::memset(previous_visible, 0, sizeof(previous_visible));
+                previous_map = NowDngMap;
+            }
+            int visible_cells = 0;
+            int newly_visible_cells = 0;
+            int first_new_cell = -1;
+            for (int i = 0; i < 400; ++i) {
+                bool visible = NowDngMap->cells[i].visible != 0;
+                if (visible) {
+                    ++visible_cells;
+                    if (!previous_visible[i]) {
+                        ++newly_visible_cells;
+                        if (first_new_cell < 0) first_new_cell = i;
+                    }
+                }
+                previous_visible[i] = visible;
+            }
+            gfx::detail::ShipwreckFogTracePlayer(room, cell_x, cell_z,
+                                                 CharaFrame->position[1], BtActStatus.ground_height,
+                                                 visible_cells, newly_visible_cells, first_new_cell);
+        }
+    }
+    const bool enhanced_shipwreck = ConfigGet().enhanced_lighting &&
+                                    selectMapNo == DUNGEON_SHIPWRECK &&
+                                    gfx::detail::RayTracingEnabled();
+    if (!enhanced_shipwreck) {
+        TexManager.ReloadTexture(Vif1Packet, 0xE);
+        NowDngMap->DrawRaster(CharaFrame);
+    }
+    if (enhanced_shipwreck && gfx::ShipwreckLocalLightsEnabled()) {
+        BeginShipwreckFireLights(CharaFrame->position);
+    }
 
     if (NowDngMap->map_type == 1) {
         NowDngMap->DrawFire(CharaFrame, NowCamera__3);
     } else {
         NowDngMap->DrawFireFreeStyle(CharaFrame, NowCamera__3);
     }
+    if (enhanced_shipwreck && gfx::ShipwreckLocalLightsEnabled()) EndShipwreckFireLights();
 
     if (atraGetStatus != 0 && atraShortGetType != 0) {
         TexManager.ReloadTexture(Vif1Packet, 0x1C);
@@ -551,6 +899,8 @@ PORT_OVERRIDE void DunMainDraw() {
 
         TexManager.ReloadTexture(Vif1Packet, 2);
 
+        gfx::CaptureBloomScene();
+        scene_captured = true;
         gfx::SetUiAnchor(kStatusAnchor);
 
         int gauge_alpha = rogoY3 + 0x60;
@@ -703,13 +1053,25 @@ PORT_OVERRIDE void DunMainDraw() {
         DebugInfomationDraw();
     }
 
+    // Entry scripts hide the HUD, so the usual world/HUD boundary above does
+    // not run. Resolve the HDR world before drawing the global black fade;
+    // otherwise fog and tone mapping composite over that fade and reveal the
+    // empty shaft even while the game's fade rate is fully opaque.
+    if (!scene_captured) {
+        gfx::CaptureBloomScene();
+    }
     DispFade__3.FadeIn(Vif1Packet);
     DispFade__3.FadeOut(Vif1Packet);
     EdFadeInOut();
 
     if (frameCaputer != 0) {
         TexManager.ReloadTexture(Vif1Packet, 0x17);
-        MGMoveFrameBuffImage((sceGsTex0 *) &NamedTexture("frame_image")->tex0, 0, 0, 0);
+        CTexture *frame_image = NamedTexture("frame_image");
+        if (ConfigGet().enhanced_lighting && frame_image != nullptr) {
+            PortTextureRef ref = Draw3DResolveTex0(frame_image->tex0);
+            if (ref.valid) gfx::CaptureMenuBackground(ref.binding.texture);
+        }
+        MGMoveFrameBuffImage((sceGsTex0 *) &frame_image->tex0, 0, 0, 0);
     }
 }
 

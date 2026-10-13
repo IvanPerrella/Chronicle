@@ -5,7 +5,11 @@
 #include <cstdlib>
 
 #include "camera.hpp"
+#include "draw3d.hpp"
+#include "dun/shipwreck_lights.hpp"
 #include "draw2d_port.hpp"
+#include "dungeon.h"
+#include "main.hpp"
 #include "mglib.hpp"
 #include "rect.hpp"
 #include "snd.hpp"
@@ -62,6 +66,7 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
     sceVu0Normalize(camera_direction, camera_direction);
     sceVu0ScaleVector(camera_direction, camera_direction, camera_offset);
     spRGBA white = {0x80, 0x80, 0x80, 0x80};
+    const bool compact_shipwreck_fire = EnhancedLightingEnabled() && MapNo == 200 + DUNGEON_SHIPWRECK;
 
     if (layers & 1) {
         SetLayerRegisters();
@@ -73,12 +78,18 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
 
         if (MGRotTransPers3DSprite(top_left, bottom_right, world, 18.0f * scale, 9.0f * scale, 1) == 1) {
             set3DSpriteFog(Vif1Packet, core, CRect_i_(0, 0, 64, 64), top_left, bottom_right, &white);
-            set3DSpriteFog(Vif1Packet, glow, CRect_i_(2, 2, 124, 124), top_left, bottom_right, &white);
+            // The broad additive GS halo washes over the room once the enhanced
+            // world lights and volume fog are active. Keep the flame core.
+            if (!compact_shipwreck_fire)
+                set3DSpriteFog(Vif1Packet, glow, CRect_i_(2, 2, 124, 124), top_left, bottom_right, &white);
         }
     }
 
     if (layers & 2) {
         SetLayerRegisters();
+        // Retail's large additive fire card spills warm light well beyond the
+        // lantern. Keep a compact flame in the enhanced Shipwreck scene.
+        const float flame_extent = compact_shipwreck_fire ? 20.0f : 45.0f;
 
         flicker_count++;
         srand(flicker_seed);
@@ -93,8 +104,8 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
         world[2] = pos[2];
         world[3] = 1.0f;
 
-        if (MGRotTransPers3DSprite(top_left, bottom_right, world, 45.0f * flicker_width * scale,
-                                   45.0f * flicker_height * scale / 2.0f, 1) == 1) {
+        if (MGRotTransPers3DSprite(top_left, bottom_right, world, flame_extent * flicker_width * scale,
+                                   flame_extent * flicker_height * scale / 2.0f, 1) == 1) {
             top_right[0] = bottom_right[0];
             top_right[1] = top_left[1];
             top_right[2] = top_left[2];
@@ -107,14 +118,15 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
             world[1] += camera_direction[1];
             world[2] += camera_direction[2];
 
-            if (MGRotTransPers3DSprite(near_top_left, near_bottom_right, world, 45.0f * scale + flicker_width,
-                                       (45.0f * scale + flicker_height) / 2.0f, 0) == 1) {
+            if (MGRotTransPers3DSprite(near_top_left, near_bottom_right, world, flame_extent * scale + flicker_width,
+                                       (flame_extent * scale + flicker_height) / 2.0f, 0) == 1) {
                 top_right[2] = top_left[2] = bottom_left[2] = bottom_right[2] = near_top_left[2];
             }
 
             set3DSpriteFog(Vif1Packet, core, CRect_i_(0, 0, 64, 64), top_left, top_right, bottom_left, bottom_right,
                            0x80);
         }
+        RecordShipwreckFireLight(pos, flicker_width);
     }
 
     const draw2d::Services &services = draw2d::Get();

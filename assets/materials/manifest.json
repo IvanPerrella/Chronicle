@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "orm_channels": {
+    "r": "ambient_occlusion",
+    "g": "perceptual_roughness",
+    "b": "metalness"
+  },
+  "texture_assignments": {
+    "wood_floor": [
+      "d03b01",
+      "d03b04"
+    ],
+    "wood_wall": [
+      "d03b02",
+      "d03b03",
+      "d03b06",
+      "d03b07"
+    ],
+    "cloth": [
+      "c01d02",
+      "c01d04",
+      "c01d05"
+    ],
+    "leather": [
+      "c01d03"
+    ],
+    "skin": [
+      "c01d01"
+    ],
+    "metal": [
+      "c01w01"
+    ],
+    "prop": [
+      "d03b13"
+    ]
+  },
+  "texture_prefix_assignments": {
+    "cloth": [
+      "c01d"
+    ],
+    "metal": [
+      "c01w"
+    ]
+  },
+  "unlisted_textured_shipwreck_material": "prop",
+  "profiles": {
+    "wood_floor": {
+      "normal": "wood_floor_normal.png",
+      "orm": "wood_floor_orm.png",
+      "note": "Original periodic procedural detail; authored UVs are retained"
+    },
+    "wood_wall": {
+      "normal": "wood_wall_normal.png",
+      "orm": "wood_wall_orm.png",
+      "note": "Original periodic procedural detail; authored UVs are retained"
+    },
+    "cloth": {
+      "normal": "cloth_normal.png",
+      "orm": "cloth_orm.png",
+      "note": "Original periodic procedural detail; authored UVs are retained"
+    },
+    "leather": {
+      "normal": "leather_normal.png",
+      "orm": "leather_orm.png",
+      "note": "Original periodic procedural detail; authored UVs are retained"
+    },
+    "skin": {
+      "normal": "skin_normal.png",
+      "orm": "skin_orm.png",
+      "note": "Original periodic procedural detail; authored UVs are retained"
+    },
+    "metal": {
+      "normal": "metal_normal.png",
+      "orm": "metal_orm.png",
+      "note": "Original periodic procedural detail; authored UVs are retained"
+    },
+    "stone": {
+      "normal": "stone_normal.png",
+      "orm": "stone_orm.png",
+      "note": "Original periodic procedural detail; authored UVs are retained"
+    },
+    "prop": {
+      "normal": "prop_normal.png",
+      "orm": "prop_orm.png",
+      "note": "Original periodic procedural detail; authored UVs are retained"
+    },
+    "flat": {
+      "normal": "flat_normal.png",
+      "orm": "flat_orm.png",
+      "note": "Original periodic procedural detail; authored UVs are retained"
+    }
+  }
+}

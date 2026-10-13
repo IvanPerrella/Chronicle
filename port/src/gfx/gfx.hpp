@@ -58,6 +58,15 @@ enum class PresentMode : uint8_t {
     Immediate,
 };
 
+enum class DlssQuality : uint8_t {
+    Off,
+    DLAA,
+    Quality,
+    Balanced,
+    Performance,
+    UltraPerformance,
+};
+
 struct RendererConfig {
     const char *app_name = "";
     // The game's 2D space. 2D draws, scissors and main-target rectangles are given in it and mapped
@@ -89,6 +98,13 @@ struct RendererConfig {
     // False sets one stencil reference and compare and write masks for both faces, as on a
     // portability-subset device without separateStencilMaskRef.
     bool separate_stencil_masks = true;
+    // Build scene acceleration structures and enable ray queries when supported by the GPU.
+    bool ray_tracing = false;
+    // Keep the canonical PS2 feedback path RGBA8; display renders may accumulate
+    // enhanced scene radiance in floating point before presentation tone mapping.
+    bool enhanced_hdr = false;
+    DlssQuality dlss_quality = DlssQuality::Quality;
+    bool frame_generation = false;
 };
 
 // What RendererInit settled on, from the config and the device.
@@ -113,10 +129,25 @@ void RendererShutdown();
 void RendererResize();
 // The swapchain is recreated with the mode at the next BeginFrame or tick render.
 void SetPresentMode(PresentMode mode);
+void SetDlssQuality(DlssQuality quality);
+void SetFrameGeneration(bool enabled);
+void SetEnhancedHdr(bool enabled);
+// Ray-query resources are provisioned on capable devices at initialization. Changes are applied
+// at the next frame boundary; unsupported devices keep the raster path.
+void SetRayTracing(bool enabled);
+bool RayTracingAvailable();
+void SetShipwreckFog(bool enabled);
+void SetShipwreckLocalLights(bool enabled);
+bool ShipwreckFogEnabled();
+bool ShipwreckLocalLightsEnabled();
+// Derived albedo micro-normal intensity for enhanced 3D materials; applied on the next draw.
+void SetNormalDetailStrength(float strength);
 
 // Anisotropic filtering of linearly filtered meshes: 0 or 1 is off, otherwise 2, 4, 8 or 16 samples
 // (a value in between takes the level below it). Takes effect from the next draw.
 void SetAnisotropy(int samples);
+// Restrained presentation-only bloom for bright scene highlights. The game's canonical image stays unchanged.
+void SetBloom(bool enabled);
 // False when no frame can be drawn (minimised window); draws until EndFrame are then dropped.
 bool BeginFrame();
 void EndFrame();
@@ -411,6 +442,16 @@ enum MeshFlags : uint32_t {
     // normalised units. A display render's interpolated camera moves the sample with the vertex.
     kMeshScreenUv = 1u << 6,
     kMeshWorldUv = 1u << 7,
+    // Optional per-fragment direct lighting and distance-aware fog for lit 3D materials.
+    kMeshMaterialLighting = 1u << 8,
+    // Optional cool maritime atmosphere, confined to Shipwreck's enhanced lit materials.
+    kMeshShipwreckFog = 1u << 9,
+    // Shipwreck's d03b map timber; only upward-facing fragments get wet roughness.
+    kMeshWetTimber = 1u << 10,
+    // Shipwreck world membership remains available when its optional fog preset is disabled.
+    kMeshShipwreckWorld = 1u << 11,
+    // Toan's cloth/skin atlas; never set on his separately textured weapon.
+    kMeshCharacterMatte = 1u << 12,
 };
 
 // Matches the std140 block in shaders/mesh.vert. Colours are modulations with 1.0 as GS 0x80.
@@ -428,8 +469,25 @@ struct MeshConstants {
     float    world_uv[2][4]; // world x/z rows for terrain sampled across map cells
     uint32_t flags = 0;
     uint32_t light_count = 0;
-    uint32_t pad[2] = {};
+    float    material_roughness = 0.48f; // MDT fallback when no material ORM profile is bound
+    float    normal_detail_strength = 1.0f; // live 0..1 multiplier for procedural normal maps
+    float    model_to_world[16]; // object to world, including MeshTransform::local
+    float    camera_position[4]; // world-space camera origin
+    float    camera_forward[4];  // world-space unit +eye-z direction
+    float    previous_mvp[16];    // previous presented, unjittered object-to-clip transform
+    uint32_t motion_valid = 0;   // 0 on cuts, teleports, resize, unmatched or deformed geometry
+    uint32_t motion_align = 0;   // std140 vec2 alignment before jitter_ndc
+    float    jitter_ndc[2] = {}; // display-world raster offset; matrices and motion stay unjittered
+    uint32_t motion_pad = 0;
+    uint32_t material_align[3] = {}; // std140 uvec4 alignment before material slots
+    uint32_t material_normal_slot = 0; // bindless profile normal, zero when unavailable
+    uint32_t material_orm_slot = 0;    // AO/roughness/metalness texture
+    uint32_t material_profile = 0;     // MaterialProfile, for mixed atlas masks
+    uint32_t material_pad = 0;
 };
+static_assert(offsetof(MeshConstants, jitter_ndc) == 568);
+static_assert(offsetof(MeshConstants, material_normal_slot) == 592);
+static_assert(sizeof(MeshConstants) >= 608);
 
 // How a mesh draw's mvp was made: projection * view * middle * model * local, column-major. Recorded
 // with the draw so a display frame can interpolate the model and the view (the camera) between two
@@ -514,6 +572,12 @@ bool CopyTexture(TextureHandle src, Rect src_rect, TextureHandle dst, int32_t ds
 bool BlitTexture(TextureHandle src, Rect src_rect, TextureHandle dst, Rect dst_rect, Filter filter);
 // The main target's logical 640x480, as drawn so far this frame, stretched over all of dst.
 bool SnapshotFrame(TextureHandle dst);
+// Mark the world/HUD boundary for presentation bloom. The scene so far supplies
+// glow; later UI is composited sharply over the final image.
+void CaptureBloomScene();
+// A full-frame gameplay capture used by a menu retains its canonical image for
+// PS2 feedback, but its display replay keeps an SDR twin for the menu backdrop.
+void CaptureMenuBackground(TextureHandle texture);
 
 // ---- Readback --------------------------------------------------------------------------------
 
@@ -585,6 +649,8 @@ struct RenderOptions {
 // display render was asked for when the newest main image is not a canonical render (the loading
 // screen presented since) or the window cannot present.
 bool RenderList(const DisplayList &list, float alpha, const RenderOptions &options);
+// Call when a presented image was not produced by RenderList's game display path.
+void ResetMotionHistory();
 // Presents the last canonical render as it is (interpolation off, headless runs).
 bool PresentCanonical();
 

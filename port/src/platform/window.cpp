@@ -1,6 +1,7 @@
 #include "window.hpp"
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -10,12 +11,14 @@
 #include <vector>
 
 #include "gfx/gfx.hpp"
+#include "gfx/streamline.hpp"
 
 namespace {
 
 SDL_Window                              *g_window = nullptr;
 bool                                     g_headless = false;
 bool                                     g_mode_event = false;
+bool                                     g_vulkan_loader_explicit = false;
 std::vector<void (*)(const SDL_Event &)> g_hooks;
 WindowIdentity                          g_identity;
 
@@ -71,6 +74,17 @@ void WindowInit(const WindowConfig &config) {
     }
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         Fatal("SDL_Init");
+    }
+    if (config.vulkan) {
+        gfx::detail::StreamlineInit();
+        if (const char *loader = gfx::detail::StreamlineVulkanLoaderPath(); loader != nullptr) {
+            if (SDL_Vulkan_LoadLibrary(loader)) {
+                g_vulkan_loader_explicit = true;
+            } else {
+                std::fprintf(stderr, "window: Streamline Vulkan loader unavailable: %s\n", SDL_GetError());
+                gfx::detail::StreamlineShutdown();
+            }
+        }
     }
     // SDL3 backs a Vulkan window on macOS with a CAMetalLayer (VK_EXT_metal_surface) by itself.
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
@@ -161,6 +175,10 @@ bool WindowTakeModeEvent() {
 void WindowShutdown() {
     SDL_DestroyWindow(g_window);
     g_window = nullptr;
+    if (g_vulkan_loader_explicit) {
+        SDL_Vulkan_UnloadLibrary();
+        g_vulkan_loader_explicit = false;
+    }
     g_mode_event = false;
     g_hooks.clear();
     SDL_Quit();

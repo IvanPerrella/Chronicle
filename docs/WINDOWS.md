@@ -1,15 +1,16 @@
 # Windows on x64
 
-The PC port (`docs/PC.md`) builds natively with llvm-mingw clang on x64
-Windows, using SDL3 and Vulkan. It needs your own PAL disc, as on Linux and
-macOS.
+The PC port (`docs/PC.md`) cross-builds for x64 Windows in Docker Desktop's
+Linux engine, using llvm-mingw clang, SDL3 and Vulkan. It needs your own PAL
+disc, as on Linux and macOS.
 
 ## Dependencies
 
-Install PowerShell 7, Python 3 (with `py` or `python` on PATH) and 7-Zip. CMake
-3.28 or later is needed too; the scripts find `cmake` and `7z` on PATH, then try
-their standard installations under `C:/Program Files`. A Vulkan driver with the
-features listed in `port/src/gfx/README.md`, "Device", is required.
+Install Docker Desktop with its Linux engine. `build.bat` needs no host compiler,
+Python, 7-Zip, CMake, Ninja, Vulkan SDK or PowerShell 7. `run.bat` uses the
+PowerShell included with Windows to launch the resulting executable. A Vulkan
+driver with the features listed in `port/src/gfx/README.md`, "Device", is
+required to play.
 
 The build system is Kazarov, a submodule at `tools/kazarov`. A clone needs it:
 
@@ -17,8 +18,8 @@ The build system is Kazarov, a submodule at `tools/kazarov`. A clone needs it:
 git clone --recurse-submodules https://github.com/TheMoonPeople/Chronicle.git
 ```
 
-or `git submodule update --init tools/kazarov` in an existing checkout. `build.bat`
-and `run.bat` run that command themselves when the directory is empty.
+or `git submodule update --init tools/kazarov` in an existing checkout. The
+container initializes the submodule itself when it is missing.
 
 ## Building and running
 
@@ -30,19 +31,14 @@ build.bat windows-x64      & rem Debug, port\build\windows-x64
 run.bat                    & rem builds, extracts the game data once, then starts darkcloud.exe
 ```
 
-`run.bat` takes the arguments for `darkcloud.exe` after the configuration name, and
-`set CLEAN=1` before a build deletes the configuration's build directory first.
-`set JOBS=N` sets the number of parallel jobs.
-
-`tools/windows/kazarov.ps1` does the work. It runs `build.ps1` and `configure.ps1`
-for the configuration, through the same `acquire.ps1` dependencies, and keeps the
-downloads and locks in `<checkout>\.kazarov`, which both configurations share:
-
-- `acquire.ps1` runs only when a dependency is missing. It verifies each pinned archive's SHA-256.
-- `configure.ps1` runs only when the build directory has no `build.ninja`, or its
-  `CMakeCache.txt` was made for another checkout path. Then the cache files are deleted first.
-- `build.ps1` builds the executables with Ninja, so an unchanged tree rebuilds nothing.
-- A lock in `.kazarov\locks` serialises runs of one configuration; other configurations run in parallel.
+`run.bat` takes the arguments for `darkcloud.exe` after the configuration name.
+`set CLEAN=1` before a build deletes the configuration's build directory first;
+`set JOBS=N` sets the number of parallel jobs. The first build downloads the
+cross-toolchain inside the Docker image, then writes `darkcloud.exe`,
+`dcdata.exe` and their runtime DLLs to `port\build\windows-x64-release` (or
+`port\build\windows-x64` for Debug). Later builds reuse Docker's image cache
+and Ninja's object files. Build output stays in the checkout.
+The batch wrappers accept the Windows configurations above.
 
 ## Game data
 
@@ -86,9 +82,9 @@ bounded runs; `DC_AUDIO=off` disables the audio device. Offscreen rendering
 needs no Vulkan surface. A headless Vulkan window is a hidden Win32 window,
 since SDL's offscreen video driver cannot make a Vulkan surface on Windows.
 
-## Scripts for CI and manual builds
+## Legacy native scripts for CI and manual builds
 
-`.github/workflows/pc.yml` calls the scripts directly, and so can you. They
+`.github/workflows/pc.yml` calls the native PowerShell scripts directly, and so can you. They
 default `Root` to the checkout's parent directory; pass `-Root` to use another.
 Sources always come from the checkout containing the scripts. `kazarov.ps1`
 passes `Root` as `<checkout>\.kazarov\windows`.

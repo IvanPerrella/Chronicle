@@ -1,5 +1,6 @@
 #include "dungeonmap.hpp"
 #include <libvu0.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -14,6 +15,7 @@
 #include "frameattr.hpp"
 #include "framevu1.hpp"
 #include "gfx/gfx.hpp"
+#include "platform/config.hpp"
 #include "mathutil.hpp"
 #include "mglib.hpp"
 #include "rect.hpp"
@@ -417,7 +419,18 @@ PORT_OVERRIDE void CDungeonMap::DrawMap(CCameraFollow *camera, CFrameVu1 *player
 
             bool draw = true;
             if (selectMapNo != DUNGEON_MOON_SEA) {
-                if (!(dist < 160.0f * this->draw_dist_scale)) {
+                // Shipwreck's enhanced fog reaches well beyond retail's four-cell
+                // cull radius. Submit distant room cells while they are still
+                // almost fully extinguished by the medium, before their geometry
+                // reaches a doorway and becomes clearly visible.
+                const bool enhanced_shipwreck = selectMapNo == DUNGEON_SHIPWRECK &&
+                                                ConfigGet().enhanced_lighting;
+                float draw_scale = this->draw_dist_scale;
+                if (enhanced_shipwreck && draw_scale < 5.25f) draw_scale = 5.25f;
+                // The cell centre can be outside the range/frustum while a near corner
+                // remains on screen. A 160-square cell has a 113-unit half diagonal.
+                const float cell_margin = enhanced_shipwreck ? 113.2f : 0.0f;
+                if (!(dist < 160.0f * draw_scale + cell_margin)) {
                     draw = false;
                 } else {
                     cam_ref[0] = delta_x - view_delta[0];
@@ -437,6 +450,8 @@ PORT_OVERRIDE void CDungeonMap::DrawMap(CCameraFollow *camera, CFrameVu1 *player
                                             kScreenWidth;
                     }
                     float facing_limit = -horizontal_margin / std::hypot(1.0f, horizontal_margin);
+                    if (enhanced_shipwreck)
+                        facing_limit -= std::min(cell_margin / std::max(dist, 160.0f), 0.5f);
                     int georama = UserStatus->cur_georama;
                     if (georama == 5 && this->cells[cell_no].parts_no == MAP_PARTS_URA_ROAD) {
                         facing = 1.0f;

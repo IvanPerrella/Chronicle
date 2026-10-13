@@ -9,6 +9,11 @@
 
 struct RenderInfo;
 
+// Opt into per-fragment mesh material lighting and distance-aware mesh fog.
+// The original GS-style vertex lighting remains the default.
+void SetEnhancedLighting(bool enabled);
+bool EnhancedLightingEnabled();
+
 // What the 3D replacement units (mglib, frame_draw, visualvu1, visualshadow, cloth_draw,
 // water_draw) share with each other and with their tests, and nobody else needs.
 

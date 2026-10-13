@@ -201,7 +201,15 @@ bool ReadbackFrame(std::vector<uint8_t> &rgba, uint32_t &width, uint32_t &height
         Error("ReadbackFrame inside a frame");
         return false;
     }
-    Image &image = g.presented_display ? g.display_color : PreviousMainColor();
+    // The enhanced display pass tone-maps its world before drawing the HUD into
+    // this RGBA8 image. Read the same pixels that would be presented.
+    Image &image = g.presented_display
+                       ? (g.presented_ui ? g.display_ui : g.display_color)
+                       : PreviousMainColor();
+    if (image.format == kHdrFormat) {
+        Error("ReadbackFrame: HDR display has not been tone-mapped");
+        return false;
+    }
     width = image.width;
     height = image.height;
     return ReadImage(image, 4, rgba);

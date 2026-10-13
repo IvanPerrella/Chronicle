@@ -12,6 +12,15 @@ enum class ConfigAspect {
     FourThree,
 };
 
+enum class ConfigDlssQuality {
+    Off,
+    DLAA,
+    Quality,
+    Balanced,
+    Performance,
+    UltraPerformance,
+};
+
 // The game's own Options screen settings, which retail keeps in each save: here they hold for every
 // save, and the save's copy follows them. config.json keeps each in the section of the screen's page
 // that shows it: audio.sound, input.vibration, video.soft_focus, the rest under game.
@@ -38,6 +47,16 @@ struct Config : HostSettings {
     bool              qte_always_win = false;
     bool              element_quick_select = false;
     bool              interpolation = true;
+    // Enhanced per-fragment lighting and atmospheric fog for world meshes.
+    bool              enhanced_lighting = false;
+    bool              bloom = false;
+    bool              ray_tracing = false;
+    bool              shipwreck_fog = true;
+    bool              shipwreck_local_lights = true;
+    // Strength of material-specific bump detail in the enhanced world renderer.
+    float             normal_detail_strength = 1.0f;
+    ConfigDlssQuality dlss_quality = ConfigDlssQuality::Quality;
+    bool              frame_generation = false;
     ConfigAspect      aspect = ConfigAspect::Auto;
     float             ui_scale = 1.0f;
     float             detail_distance = 0.0f;

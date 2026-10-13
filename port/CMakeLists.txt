@@ -204,6 +204,30 @@ foreach(shader IN LISTS SHADER_SOURCES)
     list(APPEND SHADER_HEADERS ${header})
 endforeach()
 
+# The ray-query fragment variant is only loaded on devices that enable VK_KHR_ray_query.
+set(RAY_FRAGMENT_HEADER ${SHADER_HEADER_DIR}/shaders/draw_ray.frag.spv.hpp)
+add_custom_command(OUTPUT ${RAY_FRAGMENT_HEADER}
+    COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.4 --quiet -DRAY_QUERY_AO=1
+        --vn draw_ray_frag --depfile ${RAY_FRAGMENT_HEADER}.d -o ${RAY_FRAGMENT_HEADER}
+        ${SHADER_DIR}/draw.frag
+    DEPENDS ${SHADER_DIR}/draw.frag
+    DEPFILE ${RAY_FRAGMENT_HEADER}.d
+    COMMENT "Compiling draw.frag with ray query AO")
+list(APPEND SHADER_HEADERS ${RAY_FRAGMENT_HEADER})
+
+# Opaque mesh draws have no fragment discard, so they can run the depth test before ray queries.
+# Keep the alpha-tested ray module above on late fragment tests.
+set(EARLY_RAY_FRAGMENT_HEADER ${SHADER_HEADER_DIR}/shaders/draw_early_ray.frag.spv.hpp)
+add_custom_command(OUTPUT ${EARLY_RAY_FRAGMENT_HEADER}
+    COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.4 --quiet -DRAY_QUERY_AO=1
+        -DEARLY_RAY_OPAQUE=1 --vn draw_early_ray_frag
+        --depfile ${EARLY_RAY_FRAGMENT_HEADER}.d -o ${EARLY_RAY_FRAGMENT_HEADER}
+        ${SHADER_DIR}/draw.frag
+    DEPENDS ${SHADER_DIR}/draw.frag
+    DEPFILE ${EARLY_RAY_FRAGMENT_HEADER}.d
+    COMMENT "Compiling opaque ray mesh fragment shader with early depth testing")
+list(APPEND SHADER_HEADERS ${EARLY_RAY_FRAGMENT_HEADER})
+
 # port/icon/chronicle-128.rgba, the window icon's raw 128x128 RGBA pixels, as a byte array.
 set(ICON_RGBA ${CMAKE_SOURCE_DIR}/port/icon/chronicle-128.rgba)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${ICON_RGBA})
@@ -236,6 +260,29 @@ add_library(dc_host OBJECT ${HOST_SOURCES} ${SHADER_HEADERS})
 target_include_directories(dc_host PRIVATE ${PORT_DIR} ${SHADER_HEADER_DIR} ${AUDIO_DECODER_DIR} ${TTF_DIR})
 target_link_libraries(dc_host PRIVATE SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json)
 target_compile_options(dc_host PRIVATE -Wall -ffunction-sections -fdata-sections)
+
+# The signed NVIDIA Streamline SDK is optional and kept outside version control.
+# The port dynamically loads its interposer; without it the normal Vulkan path
+# remains available. Copy only the runtime components needed by DLSS SR/FG.
+set(DC_STREAMLINE_SDK_DIR "${CMAKE_SOURCE_DIR}/.kazarov/streamline-sdk" CACHE PATH "NVIDIA Streamline SDK root")
+if(WIN32 AND EXISTS "${DC_STREAMLINE_SDK_DIR}/include/sl.h" AND
+   EXISTS "${DC_STREAMLINE_SDK_DIR}/bin/x64/sl.interposer.dll")
+    target_include_directories(dc_host PRIVATE "${DC_STREAMLINE_SDK_DIR}/include")
+    target_compile_definitions(dc_host PRIVATE DC_HAS_STREAMLINE=1)
+    set(DC_STREAMLINE_DLLS
+        sl.interposer.dll sl.common.dll sl.dlss.dll sl.dlss_g.dll
+        sl.reflex.dll sl.pcl.dll nvngx_dlss.dll nvngx_dlssg.dll NvLowLatencyVk.dll)
+    set(DC_STREAMLINE_SOURCE_DLLS)
+    foreach(dll IN LISTS DC_STREAMLINE_DLLS)
+        list(APPEND DC_STREAMLINE_SOURCE_DLLS "${DC_STREAMLINE_SDK_DIR}/bin/x64/${dll}")
+    endforeach()
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/dc-streamline.stamp"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${DC_STREAMLINE_SOURCE_DLLS} "${CMAKE_BINARY_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/dc-streamline.stamp"
+        DEPENDS ${DC_STREAMLINE_SOURCE_DLLS}
+        COMMENT "Copying signed Streamline DLSS runtime")
+    add_custom_target(dc_streamline DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/dc-streamline.stamp")
+endif()
 
 add_library(dc_port OBJECT ${PORT_LIB_SOURCES})
 target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json)
@@ -280,6 +327,9 @@ endfunction()
 add_executable(darkcloud ${PORT_DIR}/main.cpp)
 set_target_properties(darkcloud PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 dc_link_game(darkcloud)
+if(TARGET dc_streamline)
+    add_dependencies(darkcloud dc_streamline)
+endif()
 if(WIN32)
     target_link_options(darkcloud PRIVATE -municode)
     enable_language(RC)
@@ -291,21 +341,42 @@ install(TARGETS darkcloud RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # The strings the port draws itself, translated (docs/LOCALIZATION.md): lang/ beside the executable, where the
 # game reads its language files.
-add_custom_target(dc_lang
+file(GLOB_RECURSE dc_lang_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/lang/*")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/dc-lang.stamp"
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/lang $<TARGET_FILE_DIR:darkcloud>/lang
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf
             $<TARGET_FILE_DIR:darkcloud>/lang/font.ttf
+    COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/dc-lang.stamp"
+    DEPENDS ${dc_lang_sources} ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf
     COMMENT "Copying the port's translated strings and message font")
+add_custom_target(dc_lang DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/dc-lang.stamp")
 add_dependencies(darkcloud dc_lang)
 install(DIRECTORY lang/ DESTINATION ${CMAKE_INSTALL_BINDIR}/lang)
 install(FILES ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf DESTINATION ${CMAKE_INSTALL_BINDIR}/lang RENAME font.ttf)
 
 # The button symbols (docs/GLYPHS.md): glyphs/ beside the executable. Rebuilt from art by tools/glyphs/build_glyphs.py.
-add_custom_target(dc_glyphs
+file(GLOB_RECURSE dc_glyph_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/glyphs/*")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/dc-glyphs.stamp"
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/glyphs $<TARGET_FILE_DIR:darkcloud>/glyphs
+    COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/dc-glyphs.stamp"
+    DEPENDS ${dc_glyph_sources}
     COMMENT "Copying the button symbols")
+add_custom_target(dc_glyphs DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/dc-glyphs.stamp")
 add_dependencies(darkcloud dc_glyphs)
 install(DIRECTORY glyphs/ DESTINATION ${CMAKE_INSTALL_BINDIR}/glyphs)
+
+# Original procedural material normal/ORM maps live beside the executable, so
+# installed and Docker-built Windows binaries work from any current directory.
+file(GLOB_RECURSE dc_material_sources CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/assets/materials/*")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/dc-materials.stamp"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets
+            $<TARGET_FILE_DIR:darkcloud>/assets
+    COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/dc-materials.stamp"
+    DEPENDS ${dc_material_sources}
+    COMMENT "Copying material normal and ORM maps")
+add_custom_target(dc_materials DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/dc-materials.stamp")
+add_dependencies(darkcloud dc_materials)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/ DESTINATION ${CMAKE_INSTALL_BINDIR}/assets)
 
 # The tests use an installed GoogleTest, or fetch one at configure time; a build with neither turns them off.
 option(DC_BUILD_TESTS "Build darkcloud_tests" ON)

@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 
@@ -73,6 +75,13 @@ constexpr float kCameraCutCosine = 0.7071f;
 bool          g_cut_next_tick = true;
 bool          g_have_tick_view = false;
 sceVu0FMATRIX g_tick_view;
+int g_view_calls_this_tick = 0;
+
+bool TraceIntroCamera() {
+    static const bool enabled = std::getenv("DC_CAMERA_TRACE") != nullptr;
+    const auto frame = GameFrameCount();
+    return enabled && frame >= 120 && frame <= 380;
+}
 
 // The logical frame's rect of a GS sprite whose corners are 12.4 window offsets on the field.
 gfx::LogicalRect FieldRect(int x, int y, int width, int height) {
@@ -197,12 +206,21 @@ void CheckCameraCut(sceVu0FMATRIX view) {
     float lengths = std::sqrt((before[8] * before[8] + before[9] * before[9] + before[10] * before[10]) *
                               (after[8] * after[8] + after[9] * after[9] + after[10] * after[10]));
     float moved = std::sqrt(dx * dx + dy * dy + dz * dz);
-    if (moved > kCameraCutDistance || forward < kCameraCutCosine * lengths) {
+    const bool cut = moved > kCameraCutDistance || forward < kCameraCutCosine * lengths;
+    if (TraceIntroCamera()) {
+        std::fprintf(stderr,
+                     "IntroCamera tick=%lld view=%d prev_eye=(%.2f %.2f %.2f) eye=(%.2f %.2f %.2f) moved=%.2f cosine=%.4f cut=%d\n",
+                     static_cast<long long>(GameFrameCount()), g_view_calls_this_tick,
+                     before[12], before[13], before[14], after[12], after[13], after[14], moved,
+                     lengths > 0.0f ? forward / lengths : 0.0f, cut);
+    }
+    if (cut) {
         gfx::CutCameraInterpolation();
     }
 }
 
 void SetViewMatrix(sceVu0FMATRIX view) {
+    ++g_view_calls_this_tick;
     CheckCameraCut(view);
     sceVu0CopyMatrix(mgRenderInfo.view, view);
     mgRenderInfo.position[0] = view[3][0];
@@ -391,6 +409,16 @@ void Draw3DSceneConstants(gfx::MeshConstants &constants, const RenderInfo &info,
         Draw3DMul(model_to_clip, world_to_clip, model);
     }
     std::memcpy(constants.mvp, model_to_clip, sizeof(model_to_clip));
+    std::memcpy(constants.model_to_world, model, sizeof(constants.model_to_world));
+    float eye_to_world[16];
+    if (gfx::InvertAffineTransform(&info.view_scaled[0][0], eye_to_world)) {
+        for (int axis = 0; axis < 3; axis++) {
+            constants.camera_position[axis] = eye_to_world[12 + axis];
+            constants.camera_forward[axis] = eye_to_world[8 + axis];
+        }
+    } else {
+        constants.camera_forward[2] = 1.0f;
+    }
 
     // The model's axes rescaled to unit length; the shadow passes divide by the squared length,
     // which only matters to VU1's own shadow arithmetic and lighting is off there.
@@ -442,6 +470,9 @@ void Draw3DMaterial(gfx::MeshConstants &constants, const RenderInfo &info, const
         constants.specular[channel] = specular[channel];
     }
     constants.diffuse[3] = diffuse[3] * info.ambient[3] / 128.0f;
+    // MDT has no named roughness parameter. Its specular fourth component provides a bounded
+    // material-specific gloss cue while keeping absent/zero values moderately rough.
+    constants.material_roughness = 0.48f - 0.22f * std::clamp(specular[3], 0.0f, 1.0f);
 }
 
 gfx::DrawState Draw3DState(const RenderInfo &info, bool fog) {
@@ -551,6 +582,7 @@ void MGPortCutInterpolation() {
 // A tick records its drawing as a display list; MGEndFrame renders it. A frame someone opened
 // with gfx::BeginFrame is drawn into as it is.
 PORT_OVERRIDE void MGBeginFrame() {
+    g_view_calls_this_tick = 0;
     if (!gfx::InFrame()) {
         gfx::BeginRecording();
         if (g_cut_next_tick) {
