@@ -42,7 +42,7 @@ LoadingSprite sprite;
 // The area name card's file name without its extension (mt01...), which is what the localization's picture is called:
 // the card is one texture called "maptitle" whatever the area.
 std::string card_name;
-// The card as the disc paints it, uploaded beside the plate for the text wipe; 0 where the card has no plate.
+// Original card texture for comparison with the runtime lettering.
 unsigned painted_tbp = 0;
 unsigned painted_cbp = 0;
 
@@ -71,13 +71,11 @@ void Upload(CTexture *texture) {
                               false, decoded)) {
             if (texture == &nl_tex && !card_name.empty()) {
                 painted_tbp = painted_cbp = 0;
-                // A plate and the font: the card is its plate and the name is text (area_card.hpp). Else the language's picture.
                 PortDecodedTexture painted = decoded;
                 if (!areacard::Prepare(card_name, decoded)) {
                     LocalizeTexture(card_name.c_str(), decoded);
                     painted.levels.clear();
                 } else {
-                    // Kept for the text wipe (textwipe.hpp): the card with its name painted in, as it was before the plate.
                     LocalizeTexture(card_name.c_str(), painted);
                 }
                 if (!painted.levels.empty()) {
@@ -94,7 +92,6 @@ void Upload(CTexture *texture) {
 
 // set2DSprite's alpha form: a GS sprite in 12.4 coordinates, MODULATE with 0x80 grey and the fade
 // in alpha, blended (Cs - Cd) * As + Cd over the cleared frame.
-// One picture of it; with_lettering adds the area name over the plate.
 void DrawCardSprite(PortTextureRef ref, bool with_lettering) {
     // TEX1 MMAG is setbilinear's switch, which is on unless a mode turns it off.
     ref.binding.filter = gfx::Filter::Linear;
@@ -124,7 +121,6 @@ void DrawCardSprite(PortTextureRef ref, bool with_lettering) {
     }
 }
 
-// The loading sprite, or with the text wipe on, twice.
 void DrawSprite() {
     PortTextureRef ref = PortTextureFromCTexture(sprite.texture);
     if (!ref.valid) {
@@ -134,7 +130,6 @@ void DrawSprite() {
                            sprite.texel.width == static_cast<int>(sprite.texture->width) &&
                            sprite.texel.height == static_cast<int>(sprite.texture->height);
     if (textwipe::Active() && full_card && areacard::Prepared() && painted_tbp != 0 && PortKeyLive(painted_tbp)) {
-        // The text wipe: the card with its name painted in on one side of the line, the plate and the lettering on the other.
         const PortTextureRef painted = PortTextureFromTex0(static_cast<u_long>(painted_tbp) | (static_cast<u_long>(painted_cbp) << 37), 0x20);
         textwipe::Both([&](bool runtime) { DrawCardSprite(runtime || !painted.valid ? ref : painted, runtime); });
         return;

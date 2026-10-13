@@ -4,20 +4,19 @@
 #include <cmath>
 #include <cstdint>
 
-#include "gfx/gfx.hpp"
-#include "menu_inventory.hpp"
-#include "menuetc.hpp"
+#include "caption_text.hpp"
 #include "gameutil.hpp"
-#include "mglib.hpp"
-#include "snd.hpp"
-#include "name_mouse.hpp"
+#include "gfx/gfx.hpp"
 #include "memcard.hpp"
 #include "menu_dungeon.hpp"
-#include "caption_text.hpp"
-#include <cstdio>
-#include "textwipe.hpp"
+#include "menu_inventory.hpp"
 #include "menu_pointer.hpp"
+#include "menuetc.hpp"
+#include "mglib.hpp"
+#include "name_mouse.hpp"
 #include "rect.hpp"
+#include "snd.hpp"
+#include "textwipe.hpp"
 
 // Retail rounds up to 64 bytes through int, which only holds an address below 2 GiB.
 PORT_OVERRIDE u_long128 *MenuCalcBufAlignment(u_long128 *buffer) {
@@ -61,9 +60,6 @@ PORT_OVERRIDE void DrawMenu2DSprite(CTexture *texture, CRect_i_ screen, CRect_i_
     set2DSprite(GetVif1Packet(), texture, screen, texel, r, g, b, alpha);
 }
 
-// The caption beside an icon is text from the language's JSON when the font is there (caption_text.hpp), a
-// cream fill over a blue outline as sharp as the help line's; texture.cpp blanks the painted words then. The
-// icon and its place are retail's.
 PORT_OVERRIDE void DrawMainMenuIcon(int x, int y, int icon, int selected, int bright, int alpha) {
     if (StayTex == NULL) {
         StayTex = TexManager.GetTexture("stayframe", -1);
@@ -76,9 +72,9 @@ PORT_OVERRIDE void DrawMainMenuIcon(int x, int y, int icon, int selected, int br
         return;
     }
 
-    int   u = info->u;
-    int   v = info->v;
-    s16   frame_size[2][2] = {
+    int u = info->u;
+    int v = info->v;
+    s16 frame_size[2][2] = {
         {0x30, 0x20},
         {0x3A, 0x28}
     };
@@ -103,31 +99,12 @@ PORT_OVERRIDE void DrawMainMenuIcon(int x, int y, int icon, int selected, int br
     auto painted = [&](CTexture *texture) {
         set2DSprite(GetVif1Packet(), texture, CRect_i_(x, y, info->label_width, info->label_height - 1), CRect_i_(info->label_u, info->label_v, info->label_width, info->label_height), bright, bright, bright, alpha);
     };
-    unsigned painted_texture = 0;
-    unsigned painted_palette = 0;
-    {
-        static int said = 0;
-        if (said++ < 3) {
-            std::fprintf(stderr, "textwipe: caption icon %d ready %d keys %d\n", icon, caption::Ready(), caption::PaintedKeys(painted_texture, painted_palette));
-        }
-    }
-    if (textwipe::Active() && caption::Ready() && caption::PaintedKeys(painted_texture, painted_palette)) {
-        // The text wipe: the disc's painted words on one side of the line, the text on the other. The painted ones are
-        // drawn from the kept copy of stayframe, by pointing its sprite at that for a moment (set2DSprite draws at once).
+    if (caption::Ready()) {
         textwipe::Both([&](bool runtime) {
-            if (runtime) {
-                caption::Draw(icon, x, y, std::max<int>(info->label_width, 0xB8), alpha);
-                return;
+            if (!runtime || !caption::Draw(icon, x, y, info->label_width, alpha, bright)) {
+                painted(StayTex);
             }
-            const u_long own = StayTex->tex0;
-            constexpr u_long kKeys = 0x3FFFull | (0x3FFFull << 37);
-            StayTex->tex0 = (own & ~kKeys) | painted_texture | (static_cast<u_long>(painted_palette) << 37);
-            painted(StayTex);
-            StayTex->tex0 = own;
         });
-        return;
-    }
-    if (caption::Draw(icon, x, y, std::max<int>(info->label_width, 0xB8), alpha)) {
         return;
     }
     painted(StayTex);

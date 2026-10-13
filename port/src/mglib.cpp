@@ -1,5 +1,4 @@
 #include "mglib.hpp"
-#include "textwipe.hpp"
 #include "types.h"
 
 #include <libvu0.h>
@@ -22,6 +21,7 @@
 #include "renderinfo.hpp"
 #include "screen.hpp"
 #include "texture.hpp"
+#include "textwipe.hpp"
 
 // Retail defines the window rectangle as mgWindowRectStore and renames it at link time; the port
 // defines the name its callers use.

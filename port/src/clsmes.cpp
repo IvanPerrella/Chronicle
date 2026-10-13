@@ -12,24 +12,35 @@
 #include "draw2d_port.hpp"
 #include "gametext.hpp"
 #include "gameutil.hpp"
+#include "glyph_draw.hpp"
 #include "localize.hpp"
 #include "mglib.hpp"
 #include "mglib_port.hpp"
-#include "glyph_draw.hpp"
 #include "platform/config.hpp"
 #include "platform/glyphs.hpp"
 #include "platform/ttffont.hpp"
-#include "textwipe.hpp"
 #include "rect.hpp"
 #include "screen.hpp"
 #include "snd.hpp"
 #include "text_shadow.hpp"
 #include "texture.hpp"
+#include "textwipe.hpp"
 
 extern float     RandTbl[64];
 extern float     RandTbl2[64];
 
 namespace {
+
+enum {
+    GAIJI_CODE,
+    GAIJI_U,
+    GAIJI_V,
+    GAIJI_WIDTH,
+    GAIJI_HEIGHT,
+    GAIJI_X_OFF,
+    GAIJI_Y_OFF,
+    GAIJI_CELLS,
+};
 
 // ---- Message text from a TrueType font ----
 // With font.ttf in a lang folder (the save's or the executable's), a character the font has is drawn
@@ -140,9 +151,7 @@ void TtfQuad(std::vector<gfx::Vertex2D> &out, const ttffont::Glyph &glyph, float
 
 // The em the font is drawn at: its line fits 82% of the cell's height and its widest glyph the cell's
 // width, so a glyph never leaves the cell the game sized the window for.
-// The bitmap characters stand about 1.3 times taller than the 82% line, in letters squeezed narrow to the cell; the font's
-// letters are drawn that tall and squeezed to the word the game's cells gave it (see TtfLayoutRows), so the lines
-// keep the bitmaps' height and weight. kBaselineShift lowers the line to where the bitmaps' baseline sits.
+// Height and baseline follow the bitmap font's proportions.
 constexpr float kTextHeight = 1.28f;
 constexpr float kMinSqueeze = 0.78f;
 constexpr float kBaselineShift = 0.6f;
@@ -184,7 +193,7 @@ void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs, std::vector<float> &sque
     };
 
     int i = 0;
-    int word = 0; // how many words this row has had, for the added space between them
+    int word = 0;
     int word_y = -1;
     while (i < count) {
         ttffont::Glyph glyph;
@@ -204,8 +213,6 @@ void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs, std::vector<float> &sque
             natural += glyph.width / mapping.scale_x * tune.xscale + gap;
         }
         const float span = static_cast<float>(mes.win_line[last - 1].x - mes.win_line[i].x) + cell_of(last - 1);
-        // The word fills the cells the game gave it, as the bitmaps do: letters wider than the cells are squeezed
-        // (to a limit), and letters narrower are spread, never centred in a gap of their own.
         const float width = natural - gap;
         const bool  fit = tune.fit >= 0.5f;
         float       sx = fit ? std::clamp(span / std::max(width, 1.0f), kMinSqueeze, 1.0f) : 1.0f;
@@ -222,15 +229,20 @@ void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs, std::vector<float> &sque
             squeeze[static_cast<size_t>(k)] = sx * tune.xscale;
         }
         if (tune.lock > 0.0f) {
-            // Cell lock: each letter centred in the cell the game gave its character, which is where the bitmap stands,
-            // blended with the flowed place by the dial. No letter's place depends on those before it, so a line cannot drift.
+            // Sprite centering preserves retail's narrow-character offsets and integer rounding.
             for (int k = i; k < last; k++) {
                 ttffont::Glyph letter;
                 if (!glyph_of(k, letter)) {
                     continue;
                 }
                 const float ink = letter.width / mapping.scale_x * squeeze[static_cast<size_t>(k)];
-                const float centred = static_cast<float>(mes.win_line[k].x) + (cell_of(k) - ink) / 2;
+                const auto &data = GaijiDataTbl[mes.win_line[k].code + 0x300];
+                int         dx = (mes.char_width * data[GAIJI_CELLS] - data[GAIJI_WIDTH]) / 2 + data[GAIJI_X_OFF];
+                if (mes.narrow_gaiji && (data[GAIJI_CODE] == -0x2BD || data[GAIJI_CODE] == -0x2BA)) {
+                    dx -= 3;
+                }
+                const float centred = static_cast<float>(mes.win_line[k].x + dx) +
+                                      (static_cast<float>(data[GAIJI_WIDTH]) - ink) / 2;
                 float      &place = xs[static_cast<size_t>(k)];
                 place += (centred - place) * std::min(1.0f, tune.lock);
             }
@@ -242,7 +254,7 @@ void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs, std::vector<float> &sque
 // Queues the font's glyph for win_line[index]: an edge pass per outline and one fill. False where
 // the font has none, and the bitmap character is drawn.
 bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y, const std::vector<float> &xs,
-                   const std::vector<float> &squeeze,
+                   const std::vector<float>   &squeeze,
                    std::vector<gfx::Vertex2D> &edges, std::vector<gfx::Vertex2D> &fills) {
     const MES_WIN_LINE &line = mes.win_line[index];
     const char32_t      ch = GameTextChar(line.code);
@@ -267,17 +279,18 @@ bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y,
         cell_y = static_cast<float>(offset_y + line.y + mes.text_y);
     } else {
         origin_x = static_cast<float>(mes.line_pos[row].x);
-        cell_y = static_cast<float>(line.y + mes.line_pos[row].y - row * mes.char_height);
+        // Explicit row positions omit the default bitmap path's three-pixel upward offset.
+        cell_y = static_cast<float>(line.y + mes.line_pos[row].y - row * mes.char_height + 3);
     }
 
     // The font's line is centred in the cell's height. The bitmap's pixels are screen pixels, so a quad
     // is as many logical units as they come to.
     const textwipe::Tuning &tune = textwipe::Get(textwipe::MessageKind());
-    const float width = glyph.width / mapping.scale_x * squeeze[static_cast<size_t>(index)];
-    const float height = glyph.height / mapping.scale_y * rows * tune.yscale;
-    const float base = cell_y + (mes.char_height - em * (metrics.ascent + metrics.descent)) / 2 + em * metrics.ascent + kBaselineShift;
-    float       x = origin_x + xs[static_cast<size_t>(index)] + tune.dx;
-    float       y = ((base + tune.dy) * rows) + glyph.y_offset / mapping.scale_y * tune.yscale;
+    const float             width = glyph.width / mapping.scale_x * squeeze[static_cast<size_t>(index)];
+    const float             height = glyph.height / mapping.scale_y * rows * tune.yscale;
+    const float             base = cell_y + (mes.char_height - em * (metrics.ascent + metrics.descent)) / 2 + em * metrics.ascent + kBaselineShift;
+    float                   x = origin_x + xs[static_cast<size_t>(index)] + tune.dx;
+    float                   y = ((base + tune.dy) * rows) + glyph.y_offset / mapping.scale_y * tune.yscale;
 
     // On whole pixels, so the edges of the strokes are not smeared across two.
     auto snap = [](float value, float scale, float offset) { return (std::round(value * scale + offset) - offset) / scale; };
@@ -324,9 +337,13 @@ bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y,
             break;
     }
     if (tune.weight > 0.0f) {
-        // Bolder: the letter again a little to each side, which the texture filter blends into a thicker stroke.
         const float half = tune.weight / 2;
-        const float shifts[4][2] = {{-half, 0.0f}, {half, 0.0f}, {0.0f, -half}, {0.0f, half}};
+        const float shifts[4][2] = {
+            {-half, 0.0f },
+            {half,  0.0f },
+            {0.0f,  -half},
+            {0.0f,  half }
+        };
         for (const auto &shift : shifts) {
             TtfQuad(fills, glyph, x + shift[0], y + shift[1] * rows, width, height, r, g, b, std::min(cap, alpha));
         }
@@ -334,17 +351,6 @@ bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y,
     TtfQuad(fills, glyph, x, y, width, height, r, g, b, std::min(cap, alpha));
     return true;
 }
-
-enum {
-    GAIJI_CODE,
-    GAIJI_U,
-    GAIJI_V,
-    GAIJI_WIDTH,
-    GAIJI_HEIGHT,
-    GAIJI_X_OFF,
-    GAIJI_Y_OFF,
-    GAIJI_CELLS,
-};
 
 struct Shape {
     gfx::Primitive             primitive;
@@ -1140,8 +1146,6 @@ PORT_OVERRIDE void ClsMes::DrawMesWin() {
 
     texture = draw2d::Get().find_texture("gaiji");
     setbilinear(0);
-    // The glyph pass is drawn once, as the font allows; with the text wipe on (textwipe.hpp) it is drawn twice,
-    // the game's bitmaps on one side of the line and the font's text on the other.
     auto text_pass = [&](bool ttf) {
         set2DSprite_Start(Vif1Packet, texture);
         std::vector<gfx::Vertex2D> ttf_edges;

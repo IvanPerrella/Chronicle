@@ -1,12 +1,11 @@
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include <filesystem>
 #include <fstream>
 #include <set>
 #include <string>
 #include <string_view>
-
-#include <nlohmann/json.hpp>
 
 #include "../glyph_draw.hpp"
 #include "platform/config.hpp"

@@ -7,13 +7,15 @@
 #include <filesystem>
 #include <map>
 
+#include "captionfont.hpp"
 #include "draw2d_port.hpp"
+#include "gametext.hpp"
 #include "gfx/gfx.hpp"
 #include "localize.hpp"
+#include "mainselect.hpp"
 #include "menu_draw.hpp"
 #include "menuetc.hpp"
-#include "gametext.hpp"
-#include "captionfont.hpp"
+#include "platform/config.hpp"
 #include "texture_port.hpp"
 #include "textwipe.hpp"
 
@@ -26,36 +28,35 @@ struct Entry {
     const char *english;
 };
 
-// By icon number, the order of MenuIcon in menu_draw.cpp.
 constexpr Entry kEntries[kIcons] = {
-    {"menu.caption.item",           "ITEM"              },
-    {"menu.caption.weapon",         "WEAPON"            },
-    {"menu.caption.allies",         "ALLIES"            },
-    {"menu.caption.georama_parts",  "GEORAMA PARTS"     },
-    {"menu.caption.option",         "OPTION"            },
-    {"menu.caption.save",           "SAVE"              },
-    {"menu.caption.manuals",        "MANUALS"           },
-    {"menu.caption.leave_dungeon",  "LEAVE DUNGEON"     },
-    {"menu.caption.other_area",     "GO TO OTHER AREA"  },
-    {"menu.caption.go_dungeon",     "GO TO DUNGEON"     },
-    {"menu.caption.move_remove",    "MOVE/REMOVE"       },
+    {"menu.caption.item",             "ITEM"            },
+    {"menu.caption.weapon",           "WEAPON"          },
+    {"menu.caption.allies",           "ALLIES"          },
+    {"menu.caption.georama_parts",    "GEORAMA PARTS"   },
+    {"menu.caption.option",           "OPTION"          },
+    {"menu.caption.save",             "SAVE"            },
+    {"menu.caption.manuals",          "MANUALS"         },
+    {"menu.caption.leave_dungeon",    "LEAVE DUNGEON"   },
+    {"menu.caption.other_area",       "GO TO OTHER AREA"},
+    {"menu.caption.go_dungeon",       "GO TO DUNGEON"   },
+    {"menu.caption.move_remove",      "MOVE/REMOVE"     },
     {"menu.caption.georama_analysis", "GEORAMA ANALYSIS"},
-    {"menu.caption.go_outside",     "GO OUTSIDE"        },
-    {"menu.caption.config_assembly", "CONFIG/ASSEMBLY"  },
+    {"menu.caption.go_outside",       "GO OUTSIDE"      },
+    {"menu.caption.config_assembly",  "CONFIG/ASSEMBLY" },
 };
 
-// The font's em, in logical pixels, a caption is set at: the painted ones were about 21 pixels from the
-// top of their capitals to the bottom, in a 30-pixel cell.
+// Painted capitals occupy about 21 logical pixels of each 30-pixel label cell.
 constexpr float kEm = 25.0f;
-// The outline's width in logical pixels, and the least a caption shrinks to before it is condensed.
+
 constexpr float kOutlineWidth = 1.6f;
 constexpr float kLeastShrink = 0.62f;
 
-// stayframe as the disc has it, uploaded once more before its words are cleared, for the text wipe.
-unsigned g_painted_texture = 0;
-unsigned g_painted_palette = 0;
+std::array<std::optional<CaptionBounds>, kIcons> g_bounds;
 
 bool FontReady() {
+    if (!ConfigGet().font_sharp) {
+        return false;
+    }
     static bool tried = false;
     if (!tried) {
         tried = true;
@@ -79,7 +80,6 @@ bool FontReady() {
     return capfont::Loaded();
 }
 
-// The upper case of a letter the font draws as a capital: ASCII and the Latin-1 letters the PAL languages use.
 char32_t Upper(char32_t ch) {
     if ((ch >= U'a' && ch <= U'z') || (ch >= 0xE0 && ch <= 0xFE && ch != 0xF7)) {
         return ch - 0x20;
@@ -87,8 +87,6 @@ char32_t Upper(char32_t ch) {
     return ch == 0x153 ? 0x152 : ch;
 }
 
-// What the help window calls the icon: its message's first line, the name in quotes ("Article", "Sauvegarder"),
-// without the quotes. Empty where the window holds no such message.
 std::string HelpTitle(int icon) {
     const MENU_ICON_INFO *info = GetMenuIconInfo(icon);
     if (info == nullptr || CommonMenuMes2.buff == nullptr) {
@@ -98,7 +96,7 @@ std::string HelpTitle(int icon) {
     if (codes == nullptr) {
         return {};
     }
-    std::string text = GameTextDecode(codes);
+    std::string  text = GameTextDecode(codes);
     const size_t end = text.find_first_of("\n{");
     if (end != std::string::npos) {
         text.erase(end);
@@ -116,7 +114,10 @@ std::u32string Decode(std::string_view in) {
     std::u32string out;
     for (size_t i = 0; i < in.size();) {
         const unsigned char c = static_cast<unsigned char>(in[i]);
-        const int           extra = c < 0x80 ? 0 : (c >> 5) == 6 ? 1 : (c >> 4) == 14 ? 2 : (c >> 3) == 30 ? 3 : -1;
+        const int           extra = c < 0x80 ? 0 : (c >> 5) == 6 ? 1
+                                               : (c >> 4) == 14  ? 2
+                                               : (c >> 3) == 30  ? 3
+                                                                 : -1;
         if (extra < 0 || i + static_cast<size_t>(extra) >= in.size()) {
             out.push_back(U'?');
             i++;
@@ -132,8 +133,6 @@ std::u32string Decode(std::string_view in) {
     return out;
 }
 
-// What a caption looks like: where each letter's pen sits, in logical pixels from the caption's left, and
-// the em it is laid out at.
 struct Layout {
     std::u32string text;
     float          em = kEm * textwipe::Get(textwipe::Kind::Caption).size;
@@ -143,8 +142,8 @@ struct Layout {
 
 float Natural(const std::u32string &text, float em, float scale_x) {
     const textwipe::Tuning &tune = textwipe::Get(textwipe::Kind::Caption);
-    const int em_px = std::max(4, static_cast<int>(em * scale_x + 0.5f));
-    float     total = 0.0f;
+    const int               em_px = std::max(4, static_cast<int>(em * scale_x + 0.5f));
+    float                   total = 0.0f;
     for (char32_t ch : text) {
         capfont::Glyph glyph;
         if (ch == U' ') {
@@ -182,7 +181,7 @@ Layout Lay(std::string_view utf8, float box_width) {
 
 void Quad(std::vector<gfx::Vertex2D> &out, const capfont::Glyph &glyph, float x, float y, float width, float height,
           const unsigned char (&rgb)[3], int alpha) {
-    // The shader modulates by 255/128, so half the colour is what shows it.
+    // GS modulation doubles vertex RGB; halve font colors before drawing.
     const u_char r = static_cast<u_char>(rgb[0] / 2), g = static_cast<u_char>(rgb[1] / 2), b = static_cast<u_char>(rgb[2] / 2);
     const u_char a = static_cast<u_char>(std::clamp(alpha, 0, 0x80));
     out.push_back(draw2d::Vertex(x, y, 0.0f, glyph.u0, glyph.v0, r, g, b, a));
@@ -209,94 +208,65 @@ bool ThinReady() {
     return FontReady() && capfont::VariantLoaded();
 }
 
-void BlankPainted(const char *name, PortDecodedTexture &texture) {
-    if (name != nullptr && std::string_view(name) == "stayframe") {
-        std::fprintf(stderr, "textwipe: stayframe loaded %ux%u format %d levels %zu font %d\n", texture.width, texture.height,
-                     static_cast<int>(texture.format), texture.levels.size(), FontReady() ? 1 : 0);
-    }
-    if (name == nullptr || std::string_view(name) != "stayframe" || texture.width == 0 || texture.height == 0 ||
-        texture.levels.empty() || !FontReady()) {
+void PreparePainted(const char *name, const PortDecodedTexture &texture) {
+    if (name == nullptr || std::string_view(name) != "stayframe") {
         return;
     }
-    for (unsigned *key : {&g_painted_texture, &g_painted_palette}) {
-        if (*key != 0 && PortKeyLive(*key)) {
-            PortReleaseKey(*key);
-        }
-        *key = 0;
-    }
-    g_painted_texture = PortCreateTexture(texture, PortTextureOwner::Other, &g_painted_palette);
-    std::fprintf(stderr, "textwipe: stayframe kept as key %u palette %u\n", g_painted_texture, g_painted_palette);
-    if (texture.format == gfx::TextureFormat::Index8) {
-        // The palette's own transparent entry may not exist, so the picture becomes straight RGBA first.
-        std::vector<std::vector<uint8_t>> levels;
-        for (const std::vector<uint8_t> &level : texture.levels) {
-            std::vector<uint8_t> rgba(level.size() * 4);
-            for (size_t i = 0; i < level.size(); i++) {
-                const uint32_t colour = texture.palette[level[i]];
-                rgba[i * 4 + 0] = static_cast<uint8_t>(colour & 0xFF);
-                rgba[i * 4 + 1] = static_cast<uint8_t>((colour >> 8) & 0xFF);
-                rgba[i * 4 + 2] = static_cast<uint8_t>((colour >> 16) & 0xFF);
-                rgba[i * 4 + 3] = static_cast<uint8_t>(colour >> 24);
-            }
-            levels.push_back(std::move(rgba));
-        }
-        texture.levels = std::move(levels);
-        texture.format = gfx::TextureFormat::Rgba8;
-        texture.four_bit = false;
-    }
-    if (texture.format != gfx::TextureFormat::Rgba8) {
+    g_bounds.fill(std::nullopt);
+    if (texture.width == 0 || texture.height == 0 || texture.levels.empty() ||
+        (texture.format != gfx::TextureFormat::Index8 && texture.format != gfx::TextureFormat::Rgba8)) {
         return;
     }
-    for (size_t level = 0; level < texture.levels.size(); level++) {
-        const int w = std::max<int>(1, static_cast<int>(texture.width >> level));
-        const int h = std::max<int>(1, static_cast<int>(texture.height >> level));
-        if (texture.levels[level].size() < static_cast<size_t>(w) * h * 4) {
-            continue;
-        }
-        for (int icon = 0; icon < kIcons; icon++) {
-            const MENU_ICON_INFO *info = GetMenuIconInfo(icon);
-            if (info == nullptr) {
-                continue;
-            }
-            // Cells round outward, with a pixel to spare for the outline's soft edge.
-            const int left = std::max(0, (info->label_u >> level) - 1);
-            const int top = std::max(0, (info->label_v >> level) - 1);
-            const int right = std::min(w, ((info->label_u + info->label_width + (1 << level) - 1) >> level) + 1);
-            const int bottom = std::min(h, ((info->label_v + info->label_height + (1 << level) - 1) >> level) + 1);
-            for (int y = top; y < bottom; y++) {
-                for (int x = left; x < right; x++) {
-                    uint8_t *pixel = &texture.levels[level][(static_cast<size_t>(y) * w + x) * 4];
-                    pixel[0] = pixel[1] = pixel[2] = pixel[3] = 0;
+    const size_t bytes = texture.format == gfx::TextureFormat::Index8 ? 1 : 4;
+    if (texture.levels[0].size() < static_cast<size_t>(texture.width) * texture.height * bytes) {
+        return;
+    }
+    const float scale = static_cast<float>(texture.width) / 640.0f;
+    for (int icon = 0; icon < kIcons; icon++) {
+        const MENU_ICON_INFO &info = *GetMenuIconInfo(icon);
+        const int             x0 = std::clamp(static_cast<int>(std::floor(info.label_u * scale)), 0, static_cast<int>(texture.width));
+        const int             y0 = std::clamp(static_cast<int>(std::floor(info.label_v * scale)), 0, static_cast<int>(texture.height));
+        const int             x1 = std::clamp(static_cast<int>(std::ceil((info.label_u + info.label_width) * scale)), 0, static_cast<int>(texture.width));
+        const int             y1 = std::clamp(static_cast<int>(std::ceil((info.label_v + info.label_height) * scale)), 0, static_cast<int>(texture.height));
+        int                   left = x1, right = x0, top = y1, bottom = y0;
+        for (int y = y0; y < y1; y++) {
+            for (int x = x0; x < x1; x++) {
+                const size_t   at = static_cast<size_t>(y) * texture.width + x;
+                const unsigned alpha = bytes == 1 ? texture.palette[texture.levels[0][at]] >> 24 : texture.levels[0][at * 4 + 3];
+                if (alpha <= 8) {
+                    continue;
                 }
+                left = std::min(left, x);
+                right = std::max(right, x + 1);
+                top = std::min(top, y);
+                bottom = std::max(bottom, y + 1);
             }
         }
+        if (right > left && bottom > top && info.label_height > 0) {
+            const float rows = static_cast<float>(info.label_height - 1) / info.label_height;
+            g_bounds[icon] = CaptionBounds{left / scale - info.label_u, (top / scale - info.label_v) * rows,
+                                           (right - left) / scale, (bottom - top) / scale * rows};
+        }
     }
-    texture.has_alpha = true;
 }
 
-bool PaintedKeys(unsigned &texture_key, unsigned &palette_key) {
-    if (g_painted_texture == 0 || !PortKeyLive(g_painted_texture)) {
-        return false;
-    }
-    texture_key = g_painted_texture;
-    palette_key = g_painted_palette;
-    return true;
+std::optional<CaptionBounds> PaintedBounds(int icon) {
+    return icon >= 0 && icon < kIcons ? g_bounds[icon] : std::nullopt;
 }
 
-bool Draw(int icon, int x, int y, int box_width, int alpha) {
+bool Draw(int icon, int x, int y, int box_width, int alpha, int bright) {
     if (icon < 0 || icon >= kIcons || !FontReady()) {
         return false;
     }
-    // A translator's JSON string wins; else the name the help window gives the icon, so the two always agree;
-    // else the English.
+    // English help titles differ from the painted labels, including OPTION and GEORAMA PARTS.
     std::string text = LocalizeText(kEntries[icon].key, "");
     if (text.empty()) {
-        text = HelpTitle(icon);
+        text = LanguageCode == LANG_ENGLISH_US || LanguageCode == LANG_ENGLISH_UK ? kEntries[icon].english : HelpTitle(icon);
     }
     if (text.empty()) {
         text = kEntries[icon].english;
     }
-    const Layout      layout = Lay(text, static_cast<float>(box_width));
+    const Layout            layout = Lay(text, static_cast<float>(box_width));
     const textwipe::Tuning &tune = textwipe::Get(textwipe::Kind::Caption);
     alpha = static_cast<int>(static_cast<float>(alpha) * tune.opacity);
 
@@ -306,10 +276,9 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
     const int                 em_px = std::max(4, static_cast<int>(layout.em * mapping.scale_x + 0.5f));
     const int                 outline_px = std::max(1, static_cast<int>(kOutlineWidth * mapping.scale_x + 0.5f));
 
-    // The line sits in the middle of the 30-pixel cell, on the baseline the font's own proportions give.
     constexpr float kCell = 30.0f;
     const float     base = static_cast<float>(y) + (kCell - layout.em * (metrics.ascent + metrics.descent)) / 2 +
-                       layout.em * metrics.ascent + tune.dy;
+                           layout.em * metrics.ascent + tune.dy;
 
     auto snap = [](float value, float scale, float offset) { return (std::round(value * scale + offset) - offset) / scale; };
 
@@ -353,6 +322,33 @@ bool Draw(int icon, int x, int y, int box_width, int alpha) {
         pen += (fill.width / mapping.scale_x * tune.xscale + layout.em * 0.1f + tune.letter) * layout.squeeze;
     }
     if (!fills.empty()) {
+        if (const auto bounds = PaintedBounds(icon); bounds && !edges.empty() && tune.fit >= 0.5f) {
+            float left = edges.front().x, right = left;
+            float top = edges.front().y, bottom = top;
+            for (const gfx::Vertex2D &vertex : edges) {
+                left = std::min(left, vertex.x);
+                right = std::max(right, vertex.x);
+                top = std::min(top, vertex.y);
+                bottom = std::max(bottom, vertex.y);
+            }
+            const float width = bounds->width * tune.size * tune.xscale;
+            const float height = bounds->height * tune.size * tune.yscale;
+            const float sx = width / (right - left);
+            const float sy = height * rows / (bottom - top);
+            for (auto *layer : {&edges, &fills}) {
+                for (gfx::Vertex2D &vertex : *layer) {
+                    vertex.x = x + bounds->left + (bounds->width - width) / 2 + tune.dx + (vertex.x - left) * sx;
+                    vertex.y = (y + bounds->top + tune.dy) * rows + (vertex.y - top) * sy;
+                }
+            }
+        }
+        for (auto *layer : {&edges, &fills}) {
+            for (gfx::Vertex2D &vertex : *layer) {
+                for (int channel = 0; channel < 3; channel++) {
+                    vertex.color[channel] = static_cast<uint8_t>(std::clamp(vertex.color[channel] * bright / 0x80, 0, 255));
+                }
+            }
+        }
         const gfx::TextureBinding binding = capfont::Binding();
         if (!edges.empty()) {
             textwipe::Draw2D(gfx::Primitive::Quads, edges, binding, draw2d::SpriteState());
@@ -385,20 +381,22 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     if (utf8.empty() || cap_height <= 0.0f || !FontReady()) {
         return false;
     }
-    // The thin variant for as long as this line is drawn.
+
     struct Variant {
         explicit Variant(bool on) { capfont::UseVariant(on); }
+
         ~Variant() { capfont::UseVariant(false); }
     } variant(style.thin);
+
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
     const capfont::Metrics    metrics = capfont::GetMetrics();
     const std::u32string      text = Decode(utf8);
     float                     em = cap_height / std::max(0.2f, metrics.cap);
     int                       em_px = std::clamp(static_cast<int>(em * mapping.scale_x + 0.5f), 4, 512);
-    float                     ink_bottom = 0.0f; // where the letters' ink ends below the baseline, in logical rows
+    float                     ink_top = 0.0f;
+    float                     ink_height = 0.0f;
     if (style.ink_fit) {
-        // Size the em so the drawn letters' own tops and bottoms span cap_height, then lower the baseline so their
-        // bottoms stand at cap_top + cap_height. Twice: the second measure is of the glyphs at the size that is drawn.
+        // Re-measure after integer rasterization, then fit the ink exactly to the requested height.
         for (int pass = 0; pass < 2; pass++) {
             float top = 1e9f, bottom = -1e9f;
             for (char32_t ch : text) {
@@ -412,20 +410,22 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
             if (ink <= 0.0f) {
                 break;
             }
-            ink_bottom = bottom / mapping.scale_y;
+            ink_top = top;
+            ink_height = bottom - top;
             if (pass == 0) {
                 em *= cap_height / ink;
                 em_px = std::clamp(static_cast<int>(em * mapping.scale_x + 0.5f), 4, 512);
             }
         }
     }
-    const float               gap = cap_height * 0.075f + style.letter;
+    const float gap = cap_height * 0.075f + style.letter;
 
     struct Letter {
         capfont::Glyph fill;
         char32_t       ch;
         bool           blank;
     };
+
     std::vector<Letter> letters;
     float               natural = 0.0f;
     for (char32_t ch : text) {
@@ -452,25 +452,28 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     const float width = natural * squeeze;
     const float left = center_x + style.dx - width / 2;
 
-    const float baseline = (cap_top + cap_height + style.dy) * rows - ink_bottom;
+    const float vertical_scale = style.ink_fit && ink_height > 0.0f
+                                     ? cap_height * rows * style.yscale / ink_height
+                                     : rows * style.yscale / mapping.scale_y;
+    const float baseline = style.ink_fit && ink_height > 0.0f
+                               ? (cap_top + style.dy) * rows - ink_top * vertical_scale
+                               : (cap_top + cap_height + style.dy) * rows;
     auto        snap = [](float value, float scale, float offset) { return (std::round(value * scale + offset) - offset) / scale; };
     const int   edge_px = std::clamp(static_cast<int>(style.edge_width * mapping.scale_x + 0.5f), 0, 60);
     const int   glow_px = style.glow_amount > 0.0f ? std::clamp(static_cast<int>(style.glow_width * mapping.scale_x + 0.5f), 0, 60) : 0;
 
-    // Where a letter's quad lies (x, y, width, height in logical units), snapped to whole pixels.
     auto rect_of = [&](const capfont::Glyph &glyph, const capfont::Glyph &fill, float pen, float &x, float &y, float &w, float &h) {
         w = glyph.width / mapping.scale_x * squeeze * style.xscale;
-        h = glyph.height / mapping.scale_y * rows * style.yscale;
+        h = glyph.height * vertical_scale;
         x = pen + (glyph.x_offset - fill.x_offset) / mapping.scale_x * squeeze * style.xscale;
-        y = baseline + glyph.y_offset / mapping.scale_y * style.yscale;
+        y = baseline + glyph.y_offset * vertical_scale;
         x = snap(x, mapping.scale_x, mapping.offset_x);
         y = snap(y, mapping.scale_y, mapping.offset_y);
     };
-    // A letter filled from the field: its coverage with each pixel's colour taken from the field where the pixel lies on the
-    // card, kept in the atlas by where and how big it is drawn (made again when that changes or the atlas starts again).
+    // Colored glyphs depend on their position in the painted fill field and on atlas generation.
     static std::map<std::array<int, 9>, capfont::Glyph> textured;
-    static unsigned                                      textured_generation = 0;
-    auto textured_letter = [&](const Letter &letter, size_t index, float pen, capfont::Glyph &out) {
+    static unsigned                                     textured_generation = 0;
+    auto                                                textured_letter = [&](const Letter &letter, size_t index, float pen, capfont::Glyph &out) {
         if (style.field == nullptr || style.field->width <= 0 || style.field->rgb.size() < static_cast<size_t>(style.field->width) * style.field->height * 3) {
             return false;
         }
@@ -498,15 +501,15 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         std::vector<unsigned char> rgba(static_cast<size_t>(gw) * gh * 4);
         for (int j = 0; j < gh; j++) {
             for (int i = 0; i < gw; i++) {
-                const float lx = x + (static_cast<float>(i) + 0.5f) / gw * w;
-                const float ly = y + (static_cast<float>(j) + 0.5f) / gh * h;
-                const float u = std::clamp((lx - style.field_x) / style.field_w * field.width - 0.5f, 0.0f, field.width - 1.001f);
-                const float v = std::clamp((ly - style.field_y) / style.field_h * field.height - 0.5f, 0.0f, field.height - 1.001f);
-                const int   u0 = static_cast<int>(u), v0 = static_cast<int>(v);
-                const float fu = u - u0, fv = v - v0;
+                const float    lx = x + (static_cast<float>(i) + 0.5f) / gw * w;
+                const float    ly = y + (static_cast<float>(j) + 0.5f) / gh * h;
+                const float    u = std::clamp((lx - style.field_x) / style.field_w * field.width - 0.5f, 0.0f, field.width - 1.001f);
+                const float    v = std::clamp((ly - style.field_y) / style.field_h * field.height - 0.5f, 0.0f, field.height - 1.001f);
+                const int      u0 = static_cast<int>(u), v0 = static_cast<int>(v);
+                const float    fu = u - u0, fv = v - v0;
                 unsigned char *texel = &rgba[(static_cast<size_t>(j) * gw + i) * 4];
                 for (int c = 0; c < 3; c++) {
-                    auto at = [&](int xx, int yy) { return static_cast<float>(field.rgb[(static_cast<size_t>(yy) * field.width + xx) * 3 + c]); };
+                    auto        at = [&](int xx, int yy) { return static_cast<float>(field.rgb[(static_cast<size_t>(yy) * field.width + xx) * 3 + c]); };
                     const float top = at(u0, v0) * (1 - fu) + at(u0 + 1, v0) * fu;
                     const float bottom = at(u0, v0 + 1) * (1 - fu) + at(u0 + 1, v0 + 1) * fu;
                     texel[c] = static_cast<unsigned char>(std::clamp(top * (1 - fv) + bottom * fv, 0.0f, 255.0f));
@@ -530,13 +533,11 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         if (glyph.width <= 0 || glyph.height <= 0) {
             return;
         }
-        const float w = glyph.width / mapping.scale_x * squeeze * style.xscale;
-        const float h = glyph.height / mapping.scale_y * rows * style.yscale;
-        float       x = pen + (glyph.x_offset - fill.x_offset) / mapping.scale_x * squeeze * style.xscale;
-        float       y = baseline + glyph.y_offset / mapping.scale_y * style.yscale;
-        x = snap(x, mapping.scale_x, mapping.offset_x) + shift_x;
-        y = snap(y, mapping.scale_y, mapping.offset_y) + shift_y * rows;
-        const float k = std::clamp(fade, 0.0f, 1.0f) * style.opacity * 0.5f;
+        float x, y, w, h;
+        rect_of(glyph, fill, pen, x, y, w, h);
+        x += shift_x;
+        y += shift_y * rows;
+        const float  k = std::clamp(fade, 0.0f, 1.0f) * style.opacity * 0.5f;
         const u_char r = static_cast<u_char>(rgb[0] * k), g = static_cast<u_char>(rgb[1] * k), b = static_cast<u_char>(rgb[2] * k);
         const u_char a = static_cast<u_char>(std::clamp(alpha, 0, 0x80));
         out.push_back(draw2d::Vertex(x, y, 0.0f, glyph.u0, glyph.v0, r, g, b, a));
@@ -560,14 +561,12 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
             continue;
         }
         if (use_slots) {
-            // Into the slot the painted letter stood in: its left edge, and the width its ink had.
+
             const std::array<float, 2> &place = style.slots[slot++];
             const float                 ink = letter.fill.width / mapping.scale_x * style.xscale;
-            // A letter is not stretched to a wider slot than the font's own would make it (a stretched brush letter is
-            // thick); it keeps near its own width and is centred in the slot, and a narrow slot narrows it a little.
-            const float slot_width = place[1] - place[0];
-            squeeze = std::clamp(slot_width / std::max(ink, 0.01f), 0.8f, 1.12f);
-            pen = place[0] + (slot_width - ink * squeeze) / 2;
+            const float                 slot_width = place[1] - place[0];
+            squeeze = slot_width / std::max(ink, 0.01f);
+            pen = place[0];
         }
         capfont::Glyph extra;
         if (glow_px > 0 && capfont::GetOutlinedGlyph(letter.ch, em_px, glow_px, extra)) {
@@ -605,6 +604,14 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
     if (bounds != nullptr) {
         bounds->left = left;
         bounds->right = left + width;
+        if (use_slots) {
+            bounds->left = style.slots.front()[0];
+            bounds->right = style.slots.front()[1];
+            for (const auto &place : style.slots) {
+                bounds->left = std::min(bounds->left, place[0]);
+                bounds->right = std::max(bounds->right, place[1]);
+            }
+        }
     }
     return true;
 }

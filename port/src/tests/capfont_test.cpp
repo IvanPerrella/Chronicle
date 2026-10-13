@@ -7,9 +7,6 @@
 
 #include "captionfont.hpp"
 
-// The tests run on the font the repository holds (tools/font/DarkCloudCompendium.ttf), or the one DC_TEST_FONT names.
-// DC_TEST_FONT_DUMP=1 also prints each glyph as text.
-
 namespace {
 
 struct Rendered {
@@ -48,7 +45,6 @@ Rendered Render(char32_t ch, int em_px = 40) {
 
 } // namespace
 
-// An accented letter is its base with a mark above it, in the same place across the letters.
 TEST(CaptionFont, AccentedLettersAreBuiltFromTheFontsOwnGlyphs) {
     if (!LoadTestFont()) {
         GTEST_SKIP() << "DC_TEST_FONT is not set";
@@ -79,7 +75,6 @@ TEST(CaptionFont, InvertedMarksAndLigaturesAreBuilt) {
     const Rendered inverted = Render(U'¡');
     EXPECT_EQ(inverted.w, bang.w);
     EXPECT_EQ(inverted.h, bang.h);
-    // Turned over: what was at the top is now at the bottom.
     EXPECT_EQ(inverted.alpha.front(), bang.alpha[bang.alpha.size() - static_cast<size_t>(bang.w)]);
 
     const Rendered oe = Render(U'œ');

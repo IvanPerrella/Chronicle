@@ -1,7 +1,5 @@
 #include "gameloop.hpp"
 
-#include "caption_text.hpp"
-
 #include <algorithm>
 #include <charconv>
 #include <cstdio>
@@ -14,11 +12,12 @@
 
 #include "battle_globals.hpp"
 #include "btsysscript.hpp"
+#include "caption_text.hpp"
 #include "dataread.hpp"
 #include "dataread_port.hpp"
 #include "dataset.hpp"
-#include "draw2d_port.hpp"
 #include "dngstatusdata.hpp"
+#include "draw2d_port.hpp"
 #include "dun/gameloop.hpp"
 #include "editloop.hpp"
 #include "exitcodes.hpp"
@@ -26,6 +25,7 @@
 #include "gamepad.hpp"
 #include "gametext.hpp"
 #include "langset.hpp"
+#include "localize.hpp"
 #include "main.hpp"
 #include "mainselect.hpp"
 #include "menu_option.hpp"
@@ -34,15 +34,14 @@
 #include "mglib_port.hpp"
 #include "nowload.hpp"
 #include "platform/clock.hpp"
-#include "localize.hpp"
 #include "platform/config.hpp"
 #include "platform/input.hpp"
 #include "platform/overlay.hpp"
 #include "presence.hpp"
 #include "savedata.hpp"
 #include "snd.hpp"
-#include "textwipe.hpp"
 #include "texture.hpp"
+#include "textwipe.hpp"
 #include "title/opening.hpp"
 #include "title/rushmovi.hpp"
 #include "title/title.hpp"
@@ -154,9 +153,7 @@ const gfx::DisplayList *FpsOverlayList() {
     }
     std::string         text = GameFpsText();
     gfx::LogicalMapping mapping = gfx::GetLogicalMapping(gfx::kMainTarget);
-    // The counter is drawn in the community font once it is there (caption::Ready loads it), so the badge is
-    // sharp on every screen, the title's and the loading screen's included.
-    const bool font = caption::Ready();
+    const bool          font = caption::Ready();
     if (!g_fps.list || text != g_fps.text || !SameMapping(mapping, g_fps.mapping) || font != g_fps.font) {
         g_fps.font = font;
         g_fps.list = OverlayRecord(text);

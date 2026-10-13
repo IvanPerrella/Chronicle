@@ -18,7 +18,7 @@ namespace capfont {
 namespace {
 
 constexpr int kAtlasSize = 2048;
-// Space round each bitmap, so linear sampling at a quad's edge reads transparent texels.
+// Transparent atlas padding prevents neighboring glyphs bleeding under linear sampling.
 constexpr int kPad = 1;
 
 struct Font {
@@ -37,7 +37,7 @@ struct Atlas {
 };
 
 Font     g_fonts[2];
-int      g_variant = 0; // which of g_fonts glyphs are drawn from
+int      g_variant = 0;
 Atlas    g_atlas;
 unsigned g_generation = 0;
 
@@ -60,9 +60,6 @@ bool EnsureAtlas() {
     return g_atlas.texture != gfx::kNullTexture;
 }
 
-// ---- Glyph bitmaps, and letters the font lacks built from ones it has ----
-
-// Coverage, with its top-left corner (x0, y0) in pixels from the pen on the baseline (y down).
 struct Bitmap {
     int                        x0 = 0;
     int                        y0 = 0;
@@ -71,8 +68,7 @@ struct Bitmap {
     std::vector<unsigned char> alpha;
 };
 
-// The glyph index of ch when the font draws something for it. A blank placeholder (a font that maps
-// a letter it does not have to an empty outline) counts as missing.
+// Some font characters map to empty placeholders; treat those as missing.
 int DrawnGlyph(char32_t ch) {
     const int index = stbtt_FindGlyphIndex(&g_fonts[g_variant].info, static_cast<int>(ch));
     return index != 0 && !stbtt_IsGlyphEmpty(&g_fonts[g_variant].info, index) ? index : 0;
@@ -97,7 +93,6 @@ struct Part {
     int           dy;
 };
 
-// The parts laid over each other, each moved by its own offset; the strongest coverage wins.
 Bitmap Combine(const std::vector<Part> &parts) {
     int x0 = INT32_MAX, y0 = INT32_MAX, x1 = INT32_MIN, y1 = INT32_MIN;
     for (const Part &part : parts) {
@@ -139,7 +134,6 @@ enum class Mark {
     Cedilla
 };
 
-// A character the PAL font draws as a letter with a mark on it, or under it.
 struct Accented {
     char32_t ch;
     char32_t base;
@@ -193,8 +187,7 @@ constexpr Accented kAccented[] = {
     {U'ç', U'c', Mark::Cedilla   },
 };
 
-// The plain character whose glyph stands for a mark, for the fonts that have no accent characters of
-// their own: a tick for the acute, a pair of them for the diaeresis, a comma for the cedilla.
+// Missing accent marks are composed from the font's punctuation glyphs.
 char32_t MarkGlyph(Mark mark) {
     switch (mark) {
         case Mark::Grave:
@@ -213,8 +206,6 @@ char32_t MarkGlyph(Mark mark) {
     return 0;
 }
 
-// Builds ch from the font's own glyphs when the font draws nothing for it; false for a character this
-// does not know how to build (the caller then draws the game's bitmap). scale is pixels per font unit.
 bool Compose(char32_t ch, float scale, int em_px, Bitmap &out) {
     const int gap = std::max(1, em_px / 25);
 
@@ -238,10 +229,10 @@ bool Compose(char32_t ch, float scale, int em_px, Bitmap &out) {
         const int dx = (base.x0 + base.w / 2) - (mark.x0 + mark.w / 2);
         int       dy;
         if (accented.mark == Mark::Cedilla) {
-            // The comma's top just inside the letter's bottom, its tail below the baseline.
+
             dy = (base.y0 + base.h - 2) - mark.y0;
         } else {
-            // The mark's bottom a little above the letter's top (a lower-case i's dot included).
+
             dy = base.y0 - gap - (mark.y0 + mark.h);
         }
         out = Combine({
@@ -257,7 +248,7 @@ bool Compose(char32_t ch, float scale, int em_px, Bitmap &out) {
             return false;
         }
         out = Raster(index, scale, scale);
-        // Turned over inside its own box, so it keeps the height and the depth the original had.
+
         for (int row = 0; row < out.h / 2; row++) {
             std::swap_ranges(out.alpha.begin() + static_cast<size_t>(row) * out.w,
                              out.alpha.begin() + static_cast<size_t>(row + 1) * out.w,
@@ -272,7 +263,7 @@ bool Compose(char32_t ch, float scale, int em_px, Bitmap &out) {
         if (first == 0 || second == 0) {
             return false;
         }
-        // Two letters, each squeezed to 65% of its width, the second tucked against the first.
+
         const Bitmap left = Raster(first, scale * 0.65f, scale);
         const Bitmap right = Raster(second, scale * 0.65f, scale);
         out = Combine({
@@ -284,8 +275,7 @@ bool Compose(char32_t ch, float scale, int em_px, Bitmap &out) {
     return false;
 }
 
-// Squared distance to the nearest 1 in a row or column of a grid (Felzenszwalb and Huttenlocher): `f` holds 0 where
-// the shape is and a huge value elsewhere, and comes back as the squared distance to the shape along that line.
+// Squared Euclidean distance transform (Felzenszwalb and Huttenlocher).
 void DistanceLine(std::vector<float> &f, std::vector<int> &v, std::vector<float> &z, std::vector<float> &out) {
     const int n = static_cast<int>(f.size());
     int       k = 0;
@@ -319,21 +309,19 @@ void DistanceLine(std::vector<float> &f, std::vector<int> &v, std::vector<float>
     }
 }
 
-// The letter's coverage grown by `radius` pixels in every direction: a round stroke round the shape, as far from
-// the letter as the pixel's true distance to it, so the edge is smooth at any radius.
 Bitmap Dilate(const Bitmap &in, int radius) {
     if (radius <= 0 || in.w <= 0 || in.h <= 0) {
         return in;
     }
-    Bitmap out;
+    Bitmap    out;
     const int pad = radius + 1;
     out.x0 = in.x0 - pad;
     out.y0 = in.y0 - pad;
     out.w = in.w + 2 * pad;
     out.h = in.h + 2 * pad;
-    const int            W = out.w, H = out.h;
-    const float          kFar = 1e12f;
-    std::vector<float>   grid(static_cast<size_t>(W) * H, kFar);
+    const int          W = out.w, H = out.h;
+    const float        kFar = 1e12f;
+    std::vector<float> grid(static_cast<size_t>(W) * H, kFar);
     for (int row = 0; row < in.h; row++) {
         for (int col = 0; col < in.w; col++) {
             if (in.alpha[static_cast<size_t>(row) * in.w + col] >= 128) {
@@ -379,8 +367,6 @@ Bitmap Dilate(const Bitmap &in, int radius) {
     return out;
 }
 
-// How far the pen moves after ch, in pixels at scale (pixels per font unit). A letter built from others
-// moves by its base letter's width.
 float AdvanceOf(char32_t ch, float scale) {
     char32_t drawn = ch;
     if (DrawnGlyph(ch) == 0) {
@@ -424,7 +410,7 @@ bool Load(const std::filesystem::path &file) {
         return false;
     }
     font.loaded = true;
-    // The font's data moves with the vector it is in, so the info is built on the final place.
+    // stbtt_fontinfo stores pointers into the final font-data allocation.
     g_fonts[0] = std::move(font);
     stbtt_InitFont(&g_fonts[0].info, g_fonts[0].data.data(), stbtt_GetFontOffsetForIndex(g_fonts[0].data.data(), 0));
     ResetAtlas();
@@ -482,7 +468,6 @@ bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out) {
         return false;
     }
 
-    // An em of em_px pixels: stb scales by the font's units per em.
     const float scale = stbtt_ScaleForMappingEmToPixels(&g_fonts[g_variant].info, static_cast<float>(em_px));
     Bitmap      bitmap;
     if (const int index = DrawnGlyph(ch); index != 0) {
@@ -505,8 +490,7 @@ bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out) {
             g_atlas.row_height = 0;
         }
         if (g_atlas.y + height + 2 * kPad > kAtlasSize) {
-            // Full: start again. Glyphs queued this frame keep their old coordinates, which now
-            // show whatever lands there; one frame of it, and the next fills the atlas afresh.
+            // Resetting a full atlas invalidates glyph coordinates already queued for this frame.
             std::fprintf(stderr, "font: atlas full, starting again\n");
             gfx::TextureHandle keep = g_atlas.texture;
             g_atlas = {};
@@ -525,7 +509,7 @@ bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out) {
     glyph.advance = advance;
 
     if (width > 0 && height > 0) {
-        // White with the coverage as alpha, so the draw's vertex colour tints it.
+
         const int                  w = width + 2 * kPad;
         const int                  h = height + 2 * kPad;
         std::vector<unsigned char> pixels(static_cast<size_t>(w) * h * 4, 0);
@@ -537,7 +521,7 @@ bool GetOutlinedGlyph(char32_t ch, int em_px, int outline_px, Glyph &out) {
             }
         }
         gfx::UpdateTextureNow(g_atlas.texture, 0, static_cast<uint32_t>(g_atlas.x), static_cast<uint32_t>(g_atlas.y),
-                           static_cast<uint32_t>(w), static_cast<uint32_t>(h), pixels.data());
+                              static_cast<uint32_t>(w), static_cast<uint32_t>(h), pixels.data());
         glyph.u0 = static_cast<float>(g_atlas.x + kPad);
         glyph.v0 = static_cast<float>(g_atlas.y + kPad);
         glyph.u1 = static_cast<float>(g_atlas.x + kPad + width);

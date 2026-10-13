@@ -22,7 +22,7 @@ a view only: nothing is saved, and with it off the game draws exactly what it di
 | Place | Old look | New look | Code |
 |---|---|---|---|
 | Message text: dialogue, menus, help windows, item and shop text, every message the game lays out | the 14x20 bitmap characters of `gaiji` | `font.ttf` characters at the screen's resolution | `ClsMes::Draw` in `clsmes.cpp` (`text_pass`) |
-| Menu captions beside the main menu's icons (ITEM, WEAPON, GO TO DUNGEON...), town and dungeon | the words painted into `stayframe` (kept from before `BlankPainted` cleared them) | outlined `font.ttf` text | `DrawMainMenuIcon` in `menu_draw.cpp`, `caption_text.cpp` |
+| Menu captions beside the main menu's icons (ITEM, WEAPON, GO TO DUNGEON...), town and dungeon | the words painted into the unchanged `stayframe` | outlined `font.ttf` text fitted to the painted bounds | `DrawMainMenuIcon` in `menu_draw.cpp`, `caption_text.cpp` |
 | Area name cards on the loading screen (Norune, Matataki...) | the disc's card with the name painted in | the text-free plate with the name drawn over it | `nowload.cpp`, `area_card.cpp` |
 
 Not wiped, because their old look is not drawn alongside: the FPS badge (`gameloop.cpp`, `overlay.cpp`; its
@@ -40,8 +40,8 @@ textwipe::Both([&](bool runtime) {
 
 Off, `Both` calls the function once with `runtime = true`. On, it calls it with `false` clipped to the line's
 left (`gfx::SetDrawClip`) and with `true` clipped to its right, so the draws must go out inside the call (not
-into a packet flushed later). Keep the old look's data when the new one replaces it (as `BlankPainted` keeps
-`stayframe`).
+into a packet flushed later). Keep the old look's data when the new one replaces it; menu captions retain
+the original `stayframe` texture.
 
 ## Overlay and tuning
 

@@ -5,7 +5,6 @@
 #include "platform/config.hpp"
 #include "textwipe.hpp"
 
-// The slide starts with everything old (the line at the right edge), rests, eases to the left edge, rests and eases back.
 TEST(TextWipe, SweepStartsAtTheRightAndReachesTheLeft) {
     EXPECT_FLOAT_EQ(textwipe::SweepPosition(0.0), 640.0f);
     EXPECT_FLOAT_EQ(textwipe::SweepPosition(0.5), 640.0f);
@@ -24,7 +23,6 @@ TEST(TextWipe, SweepRepeatsAndNeverLeavesTheScreen) {
     }
 }
 
-// Off, a place that draws both looks draws only the runtime one, as the game does.
 TEST(TextWipe, OffDrawsOnlyTheRuntimeLook) {
     ASSERT_FALSE(textwipe::Active());
     std::vector<bool> drawn;
@@ -33,7 +31,6 @@ TEST(TextWipe, OffDrawsOnlyTheRuntimeLook) {
     EXPECT_TRUE(drawn[0]);
 }
 
-// Untuned text is drawn as the code lays it out: every dial is at its identity.
 TEST(TextWipe, DefaultTuningChangesNothing) {
     const textwipe::Tuning tuning;
     EXPECT_FLOAT_EQ(tuning.size, 1.0f);
@@ -46,15 +43,13 @@ TEST(TextWipe, DefaultTuningChangesNothing) {
     EXPECT_FLOAT_EQ(tuning.fit, 1.0f);
 }
 
-// The tool is a developer's, behind game.text_wipe: off (the default) its keys do nothing and every kind of text keeps
-// the locked-in fit, whatever tuning a file holds.
 TEST(TextWipe, OffByDefaultAndTextKeepsTheLockedFits) {
     ASSERT_FALSE(ConfigGet().text_wipe);
     textwipe::Update();
     EXPECT_FALSE(textwipe::Active());
     for (int k = 0; k < static_cast<int>(textwipe::Kind::Count); k++) {
-        const auto             kind = static_cast<textwipe::Kind>(k);
-        const textwipe::Tuning locked = textwipe::Locked(kind);
+        const auto              kind = static_cast<textwipe::Kind>(k);
+        const textwipe::Tuning  locked = textwipe::Locked(kind);
         const textwipe::Tuning &now = textwipe::Get(kind);
         EXPECT_FLOAT_EQ(now.size, locked.size);
         EXPECT_FLOAT_EQ(now.xscale, locked.xscale);

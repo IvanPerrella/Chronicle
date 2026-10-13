@@ -262,8 +262,8 @@ letters and marks. The port logs `font: message text from <file>` when it loads 
   fill over a blue outline stroked round each letter, the colours of the painted English captions in every
   language. So they follow the language's help messages, JSON edits to them included, and a new language
   needs no picture. A `menu.caption.<name>` string in the language's JSON (see `caption_text.cpp`) overrides one
-  caption. The painted words are blanked from `stayframe` while a font is loaded; without one they stay as
-  the disc has them.
+  caption. English keeps the painted labels, including OPTION and GEORAMA PARTS. Runtime captions fit the
+  painted labels' bounds; `stayframe` stays intact for Original font mode, missing fonts and the text wipe.
 - It does not touch other text that is a picture: the title screen's and the like are textures, and stay
   as they are. A few of those pictures can be replaced per language, see "Pictures of text" below.
 - A word keeps the cells the game gave it: its letters are spaced by the font inside the word and the word

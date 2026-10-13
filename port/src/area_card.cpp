@@ -1,6 +1,5 @@
-// nlohmann/json before the game headers, whose one-letter macros it cannot stand.
+// Parse JSON before including game headers, which define single-letter macros.
 #include "area_card.hpp"
-#include "textwipe.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -20,6 +19,7 @@
 #include "localize_texture.hpp"
 #include "platform/imagefile.hpp"
 #include "texture_port.hpp"
+#include "textwipe.hpp"
 
 namespace areacard {
 
@@ -30,65 +30,62 @@ struct Entry {
     const char *english;
 };
 
-// The US card's words, which every language falls back to.
 constexpr Entry kCards[] = {
-    {"mt01",  "NORUNE VILLAGE"   },
-    {"mt02",  "MATATAKI VILLAGE" },
-    {"mt03",  "QUEENS"           },
-    {"mt04",  "MUSKA RACKA"      },
-    {"mt05",  "MOON FACTORY"     },
-    {"mt101", "DIVINE BEAST CAVE"},
-    {"mt102", "WISE OWL FOREST"  },
-    {"mt103", "SHIPWRECK"        },
-    {"mt104", "SUN&MOON TEMPLE"  },
-    {"mt105", "MOON SEA"         },
-    {"mt106", "GALLERY OF TIME"  },
-    {"mt107", "DEMON SHAFT"      },
-    {"mt14",  "BROWNBOO VILLAGE" },
-    {"mt23",  "YELLOW DROPS"     },
-    {"mt301", "DARK SHRINE"      },
+    {"mt01",  "NORUNE VILLAGE"    },
+    {"mt02",  "MATATAKI VILLAGE"  },
+    {"mt03",  "QUEENS"            },
+    {"mt04",  "MUSKA RACKA"       },
+    {"mt05",  "MOON FACTORY"      },
+    {"mt101", "DIVINE BEAST CAVE" },
+    {"mt102", "WISE OWL FOREST"   },
+    {"mt103", "SHIPWRECK"         },
+    {"mt104", "SUN&MOON TEMPLE"   },
+    {"mt105", "MOON SEA"          },
+    {"mt106", "GALLERY OF TIME"   },
+    {"mt107", "DEMON SHAFT"       },
+    {"mt14",  "BROWNBOO VILLAGE"  },
+    {"mt23",  "YELLOW DROPS"      },
+    {"mt301", "DARK SHRINE"       },
     {"mt40",  "DARK HEAVEN CASTLE"},
 };
 
-// Where the lettering goes, as fractions of the card, and how it looks; read from the plate's json.
 struct Layout {
-    std::string       text;
-    float             cap_top = 0.27f;
-    float             cap_height = 0.42f;
-    float             xsq = 0.56f;
-    float             max_width = 0.9375f;
-    bool              underline = true; // the brush stroke under the name
-    float             underline_y = 0.7656f;
-    float             underline_thick = 0.0547f;
-    float             underline_pad_left = 0.0117f;
-    float             underline_pad_right = 0.0169f;
-    float             underline_bow = 0.0078f;
-    float             underline_wave = 0.0420f; // height of the tilde in the ribbon, of the card's height
-    bool              drips = false;
-    // Where the disc's own painted name stood on the card, as fractions: left, right, top, bottom of its lettering
-    // (not its underline); the runtime name is drawn to the same box when the card's fit is on (textwipe.hpp).
+    std::string text;
+    float       cap_top = 0.27f;
+    float       cap_height = 0.42f;
+    float       xsq = 0.56f;
+    float       max_width = 0.9375f;
+    bool        underline = true;
+    float       underline_y = 0.7656f;
+    float       underline_thick = 0.0547f;
+    float       underline_pad_left = 0.0117f;
+    float       underline_pad_right = 0.0169f;
+    float       underline_bow = 0.0078f;
+    float       underline_wave = 0.0420f; // height of the tilde in the ribbon, of the card's height
+    bool        drips = false;
+
+    // Measured ink bounds exclude the underline and use fractions of the card.
     struct Ink {
-        float left, right, top, bottom; // the lettering
-        std::vector<std::array<float, 2>> slots; // each letter's left and right as fractions of the card, where it was cut
-        caption::FillField field;       // the painted lettering's colours spread outward, for the texture of the fill
-        bool  has_ring = false;         // the colours of the dark outline and the glow just outside the painted letters
-        unsigned char outline[3] = {0, 0, 0}, glow[3] = {0, 0, 0};
-        bool  has_rule = false;         // and the brush underneath it, where the card has one
-        float rule_y = 0.0f, rule_thick = 0.0f, rule_left = 0.0f, rule_right = 0.0f;
+        float                             left, right, top, bottom;
+        std::vector<std::array<float, 2>> slots;
+        caption::FillField                field;            // the painted lettering's colours spread outward, for the texture of the fill
+        bool                              has_ring = false; // the colours of the dark outline and the glow just outside the painted letters
+        unsigned char                     outline[3] = {0, 0, 0}, glow[3] = {0, 0, 0};
+        bool                              has_rule = false; // and the brush underneath it, where the card has one
+        float                             rule_y = 0.0f, rule_thick = 0.0f, rule_left = 0.0f, rule_right = 0.0f;
     };
+
     std::optional<Ink> ink;
     unsigned           field_id = 0;
     float              underline_y0 = 0.7656f; // the plate json's, before the fit moves it
     caption::LineStyle style;
-    float             edge_width = 0.0039f; // of the card's width
-    float             glow_width = 0.013f;
+    float              edge_width = 0.0039f; // of the card's width
+    float              glow_width = 0.013f;
 };
 
 std::optional<Layout> g_card;
 
-// The box the disc's painted name fills: the pixels near the lettering's fill colour, in the first run of rows tall
-// enough to be lettering (the brush underneath is thinner and apart from it).
-std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsigned char (&fill)[3],
+std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture                &card, const unsigned char (&fill)[3],
                                       const std::vector<caption::LetterWidth> &letters) {
     const int width = static_cast<int>(card.width);
     const int height = static_cast<int>(card.height);
@@ -113,7 +110,7 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
                 rgb[1] = card.levels[0][i * 4 + 1];
                 rgb[2] = card.levels[0][i * 4 + 2];
             }
-            // Lettering: as bright as the fill (or brighter: the painted white can be pure) and of its tint; the scenery is darker.
+
             const float lum = static_cast<float>(rgb[0] + rgb[1] + rgb[2]) / 3.0f;
             const float fill_lum = static_cast<float>(fill[0] + fill[1] + fill[2]) / 3.0f;
             const float tr = (static_cast<float>(rgb[0]) - lum) - (static_cast<float>(fill[0]) - fill_lum);
@@ -125,8 +122,7 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
             }
         }
     }
-    // The brush is told from the lettering by its long horizontal runs: a letter's strokes are short, the ribbon is
-    // most of the name's width. Its rows are not lettering.
+    // Long horizontal runs belong to the underline rather than the letters.
     for (int y = 0; y < height; y++) {
         int longest = 0, run = 0;
         for (int x = 0; x < width; x++) {
@@ -138,7 +134,7 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
             rows[static_cast<size_t>(y)] = 0;
         }
     }
-    // Runs of rows that hold lettering, a stray empty row allowed inside one.
+
     const int least = std::max(6, height / 12);
     int       top = -1, bottom = -1;
     for (int y = 0; y < height && top < 0;) {
@@ -178,13 +174,11 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
     }
     Layout::Ink ink = {static_cast<float>(left) / width, static_cast<float>(right + 1) / width,
                        static_cast<float>(top) / height, static_cast<float>(bottom + 1) / height};
-    // Letters: the painted letters touch, so they cannot be told apart by gaps alone. The columns of ink are counted after a
-    // shear (the lettering leans), and each cut between two letters goes at the emptiest column near where the font's own
-    // proportions put it. Only when there is one slot per drawn letter does the lettering get slots.
+    // Touching painted letters require sheared-column cuts near the font's estimated boundaries.
     {
-        constexpr float kLean = -0.1f; // the painted lean, the same on every card (x = x' + kLean * (y - mid))
-        const int       rows_n = bottom - top + 1;
-        const int       pad = rows_n;
+        constexpr float  kLean = -0.1f; // the painted lean, the same on every card (x = x' + kLean * (y - mid))
+        const int        rows_n = bottom - top + 1;
+        const int        pad = rows_n;
         std::vector<int> cols(static_cast<size_t>(width + 2 * pad), 0);
         for (int y = top; y <= bottom; y++) {
             for (int x = 0; x < width; x++) {
@@ -203,14 +197,14 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
                 last = x;
             }
         }
-        float total = 0.0f;
+        float  total = 0.0f;
         size_t drawn = 0;
         for (const caption::LetterWidth &item : letters) {
             total += item.width;
             drawn += item.blank ? 0 : 1;
         }
         if (first >= 0 && total > 0.0f && drawn >= 2) {
-            const float span = static_cast<float>(last - first + 1);
+            const float      span = static_cast<float>(last - first + 1);
             std::vector<int> bound(letters.size() + 1, 0);
             bound[0] = first - 1;
             bound[letters.size()] = last + 1;
@@ -233,8 +227,7 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
                 }
                 bound[i + 1] = std::max(best, bound[i] + 1);
             }
-            // Each painted pixel belongs to the letter whose sheared columns hold it; a letter's slot is the real columns
-            // its pixels fill, so the lean needs no allowance.
+
             std::vector<int> lo(letters.size(), 1 << 30), hi(letters.size(), -1);
             for (int y = top; y <= bottom; y++) {
                 for (int x = 0; x < width; x++) {
@@ -266,8 +259,7 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
             }
         }
     }
-    // The painted letters' colours, spread to the nearest texels so that a letter drawn a little off them still has painted
-    // colour under it, and the colours of the ring just outside them (the outline) and a little further out (the glow).
+    // Extend each painted ink color to its nearest uncovered texels before sampling runtime glyphs.
     {
         auto colour_at = [&](size_t i, int rgb[3]) {
             if (card.format == gfx::TextureFormat::Index8) {
@@ -314,7 +306,10 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
         ink.field.width = width;
         ink.field.height = height;
         ink.field.rgb.assign(count * 3, 0);
-        long ring[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+        long ring[2][4] = {
+            {0, 0, 0, 0},
+            {0, 0, 0, 0}
+        };
         for (size_t i = 0; i < count; i++) {
             int rgb[3] = {fill[0], fill[1], fill[2]};
             if (nearest[i] >= 0) {
@@ -325,7 +320,8 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
             }
             const int x = static_cast<int>(i % width), y = static_cast<int>(i / width);
             if (nearest[i] >= 0 && !mask[i] && y >= top && y <= bottom && x >= left && x <= right) {
-                const int which = distance[i] >= 1 && distance[i] <= 2 ? 0 : distance[i] >= 3 && distance[i] <= 5 ? 1 : -1;
+                const int which = distance[i] >= 1 && distance[i] <= 2 ? 0 : distance[i] >= 3 && distance[i] <= 5 ? 1
+                                                                                                                  : -1;
                 if (which >= 0) {
                     int own[3];
                     colour_at(i, own);
@@ -344,7 +340,7 @@ std::optional<Layout::Ink> MeasureInk(const PortDecodedTexture &card, const unsi
             }
         }
     }
-    // The brush: the rows with long runs.
+
     int rule_top = -1, rule_bottom = -1;
     for (int y = 0; y < height; y++) {
         if (rule_row[static_cast<size_t>(y)]) {
@@ -389,18 +385,16 @@ float Number(const nlohmann::json &json, const char *key, float fallback) {
     return json.contains(key) && json[key].is_number() ? json[key].get<float>() : fallback;
 }
 
-// Strokes in the card's own fractions become logical units by the card's drawn size.
+// Card fractions are transformed by the actual loading-sprite rectangle.
 struct Frame {
     float x0, y0, w, h;
+
     float X(float fx) const { return x0 + fx * w; }
+
     float Y(float fy) const { return y0 + fy * h; }
 };
 
-// The ribbon under the name. Its centre line is one gentle tilde (a sine wave) across the lettering's own width, so it
-// stretches to fit any name; its thickness swells in the middle and tapers to fine points. The mesh is cut finely along
-// its length (kSteps) so the curves are smooth, and shaded across it (light on top, dark below) so it reads as a ribbon
-// rather than a flat bar. `grow` widens it all round (the outline); `feather` adds a soft outer edge fading to nothing,
-// which stands in for anti-aliasing.
+// A tapered sine-wave ribbon preserves the painted underline's curved silhouette.
 void Ribbon(std::vector<gfx::Vertex2D> &out, const Frame &frame, const Layout &layout, float left, float right, float grow,
             float feather, const unsigned char (&top_rgb)[3], const unsigned char (&mid_rgb)[3], const unsigned char (&low_rgb)[3],
             float fade) {
@@ -413,7 +407,7 @@ void Ribbon(std::vector<gfx::Vertex2D> &out, const Frame &frame, const Layout &l
     auto            shade = [&](const unsigned char (&rgb)[3], float alpha) {
         return std::array<uint8_t, 4>{rgb[0], rgb[1], rgb[2], static_cast<uint8_t>(std::clamp(alpha * k, 0.0f, 1.0f) * 0x80 + 0.5f)};
     };
-    auto        point = [&](int i, float at, const unsigned char (&rgb)[3], float alpha, float extra) {
+    auto point = [&](int i, float at, const unsigned char (&rgb)[3], float alpha, float extra) {
         const float t = static_cast<float>(i) / kSteps;
         const float x = left - grow + (right - left + 2 * grow) * t;
         const float taper = smooth(t / 0.16f) * smooth((1 - t) / 0.16f);
@@ -422,7 +416,9 @@ void Ribbon(std::vector<gfx::Vertex2D> &out, const Frame &frame, const Layout &l
         const float cy = layout.underline_y - amplitude * std::sin(2 * kPi * t - 0.35f);
         const float y = cy + at * (half + (grow + extra) * aspect);
         const auto  c = shade(rgb, alpha);
-        return gfx::Vertex2D{frame.X(x), frame.Y(y), 0.0f, 0.0f, 0.0f, {c[0], c[1], c[2], c[3]}};
+        return gfx::Vertex2D{
+            frame.X(x), frame.Y(y), 0.0f, 0.0f, 0.0f, {c[0], c[1], c[2], c[3]}
+        };
     };
     auto band = [&](float at0, const unsigned char (&rgb0)[3], float a0, float e0, float at1, const unsigned char (&rgb1)[3], float a1,
                     float e1) {
@@ -434,11 +430,11 @@ void Ribbon(std::vector<gfx::Vertex2D> &out, const Frame &frame, const Layout &l
         }
     };
     if (feather > 0.0f) {
-        // Soft rim: opaque at the edge, clear a feather's width outside it, on both sides.
+
         band(-1.0f, top_rgb, 0.0f, feather, -1.0f, top_rgb, 1.0f, 0.0f);
         band(1.0f, low_rgb, 1.0f, 0.0f, 1.0f, low_rgb, 0.0f, feather);
     }
-    // Body: light edge, true colour at the middle of the upper half, dark underside.
+
     band(-1.0f, top_rgb, 1.0f, 0.0f, -0.15f, mid_rgb, 1.0f, 0.0f);
     band(-0.15f, mid_rgb, 1.0f, 0.0f, 1.0f, low_rgb, 1.0f, 0.0f);
 }
@@ -481,8 +477,8 @@ bool Prepare(const std::string &name, PortDecodedTexture &texture) {
     }
     Layout layout;
     try {
-        std::ifstream stream(sheet);
-        const nlohmann::json json = nlohmann::json::parse(stream);
+        std::ifstream         stream(sheet);
+        const nlohmann::json  json = nlohmann::json::parse(stream);
         const nlohmann::json &lay = json.contains("layout") ? json["layout"] : json;
         layout.cap_top = Number(lay, "cap_top", layout.cap_top);
         layout.cap_height = Number(lay, "cap_height", layout.cap_height);
@@ -517,12 +513,15 @@ bool Prepare(const std::string &name, PortDecodedTexture &texture) {
     }
     layout.underline_y0 = layout.underline_y;
     const std::string text = LocalizeText(std::string("area.") + name, entry->english);
-    layout.ink = MeasureInk(texture, layout.style.fill, caption::LetterWidths(text));
+    // Per-letter slots are valid only when runtime and painted strings correspond.
+    const bool match_letters = LocalizeLanguageFile() == "en_us" && text == entry->english && name != "mt14";
+    layout.ink = MeasureInk(texture, layout.style.fill,
+                            match_letters ? caption::LetterWidths(text) : std::vector<caption::LetterWidth>{});
     if (layout.ink) {
         std::fprintf(stderr, "areacard: %s measured lettering %.3f..%.3f x %.3f..%.3f, rule %d at %.3f, %zu letter slots\n", name.c_str(), layout.ink->left, layout.ink->right, layout.ink->top, layout.ink->bottom, layout.ink->has_rule ? 1 : 0, layout.ink->rule_y, layout.ink->slots.size());
     } else {
         std::fprintf(stderr, "areacard: %s: no lettering measured\n", name.c_str());
-    } // the disc's card, before the plate takes its place
+    }
     std::vector<std::vector<uint8_t>> levels;
     for (size_t level = 0; level < std::max<size_t>(1, texture.levels.size()); level++) {
         const int w = std::max<int>(1, static_cast<int>(texture.width >> level));
@@ -546,13 +545,12 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
     if (!g_card || fade <= 0.0f) {
         return;
     }
-    Layout        &layout = *g_card;
-    const Frame    frame = {x0, y0, x1 - x0, y1 - y0};
+    Layout            &layout = *g_card;
+    const Frame        frame = {x0, y0, x1 - x0, y1 - y0};
     caption::LineStyle style = layout.style;
     style.edge_width = layout.edge_width * frame.w;
     style.glow_width = layout.glow_width * frame.w;
 
-    // The letters first; the underline is placed from where they ended, and lies clear of them below.
     const textwipe::Tuning &tune = textwipe::Get(textwipe::Kind::Card);
     style.letter = tune.letter;
     style.word = tune.word;
@@ -562,13 +560,12 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
     style.dy = tune.dy;
     style.weight = tune.weight;
     style.opacity = tune.opacity;
-    // With the fit on and the disc's painted name measured, the name fills the box the painted one did, so it overlays it
-    // in every language; else the plate's layout.
-    float       center_x = frame.X(0.5f);
-    float       cap_top = frame.Y(layout.cap_top);
-    float       cap_height = layout.cap_height * frame.h * tune.size;
-    float       xsq = layout.xsq;
-    float       max_width = layout.max_width * frame.w;
+
+    float center_x = frame.X(0.5f);
+    float cap_top = frame.Y(layout.cap_top);
+    float cap_height = layout.cap_height * frame.h * tune.size;
+    float xsq = layout.xsq;
+    float max_width = layout.max_width * frame.w;
     if (layout.ink && tune.fit >= 0.5f) {
         const Layout::Ink &ink = *layout.ink;
         center_x = frame.X((ink.left + ink.right) / 2);
@@ -577,7 +574,7 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
         xsq = 10.0f; // wider than any name, so the box's width is what shapes it
         style.ink_fit = true;
         style.thin = caption::ThinReady();
-        // The painted texture, outline and glow colours; the plate's json is what a card without them (no fit) uses.
+
         static unsigned next_field = 0;
         if (layout.field_id == 0) {
             layout.field_id = ++next_field;
@@ -595,7 +592,7 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
             }
         }
         if (!ink.slots.empty()) {
-            // Each glyph into the slot its painted letter stood in, moved and sized with the dials about the lettering's middle.
+
             const float middle = (ink.left + ink.right) / 2;
             for (const std::array<float, 2> &slot : ink.slots) {
                 style.slots.push_back({frame.X(middle + (slot[0] - middle) * tune.size) + tune.dx,
@@ -604,7 +601,7 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
         }
         max_width = (ink.right - ink.left) * frame.w * tune.size;
     }
-    // The brush goes where the painted one was, moved with the lettering by the dials; else the plate's place for it.
+
     layout.underline_y = layout.underline_y0 + tune.dy / frame.h;
     if (layout.ink && layout.ink->has_rule && tune.fit >= 0.5f) {
         layout.underline_y = layout.ink->rule_y + tune.dy / frame.h;
@@ -621,11 +618,11 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
         left = layout.ink->rule_left;
         right = layout.ink->rule_right;
     }
-    const float grow = layout.edge_width;
+    const float                grow = layout.edge_width;
     std::vector<gfx::Vertex2D> outline, body;
     if (layout.underline) {
-        // Outline (with a feathered rim) first, then the shaded body inside it.
-        const float feather = std::max(frame.w * 0.0022f, 0.9f) / frame.w;
+
+        const float   feather = std::max(frame.w * 0.0022f, 0.9f) / frame.w;
         unsigned char light[3], dark[3], white[3] = {255, 255, 255}, black[3] = {0, 0, 0};
         Mix(light, style.fill, white, 0.45f);
         Mix(dark, style.fill, black, 0.30f);
@@ -633,19 +630,21 @@ void Draw(float x0, float y0, float x1, float y1, float fade) {
         Ribbon(body, frame, layout, left, right, 0.0f, 0.0f, light, style.fill, dark, fade);
     }
     if (layout.drips) {
-        // Hanging drops under the underline (Dark Heaven Castle).
+
         const float k = std::clamp(fade, 0.0f, 1.0f);
         for (int pass = 0; pass < 2; pass++) {
             const unsigned char (&rgb)[3] = pass == 0 ? style.edge : style.fill;
-            const float          fat = pass == 0 ? grow : 0.0f;
-            const u_char         r = static_cast<u_char>(rgb[0] * k), g = static_cast<u_char>(rgb[1] * k), b = static_cast<u_char>(rgb[2] * k);
+            const float                 fat = pass == 0 ? grow : 0.0f;
+            const u_char                r = static_cast<u_char>(rgb[0] * k), g = static_cast<u_char>(rgb[1] * k), b = static_cast<u_char>(rgb[2] * k);
             std::vector<gfx::Vertex2D> &out = pass == 0 ? outline : body;
             for (int drop = 0; drop < 7; drop++) {
                 const float x = (span.left - frame.x0) / frame.w + (static_cast<float>(drop) + 0.5f) * (span.right - span.left) / frame.w / 7;
                 const float y = layout.underline_y + 0.0195f;
                 const float length = 0.0898f * (0.7f + 0.3f * static_cast<float>((drop * 7) % 3) / 2);
                 const float half = 0.0059f + fat;
-                auto        vertex = [&](float px, float py) { return gfx::Vertex2D{frame.X(px), frame.Y(py), 0.0f, 0.0f, 0.0f, {r, g, b, 0x80}}; };
+                auto        vertex = [&](float px, float py) { return gfx::Vertex2D{
+                                                                   frame.X(px), frame.Y(py), 0.0f, 0.0f, 0.0f, {r, g, b, 0x80}
+ }; };
                 out.push_back(vertex(x - half, y - fat));
                 out.push_back(vertex(x + half, y - fat));
                 out.push_back(vertex(x, y + length + fat));

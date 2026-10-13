@@ -5,24 +5,6 @@
 
 #include "gfx/gfx.hpp"
 
-// A developer tool for the text the port draws at runtime instead of as pictures: a line down the screen
-// with the old look on its left (the text as the game paints it: bitmaps and the pictures of words) and
-// the new on its right (text from font.ttf and the language's JSON). Every place that has both looks draws
-// both through Both(), each cut to its side of the line (Draw2D below); with the tool off, Both() draws only the
-// runtime text, as the game does. See docs/TEXTWIPE.md for the list of places.
-//
-// It is there only with `game.text_wipe` on in config.json (off by default): off, none of its keys do anything, Both() draws
-// the runtime text alone and the text keeps the locked-in fits.
-//
-// Keys: F9 turns the tool on and off, F10 steps its mode: the line sweeps across (a slide), then holds at the
-// right (all old), at the left (all new), then OVERLAY: both looks drawn over each other, the old in red and the
-// new in cyan, so a misfit shows as a coloured fringe.
-//
-// Tuning (while on): the new text can be dialled onto the old with F11 (next set of text: messages, captions, area cards),
-// F12 (next value; with Shift the previous), - and = (change the value; hold for more, Shift for ten times the step,
-// Ctrl for a tenth) and F8 (reset the set). A panel lists the values. They are saved at once to
-// `<save folder>/lang/textwipe_tuning.json`, are read at the next start, and apply to the game as it is played, wipe or no
-// wipe (while `game.text_wipe` is on), so a good fit can be kept; the defaults change nothing.
 namespace textwipe {
 
 enum class Mode {
@@ -32,43 +14,48 @@ enum class Mode {
     Overlay,
 };
 
-/// The three kinds of runtime text that can be dialled.
 enum class Kind {
-    Message, // dialogue, menus, help windows (clsmes.cpp)
-    Caption, // the menu captions beside the icons (caption_text.cpp)
-    Card,    // the area name cards (area_card.cpp)
-    Options, // the Options screen's text, which is message text drawn by options::Draw (its own fit)
+    Message,
+    Caption,
+    Card,
+    Options,
     Count,
 };
 
-/// How a kind of runtime text is adjusted from the fit the code gives it. The identity changes nothing.
+/**
+ * Text transforms in logical units; fit and lock blend retail cell alignment.
+ */
 struct Tuning {
-    float size = 1.0f;     // everything, times
-    float xscale = 1.0f;   // side-to-side size of the letters, times
-    float yscale = 1.0f;   // up-and-down size of the letters, times
-    float letter = 0.0f;   // space added between letters, in logical pixels
-    float word = 0.0f;     // space added between words, in logical pixels
-    float dx = 0.0f;       // moves the text right, in logical pixels
-    float dy = 0.0f;       // moves the text down, in logical pixels
-    float fit = 1.0f;      // messages: 1 fits each word to the game's cells as the bitmaps are, 0 leaves the letters as spaced
-    float lock = 0.0f;     // messages: 0 flows the letters as the font spaces them, 1 centres every letter in the game's own cell for it, as the bitmaps are, so a line cannot drift
-    float align = 0.5f;    // messages with fit off: where a word sits in the cells the game gave it, 0 left to 1 right
-    float weight = 0.0f;   // bolder: the letters are laid down again this far apart, in logical pixels
-    float opacity = 1.0f;  // how solid the text is
-    float shadow = 1.0f;   // messages: how strong the drop shadow is, times
+    float size = 1.0f;
+    float xscale = 1.0f;
+    float yscale = 1.0f;
+    float letter = 0.0f;
+    float word = 0.0f;
+    float dx = 0.0f;
+    float dy = 0.0f;
+    float fit = 1.0f;
+    float lock = 0.0f;
+    float align = 0.5f;
+    float weight = 0.0f;
+    float opacity = 1.0f;
+    float shadow = 1.0f;
 };
 
-/// The settings of a kind: the locked-in fit the code ships (Locked), changed by what the dials saved.
+/**
+ * Returns shipped defaults with optional developer tuning applied.
+ */
 const Tuning &Get(Kind kind);
 
-/// The fit that has been dialled in and locked as the code's own, which F8 returns a set to. The identity for a
-/// kind that has not been tuned.
+/**
+ * Returns the shipped fit used by the reset action.
+ */
 Tuning Locked(Kind kind);
 
-/// Which message settings the text drawn now takes: Message (dialogue and every other window) unless a screen
-/// that has its own fit says so with one of these for as long as it draws.
 Kind MessageKind();
 
+/**
+ * Restores the previous message tuning context on scope exit.
+ */
 class MessageContext {
 public:
     explicit MessageContext(Kind kind);
@@ -80,32 +67,29 @@ private:
     Kind previous_;
 };
 
-/// Where the sweep's line is, in logical x from 0 to 640, `seconds` after the tool was turned on: it eases out
-/// to the right edge, eases back to the left, and rests a moment at each end.
+/**
+ * Returns the repeating divider position in logical pixels, seconds after activation.
+ */
 float SweepPosition(double seconds);
 
-/// Reads the keys and moves the line. Once per logic tick, and once per loading-screen frame (a place that
-/// draws more than once per frame must see one line, so only this moves it).
 void Update();
 
-/// Whether the tool is on, so places that have two looks should draw both.
 bool Active();
 
-/// Whether it is on in overlay mode, where both looks are drawn in full over each other.
 bool Overlaying();
 
-/// The line's logical x now.
 float Divider();
 
-/// Draws the two looks: draw(false) is the old, to the line's left, and draw(true) the new, to its right. Off,
-/// or where the line is at an edge, only the side that shows is drawn.
+/**
+ * Draws false for painted text and true for runtime text; inactive mode draws only true.
+ */
 void Both(const std::function<void(bool runtime)> &draw);
 
-/// The line itself and its two labels, on top of the frame. Does nothing while off.
 void DrawDivider();
 
-// gfx::Draw2D for the text the wipe compares: inside Both() it cuts the draw to its side of the line or tints it
-// (overlay mode); outside, it is gfx::Draw2D. The places that have both looks draw through it.
+/**
+ * Applies the active comparison clip or tint before submitting text geometry.
+ */
 void Draw2D(gfx::Primitive primitive, std::span<const gfx::Vertex2D> vertices, const gfx::TextureBinding &binding,
             const gfx::DrawState &state);
 

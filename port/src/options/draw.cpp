@@ -182,7 +182,6 @@ void DrawTitleHelp(int alpha) {
 } // namespace
 
 void Draw() {
-    // The Options screen's text has its own fit (textwipe.hpp), and so has the help window it draws.
     const textwipe::MessageContext fit(textwipe::Kind::Options);
     setbilinear(0);
 

@@ -1,9 +1,12 @@
 #include "textwipe.hpp"
 
+#include <SDL3/SDL.h>
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
-#include <array>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -12,9 +15,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include <SDL3/SDL.h>
-#include <nlohmann/json.hpp>
 
 #include "gfx/gfx.hpp"
 #include "platform/config.hpp"
@@ -29,20 +29,18 @@ namespace {
 constexpr double kSweepSeconds = 4.0; // one way
 constexpr double kRestSeconds = 0.8;  // at each end
 
-bool                                   g_on = false;
-Mode                                   g_mode = Mode::Sweep;
-std::chrono::steady_clock::time_point  g_started;
-float                                  g_divider = 0.0f; // set every tick while the wipe is on
+bool                                  g_on = false;
+Mode                                  g_mode = Mode::Sweep;
+std::chrono::steady_clock::time_point g_started;
+float                                 g_divider = 0.0f;
 
-// The named key (InputScancodeFromName) as SDL sees it now; a developer key needs no binding.
 bool DevKeyHeld(std::string_view name) {
-    const int scancode = InputScancodeFromName(name);
-    int       count = 0;
+    const int   scancode = InputScancodeFromName(name);
+    int         count = 0;
     const bool *keys = SDL_GetKeyboardState(&count);
     return keys != nullptr && scancode >= 0 && scancode < count && keys[scancode];
 }
 
-// True once per physical press of the named key; call it once per tick.
 bool DevKeyPressed(std::string_view name) {
     static std::map<int, bool> held;
     const int                  scancode = InputScancodeFromName(name);
@@ -56,8 +54,7 @@ bool DevKeyPressed(std::string_view name) {
     return pressed;
 }
 
-// What Both() has set for the draws it wraps: a clip (logical space) or a tint (each channel 0 to 1).
-std::optional<gfx::LogicalRect>      g_clip;
+std::optional<gfx::LogicalRect>     g_clip;
 std::optional<std::array<float, 4>> g_tint;
 
 void SetDrawClip(const gfx::LogicalRect *clip) {
@@ -83,14 +80,14 @@ float Smooth(double t) {
 
 const char *ModeName() {
     switch (g_mode) {
-    case Mode::Sweep:
-        return "SWEEP";
-    case Mode::ShowBefore:
-        return "ALL BEFORE";
-    case Mode::ShowAfter:
-        return "ALL AFTER";
-    case Mode::Overlay:
-        return "OVERLAY";
+        case Mode::Sweep:
+            return "SWEEP";
+        case Mode::ShowBefore:
+            return "ALL BEFORE";
+        case Mode::ShowAfter:
+            return "ALL AFTER";
+        case Mode::Overlay:
+            return "OVERLAY";
     }
     return "";
 }
@@ -105,8 +102,6 @@ constexpr const char *kKindLabels[] = {"MESSAGES", "MENU CAPTIONS", "AREA CARDS"
 
 Kind g_context = Kind::Message;
 
-// The tool is a developer's: it is there only when config.json has game.text_wipe on. Off, its keys do nothing and the
-// text is drawn at the locked-in fits, whatever a saved tuning file says.
 bool Enabled() {
     return ConfigGet().text_wipe;
 }
@@ -115,25 +110,25 @@ struct Value {
     const char *key;
     const char *label;
     float Tuning::*field;
-    float           step;
-    float           low;
-    float           high;
+    float          step;
+    float          low;
+    float          high;
 };
 
 constexpr Value kValues[] = {
-    {"size",    "SIZE",           &Tuning::size,    0.01f, 0.2f,   3.0f },
-    {"xscale",  "WIDTH",          &Tuning::xscale,  0.01f, 0.2f,   3.0f },
-    {"yscale",  "HEIGHT",         &Tuning::yscale,  0.01f, 0.2f,   3.0f },
-    {"letter",  "LETTER SPACING", &Tuning::letter,  0.01f, -10.0f, 10.0f},
-    {"word",    "WORD SPACING",   &Tuning::word,    0.01f, -20.0f, 40.0f},
-    {"dx",      "MOVE RIGHT",     &Tuning::dx,      0.01f, -40.0f, 40.0f},
-    {"dy",      "MOVE DOWN",      &Tuning::dy,      0.01f, -40.0f, 40.0f},
-    {"weight",  "WEIGHT (BOLDER)", &Tuning::weight, 0.01f, 0.0f,   3.0f },
-    {"opacity", "OPACITY",        &Tuning::opacity, 0.01f, 0.0f,   1.0f },
-    {"shadow",  "SHADOW",         &Tuning::shadow,  0.01f, 0.0f,   3.0f },
-    {"align",   "ALIGN IN CELLS", &Tuning::align,   0.01f, 0.0f,   1.0f },
-    {"lock",    "CELL LOCK (NO DRIFT)", &Tuning::lock, 0.01f, 0.0f, 1.0f},
-    {"fit",     "FIT TO CELLS",   &Tuning::fit,     1.0f,  0.0f,   1.0f },
+    {"size",    "SIZE",                 &Tuning::size,    0.01f, 0.2f,   3.0f },
+    {"xscale",  "WIDTH",                &Tuning::xscale,  0.01f, 0.2f,   3.0f },
+    {"yscale",  "HEIGHT",               &Tuning::yscale,  0.01f, 0.2f,   3.0f },
+    {"letter",  "LETTER SPACING",       &Tuning::letter,  0.01f, -10.0f, 10.0f},
+    {"word",    "WORD SPACING",         &Tuning::word,    0.01f, -20.0f, 40.0f},
+    {"dx",      "MOVE RIGHT",           &Tuning::dx,      0.01f, -40.0f, 40.0f},
+    {"dy",      "MOVE DOWN",            &Tuning::dy,      0.01f, -40.0f, 40.0f},
+    {"weight",  "WEIGHT (BOLDER)",      &Tuning::weight,  0.01f, 0.0f,   3.0f },
+    {"opacity", "OPACITY",              &Tuning::opacity, 0.01f, 0.0f,   1.0f },
+    {"shadow",  "SHADOW",               &Tuning::shadow,  0.01f, 0.0f,   3.0f },
+    {"align",   "ALIGN IN CELLS",       &Tuning::align,   0.01f, 0.0f,   1.0f },
+    {"lock",    "CELL LOCK (NO DRIFT)", &Tuning::lock,    0.01f, 0.0f,   1.0f },
+    {"fit",     "FIT TO CELLS",         &Tuning::fit,     1.0f,  0.0f,   1.0f },
 };
 constexpr int kValueCount = static_cast<int>(std::size(kValues));
 
@@ -187,12 +182,11 @@ void LoadTuning() {
     }
 }
 
-// One press of a key, then repeats while it is held (after a short wait).
 struct Repeater {
     bool                                  down = false;
     int                                   fired = 0;
     std::chrono::steady_clock::time_point next;
-    // How many steps this press is worth: one, then more the longer it is held.
+
     int Fire(bool held) {
         const auto now = std::chrono::steady_clock::now();
         if (!held) {
@@ -209,7 +203,8 @@ struct Repeater {
         if (now >= next) {
             next = now + std::chrono::milliseconds(50);
             fired++;
-            return fired > 40 ? 10 : fired > 15 ? 3 : 1;
+            return fired > 40 ? 10 : fired > 15 ? 3
+                                                : 1;
         }
         return 0;
     }
@@ -226,7 +221,8 @@ void Adjust(int direction, int steps) {
     if (value.field == &Tuning::fit) {
         field = direction > 0 ? 1.0f : 0.0f;
     } else {
-        const float step = value.step * static_cast<float>(steps) * (shift ? 10.0f : ctrl ? 0.1f : 1.0f);
+        const float step = value.step * static_cast<float>(steps) * (shift ? 10.0f : ctrl ? 0.1f
+                                                                                          : 1.0f);
         const float grid = value.step * 0.1f;
         field = std::clamp(std::round((field + static_cast<float>(direction) * step) / grid) * grid, value.low, value.high);
     }
@@ -236,7 +232,7 @@ void Adjust(int direction, int steps) {
 } // namespace
 
 float SweepPosition(double seconds) {
-    // Rest at the right (all old), slide left to reveal the new, rest, slide back.
+
     const double cycle = 2.0 * (kSweepSeconds + kRestSeconds);
     double       t = std::fmod(std::max(0.0, seconds), cycle);
     if (t < kRestSeconds) {
@@ -294,44 +290,44 @@ void Update() {
         Adjust(1, steps);
     }
     switch (g_mode) {
-    case Mode::Sweep:
-        g_divider = SweepPosition(std::chrono::duration<double>(std::chrono::steady_clock::now() - g_started).count());
-        break;
-    case Mode::ShowBefore:
-        g_divider = gfx::LogicalWidth();
-        break;
-    case Mode::ShowAfter:
-        g_divider = 0.0f;
-        break;
-    case Mode::Overlay:
-        g_divider = gfx::LogicalWidth();
-        break;
+        case Mode::Sweep:
+            g_divider = SweepPosition(std::chrono::duration<double>(std::chrono::steady_clock::now() - g_started).count());
+            break;
+        case Mode::ShowBefore:
+            g_divider = gfx::LogicalWidth();
+            break;
+        case Mode::ShowAfter:
+            g_divider = 0.0f;
+            break;
+        case Mode::Overlay:
+            g_divider = gfx::LogicalWidth();
+            break;
     }
 }
 
 Tuning Locked(Kind kind) {
     Tuning t;
     switch (kind) {
-    case Kind::Message: // dialogue, locked in 2026-10-09 from Jeff's overlay
-        t.size = 1.15f;
-        t.xscale = 0.80f;
-        t.yscale = 1.02f;
-        t.dx = 0.35f;
-        t.align = 1.0f;
-        t.lock = 1.0f;
-        break;
-    case Kind::Options:
-        t.size = 0.76f;
-        t.yscale = 1.17f;
-        t.dx = -1.10f;
-        t.dy = -0.15f;
-        t.lock = 1.0f;
-        break;
-    case Kind::Card: // fit on: the name fills the box the disc's painted one did (area_card.cpp), so no hand fit is needed
-        break;
-    case Kind::Caption:
-    case Kind::Count:
-        break;
+        case Kind::Message:
+            t.size = 1.15f;
+            t.xscale = 0.80f;
+            t.yscale = 1.02f;
+            t.dx = 0.35f;
+            t.align = 1.0f;
+            t.lock = 1.0f;
+            break;
+        case Kind::Options:
+            t.size = 0.76f;
+            t.yscale = 1.17f;
+            t.dx = -1.10f;
+            t.dy = -0.15f;
+            t.lock = 1.0f;
+            break;
+        case Kind::Card:
+            break;
+        case Kind::Caption:
+        case Kind::Count:
+            break;
     }
     return t;
 }
@@ -383,7 +379,7 @@ void Both(const std::function<void(bool runtime)> &draw) {
         return;
     }
     if (g_mode == Mode::Overlay) {
-        // Both in full: the old in red, the new in cyan, so where they agree the two blend and where they do not a colour shows.
+
         static const float old_tint[4] = {1.0f, 0.25f, 0.25f, 0.75f};
         static const float new_tint[4] = {0.3f, 1.0f, 1.0f, 0.75f};
         SetDrawTint(&old_tint);
@@ -394,7 +390,7 @@ void Both(const std::function<void(bool runtime)> &draw) {
         return;
     }
     const float edge = std::clamp(g_divider, 0.0f, gfx::LogicalWidth());
-    // A clip touching the logical frame's edge reaches the window's edge past it (gfx's scissors do), so a wide window is split too.
+    // Scissors touching the logical frame boundary extend through widescreen margins.
     if (edge > 0.0f) {
         const gfx::LogicalRect left = {0.0f, 0.0f, edge, gfx::LogicalHeight()};
         SetDrawClip(&left);
@@ -421,7 +417,7 @@ void Draw2D(gfx::Primitive primitive, std::span<const gfx::Vertex2D> vertices, c
         return;
     }
     if (g_clip) {
-        gfx::DrawState clipped = state;
+        gfx::DrawState         clipped = state;
         const gfx::LogicalRect own = state.scissor ? state.scissor_rect : gfx::LogicalFrame();
         const float            left = std::max(own.x, g_clip->x);
         const float            top = std::max(own.y, g_clip->y);
@@ -447,12 +443,17 @@ void DrawDivider() {
     const float               x = std::clamp(g_divider, 0.0f, gfx::LogicalWidth());
     const float               half = 1.0f / std::max(0.5f, mapping.scale_x) * static_cast<float>(pixel);
     auto                      vertex = [](float vx, float vy, unsigned char grey) {
-        return gfx::Vertex2D{vx, vy, 0.0f, 0.0f, 0.0f, {grey, grey, grey, 0x80}};
+        return gfx::Vertex2D{
+            vx, vy, 0.0f, 0.0f, 0.0f, {grey, grey, grey, 0x80}
+        };
     };
     gfx::DrawState state;
     state.blend = true;
     std::vector<gfx::Vertex2D> line;
-    for (const auto &[w, grey] : {std::pair{2.5f, static_cast<unsigned char>(0)}, std::pair{1.0f, static_cast<unsigned char>(0x7F)}}) {
+    for (const auto &[w, grey] : {
+             std::pair{2.5f, static_cast<unsigned char>(0)   },
+             std::pair{1.0f, static_cast<unsigned char>(0x7F)}
+    }) {
         const float h = half * w;
         line.push_back(vertex(x - h, 0.0f, grey));
         line.push_back(vertex(x + h, 0.0f, grey));
@@ -463,7 +464,6 @@ void DrawDivider() {
         gfx::Draw2D(gfx::Primitive::Quads, line, {}, state);
     }
 
-    // The labels sit either side of the line near the bottom, clear of the FPS badge at the top left.
     const bool        overlay = g_mode == Mode::Overlay;
     const std::string before = overlay ? "RED: BAKED PICTURE" : "BEFORE: BAKED PICTURE";
     const std::string after = overlay ? std::string("CYAN: RUNTIME TEXT") : std::string("AFTER: RUNTIME TEXT (") + ModeName() + ")";
@@ -474,7 +474,6 @@ void DrawDivider() {
     OverlayDrawText(before, mapping, pixel, std::max(gap, line_px - gap - before_width), y);
     OverlayDrawText(after, mapping, pixel, std::min(line_px + gap, static_cast<int>(mapping.pixel_width) - gap - static_cast<int>(after.size()) * kOverlayAdvance * pixel), y);
 
-    // The tuning panel, under the FPS badge.
     const Tuning &tuning = Get(static_cast<Kind>(g_kind));
     int           row_y = 16 * pixel;
     const int     row_step = (kOverlayGlyphHeight + 2 * kOverlayPadding + 1) * pixel;

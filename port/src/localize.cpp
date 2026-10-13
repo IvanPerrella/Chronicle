@@ -175,8 +175,7 @@ bool IsMessageName(std::string_view path) {
            });
 }
 
-// A message file inside a pack: a ".mes" entry, or the storybook's "opmes.bin", which is the same format under
-// another name (the opening book's pages, in openbook.pak).
+// The opening storybook stores message data as opmes.bin.
 bool IsMessageEntry(std::string_view name) {
     constexpr std::string_view kBook = "opmes.bin";
     return IsMessageName(name) || (name.size() == kBook.size() &&
@@ -253,7 +252,7 @@ std::string LocalizeMessageKey(std::string_view path) {
         }
     }
     if (key.size() >= 9 && key.compare(key.size() - 9, 9, "opmes.bin") == 0) {
-        key.erase(key.size() - 4); // the storybook's pages: "<pack>.opmes.<id>"
+        key.erase(key.size() - 4);
     }
     if (key.size() >= 4 && key.compare(key.size() - 4, 4, ".mes") == 0) {
         key.erase(key.size() - 4);
