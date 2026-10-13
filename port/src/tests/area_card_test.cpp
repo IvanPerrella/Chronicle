@@ -28,7 +28,7 @@ struct CardFiles {
 };
 
 void CheckTranslatedCard(const char *text) {
-    dc::test::GfxFixture fixture;
+    dc::test::GfxFixture fixture(640, 480, 1.0f, dc::test::GfxOptions{.offscreen = true});
     CardFiles            files;
     std::filesystem::create_directories(files.dir / "textures" / "plates");
     LocalizeReset();
@@ -99,7 +99,7 @@ TEST(AreaCard, TranslatedWordsKeepTheRetailBoxAlignment) {
 }
 
 TEST(CaptionLine, PaintedSlotsKeepTheirWidthsAndFractionalHeight) {
-    dc::test::GfxFixture fixture;
+    dc::test::GfxFixture fixture(640, 480, 1.0f, dc::test::GfxOptions{.offscreen = true});
     const auto           font = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path() /
                                 "tools" / "font" / "DarkCloudCompendium.ttf";
     ASSERT_TRUE(capfont::Load(font));
