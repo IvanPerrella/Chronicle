@@ -29,6 +29,18 @@ still gate wetness. Gallery wet coverage is authored for cracked floor atlases
 and the rightmost quarter of its mixed brick/floor atlas. Its plaster, brick,
 carpet and architectural trim remain dry.
 
+Shipwreck `wood_floor`, `d03b01` and `d03b04` ORM alpha describes irregular
+islands of a thin water film. Their dry timber stays near 0.85 roughness and
+the film interiors near 0.35; both remain dielectric. The shader combines
+this UV-space film with a stable warped world-position field and upward-face
+eligibility so repeated planks do not show identical puddles. Damp wood
+albedo absorption describes the moist substrate across eligible floorboards
+independently of this sparse film. Within the film islands, the shader
+attenuates diffuse albedo toward 72% while keeping the reflected response
+separate. Only strong film receives a restrained, rough dielectric sheen;
+the surrounding timber has no mirror finish. Wet wall boards, boss-room variants and
+the separate corroded `d03b07` fitting are excluded.
+
 Shipwreck atlas `d03b07` includes a riveted, corroded hatch plate used by both
 floor and ceiling triangles; UV `(0.142952, 0.584398)` lies inside that plate.
 Its oxide/paint finish retains the metal semantic but uses roughness 0.88,

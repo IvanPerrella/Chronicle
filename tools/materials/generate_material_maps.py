@@ -595,6 +595,34 @@ def finish_at(name,u,v):
     return finish
 
 
+def wet_floor_film(u,v):
+    def random(x,y,salt):
+        value = (x*374761393+y*668265263+salt*2246822519)&0xffffffff
+        value = ((value^(value>>13))*1274126177)&0xffffffff
+        return ((value^(value>>16))&0xffff)/65535.
+    u += .04*noise(u,v,9)
+    v += .04*noise(u+.37,v+.59,9)
+    gx,gy = math.floor(u*4),math.floor(v*4)
+    film = 0.
+    for y in range(gy-1,gy+2):
+        for x in range(gx-1,gx+2):
+            cell_x,cell_y = x%4,y%4
+            if random(cell_x,cell_y,0) > .55:
+                continue
+            cx = (cell_x+.5+.75*(random(cell_x,cell_y,1)-.5))/4
+            cy = (cell_y+.5+.75*(random(cell_x,cell_y,2)-.5))/4
+            dx = (u-cx+.5)%1-.5
+            dy = (v-cy+.5)%1-.5
+            angle = 2*math.pi*random(cell_x,cell_y,3)
+            along = math.cos(angle)*dx+math.sin(angle)*dy
+            across = -math.sin(angle)*dx+math.cos(angle)*dy
+            radius_x = .055+.060*random(cell_x,cell_y,4)
+            radius_y = .040+.050*random(cell_x,cell_y,5)
+            distance = math.sqrt((along/radius_x)**2+(across/radius_y)**2)
+            film = max(film,min(1.,max(0.,(1.-distance)/.18)))
+    return film
+
+
 def raster(name,profile,width,height_px):
     normal,orm,mask = bytearray(),bytearray(),bytearray()
     for y in range(height_px):
@@ -615,12 +643,9 @@ def raster(name,profile,width,height_px):
             physical = surface not in ("flat","effect")
             normal.extend((byte(.5-dx/(2*length)),byte(.5-dy/(2*length)),byte(.5+1/(2*length)),255 if physical else 0))
             wet = 0.
-            if surface == "wood_floor":
-                ridge = max(0.,h-.12)**2
-                patch = .48+.28*math.sin(2*math.pi*(5*u+2*v))+.24*math.cos(2*math.pi*(3*v-2*u))
-                patch += .16*math.sin(2*math.pi*(13*v+u))
-                wet = min(1.,ridge*max(0.,patch)*4.0)
-                roughness = .85-.33*wet+.025*h
+            if surface == "wood_floor" and name in ("wood_floor","d03b01","d03b04"):
+                wet = wet_floor_film(u,v)
+                roughness = .85-.50*wet+.015*h
             elif surface == "stone" and (name in WET_ATLASES or any(inside(u*256,v*256,region) for region in WET_REGIONS.get(name,[]))):
                 patch = math.sin(2*math.pi*(3*u+.27*math.sin(2*math.pi*2*v))) + .55*math.cos(2*math.pi*(2*v-u))
                 wet = min(1.,max(0.,(patch-.12)*1.5))
@@ -734,7 +759,8 @@ def validate(files):
         if len(raw) != height*(width*4+1) or any(raw[y*(width*4+1)] != 0 for y in range(height)):
             raise ValueError(f"PNG raster mismatch: {name}")
         images[name] = width,height
-        if name in ("d03b07_normal.png","d03b07_orm.png","d03b07_regions.png"):
+        if name in ("d03b07_normal.png","d03b07_orm.png","d03b07_regions.png",
+                    "wood_floor_orm.png","d03b01_orm.png","d03b04_orm.png"):
             checked_rasters[name] = b"".join(raw[y*(width*4+1)+1:(y+1)*(width*4+1)] for y in range(height))
     references = set()
     def record(entry):
@@ -783,6 +809,17 @@ def validate(files):
     hatch_red = [sample("normal",x/256,y/256)[0] for y in range(136,248,4) for x in range(8,120,4)]
     if min(hatch_red) >= 127 or max(hatch_red) <= 128:
         raise ValueError("Corrosion detail must vary across both axes, not form brushed stripes")
+    for name in ("wood_floor","d03b01","d03b04"):
+        data = checked_rasters[name+"_orm.png"]
+        pixels = [data[i:i+4] for i in range(0,len(data),4)]
+        film = [pixel for pixel in pixels if pixel[3] >= 250]
+        dry = [pixel for pixel in pixels if pixel[3] <= 12]
+        if not .10 <= len(film)/len(pixels) <= .30 or len(dry)/len(pixels) < .60:
+            raise ValueError(f"{name}: wet film must form sparse islands")
+        if any(pixel[2] != 0 for pixel in pixels):
+            raise ValueError(f"{name}: floor film must stay dielectric")
+        if not all(75 <= pixel[1] <= 110 for pixel in film) or not all(205 <= pixel[1] <= 230 for pixel in dry):
+            raise ValueError(f"{name}: puddles and dry timber require distinct roughness")
 
 
 def main():
