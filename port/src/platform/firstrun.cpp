@@ -22,11 +22,11 @@
 #include "config.hpp"
 #include "exitcodes.hpp"
 #include "gfx/gfx.hpp"
-#include "overlay.hpp"
-#include "settings.hpp"
-#include "paths.hpp"
+#include "platform/overlay.hpp"
+#include "platform/settings.hpp"
+#include "platform/paths.hpp"
 #include "screen.hpp"
-#include "window.hpp"
+#include "platform/window.hpp"
 
 namespace fs = std::filesystem;
 

@@ -14,6 +14,7 @@
 #include "dataread.hpp"
 #include "draw3d.hpp"
 #include "dun/gameloop.hpp"
+#include "dungeon.h"
 #include "exitcodes.hpp"
 #include "gameloop.hpp"
 #include "gamemode.hpp"
@@ -22,6 +23,7 @@
 #include "identity.hpp"
 #include "langset.hpp"
 #include "localize.hpp"
+#include "main.hpp"
 #include "menu_option.hpp"
 #include "menu_save.hpp"
 #include "mglib.hpp"
@@ -223,6 +225,49 @@ void BgmTestPump() {
 
 void PumpLiveGraphicsTest();
 
+void UpdateChronicleAtmosphere() {
+    const Config &config = ConfigGet();
+    const bool shipwreck = MapNo == 200 + DUNGEON_SHIPWRECK && config.enhanced_lighting;
+    static bool initialized = false;
+    static bool previous_shipwreck = false;
+    static bool previous_fog = false;
+    static bool previous_lights = false;
+    const bool fog = shipwreck && config.shipwreck_fog;
+    const bool lights = shipwreck && config.shipwreck_local_lights;
+    if (initialized && previous_shipwreck == shipwreck && previous_fog == fog && previous_lights == lights) return;
+    initialized = true;
+    previous_shipwreck = shipwreck;
+    previous_fog = fog;
+    previous_lights = lights;
+
+    gfx::AtmosphereSettings atmosphere = {};
+    atmosphere.enabled = fog;
+    atmosphere.background_color[0] = 0.010f;
+    atmosphere.background_color[1] = 0.028f;
+    atmosphere.background_color[2] = 0.040f;
+    atmosphere.lower_color[0] = 0.007f;
+    atmosphere.lower_color[1] = 0.026f;
+    atmosphere.lower_color[2] = 0.031f;
+    atmosphere.clear_color[0] = 0.010f;
+    atmosphere.clear_color[1] = 0.028f;
+    atmosphere.clear_color[2] = 0.040f;
+    atmosphere.background_density = 0.004f;
+    atmosphere.clear_distance = 65.0f;
+    atmosphere.lower_density = 0.008f;
+    atmosphere.lower_height_falloff = 4.0f;
+    atmosphere.far_density = 0.006f;
+    atmosphere.far_start = 360.0f;
+    atmosphere.far_end = 560.0f;
+    atmosphere.uncovered_distance = 840.0f;
+    atmosphere.deck_cell_size = 160.0f;
+    atmosphere.local_scattering_strength = 0.00004f;
+    atmosphere.local_scattering_limit[0] = 0.006f;
+    atmosphere.local_scattering_limit[1] = 0.002f;
+    atmosphere.local_scattering_limit[2] = 0.0008f;
+    gfx::SetAtmosphere(atmosphere);
+    if (!lights) gfx::SetLocalLights({});
+}
+
 void PumpHost() {
     BgmTestPump();
     if (!WindowPollEvents()) {
@@ -232,6 +277,7 @@ void PumpHost() {
     // A change of video.aspect or video.ui_scale, or the Options screen opening or closing, waits
     // for a pump outside a frame.
     if (!gfx::InFrame()) {
+        UpdateChronicleAtmosphere();
         gfx::FrameLayout layout = Layout(ConfigGet());
         gfx::FrameLayout current = gfx::CurrentFrameLayout();
         if (layout.aspect != current.aspect || layout.ui_scale != current.ui_scale) {
@@ -352,12 +398,9 @@ void ApplyConfigChange(const Config &before, const Config &after) {
         gfx::SetEnhancedHdr(after.enhanced_lighting);
     if (after.ray_tracing != before.ray_tracing)
         gfx::SetRayTracing(after.ray_tracing);
-    if (after.shipwreck_fog != before.shipwreck_fog)
-        gfx::SetShipwreckFog(after.shipwreck_fog);
-    if (after.shipwreck_local_lights != before.shipwreck_local_lights)
-        gfx::SetShipwreckLocalLights(after.shipwreck_local_lights);
-    if (after.normal_detail_strength != before.normal_detail_strength)
-        gfx::SetNormalDetailStrength(after.normal_detail_strength);
+    if (after.normal_detail_strength != before.normal_detail_strength) {
+        SetEnhancedNormalDetailStrength(after.normal_detail_strength);
+    }
     gfx::SetAnisotropy(after.anisotropy);
     gfx::SetBloom(after.bloom);
     SetEnhancedLighting(after.enhanced_lighting);
@@ -465,6 +508,7 @@ int Run(int argc, const char **argv) {
         std::fprintf(stderr, "bad --jump: %s\n", options.jump);
         std::exit(kExitUsage);
     }
+    GameSetAutosave(!options.headless && (options.jump == nullptr || *options.jump == '\0'));
     const char *fast_load = std::getenv("DC_FAST_LOAD");
     GameSetFastLoad(options.fast_load || (fast_load != nullptr && *fast_load != '\0' && *fast_load != '0'));
     RequireData();
@@ -496,8 +540,6 @@ int Run(int argc, const char **argv) {
     WindowConfig window = DisplayWindowConfig(config);
     bool         offscreen = options.offscreen || (options.headless && !gfx::HeadlessSurfaceAvailable());
     window.vulkan = !offscreen;
-    WindowInit(window);
-    InputInit();
 
     gfx::RendererConfig renderer;
     renderer.app_name = "Dark Cloud";
@@ -512,13 +554,20 @@ int Run(int argc, const char **argv) {
     renderer.enhanced_hdr = config.enhanced_lighting;
     renderer.dlss_quality = DlssQuality(config.dlss_quality);
     renderer.frame_generation = config.frame_generation;
+    renderer.streamline_project_id = "b02a122d-5a76-4b25-b597-e6cd87921808";
+    renderer.streamline_engine_version = "Chronicle 1";
     renderer.layout = Layout(config);
     renderer.validation = renderer.validation || SettingsEnv("VULKAN_VALIDATION") != nullptr;
+    window.vulkan_loader_path = gfx::PrepareStreamlineLoader(renderer);
+    if (!WindowInit(window)) {
+        gfx::AbortStreamlineLoader();
+        renderer.streamline_project_id = nullptr;
+    }
+    InputInit();
     gfx::RendererInit(WindowHandle(), renderer);
     gfx::LoadMaterialMaps(PathsExecutable());
-    gfx::SetShipwreckFog(config.shipwreck_fog);
-    gfx::SetShipwreckLocalLights(config.shipwreck_local_lights);
-    gfx::SetNormalDetailStrength(config.normal_detail_strength);
+    UpdateChronicleAtmosphere();
+    SetEnhancedNormalDetailStrength(config.normal_detail_strength);
     gfx::SetAnisotropy(config.anisotropy);
     gfx::SetBloom(config.bloom);
     SetEnhancedLighting(config.enhanced_lighting);

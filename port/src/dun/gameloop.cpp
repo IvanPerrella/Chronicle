@@ -45,14 +45,6 @@
 #include "gamepad.hpp"
 #include "gameutil.hpp"
 #include "gfx/gfx.hpp"
-#include "gfx/raytracing.hpp"
-#include "gfx/shipwreck_fog.hpp"
-
-namespace gfx::detail {
-void ShipwreckFogTracePlayer(int room, int cell_x, int cell_z,
-                            float player_y, float ground_height, int visible_cells,
-                            int newly_visible_cells, int first_new_cell);
-}
 #include "healeffect.hpp"
 #include "hit_machingun_effect.hpp"
 #include "hitmark.hpp"
@@ -313,7 +305,7 @@ void UpdateShipwreckDeckField(CDungeonMap &map, int floor_number) {
             // Reprobe on the next draw instead of caching an all-empty layout.
             std::array<float, 400> fallback;
             fallback.fill(8.0f);
-            gfx::detail::ShipwreckFogSetDeckField(fallback);
+            gfx::SetAtmosphereDeckHeights(fallback);
             return;
         }
         // Empty cells and door centres inherit the nearest measured walkable
@@ -349,7 +341,7 @@ void UpdateShipwreckDeckField(CDungeonMap &map, int floor_number) {
                          map.map_seed, floor_number, heights[10 + 5 * 20], heights[8 + 5 * 20]);
         }
     }
-    gfx::detail::ShipwreckFogSetDeckField(heights);
+    gfx::SetAtmosphereDeckHeights(heights);
 }
 
 } // namespace
@@ -642,52 +634,15 @@ PORT_OVERRIDE void DunMainDraw() {
     // (runtime first-room measurements: character/nav Y=10, deck Y≈8).
     if (ConfigGet().enhanced_lighting && selectMapNo == DUNGEON_SHIPWRECK) {
         UpdateShipwreckDeckField(*NowDngMap, UserStatus->cur_floor);
-        int cell_x = static_cast<int>((80.0f + CharaFrame->position[0]) / 160.0f);
-        int cell_z = static_cast<int>((80.0f + CharaFrame->position[2]) / 160.0f);
-        int room = -1;
-        for (int i = 0; i < NowDngMap->room_num; ++i) {
-            const auto &bounds = NowDngMap->rooms[i];
-            if (cell_x >= bounds.x && cell_x < bounds.x + bounds.width &&
-                cell_z >= bounds.y && cell_z < bounds.y + bounds.height) room = i;
-        }
-        static const bool trace_fog = [] {
-            const char *value = std::getenv("DC_SHIPWRECK_FOG_TRACE");
-            return value != nullptr && value[0] != '\0' && value[0] != '0';
-        }();
-        if (trace_fog) {
-            static const CDungeonMap *previous_map = nullptr;
-            static bool previous_visible[400] = {};
-            if (previous_map != NowDngMap) {
-                std::memset(previous_visible, 0, sizeof(previous_visible));
-                previous_map = NowDngMap;
-            }
-            int visible_cells = 0;
-            int newly_visible_cells = 0;
-            int first_new_cell = -1;
-            for (int i = 0; i < 400; ++i) {
-                bool visible = NowDngMap->cells[i].visible != 0;
-                if (visible) {
-                    ++visible_cells;
-                    if (!previous_visible[i]) {
-                        ++newly_visible_cells;
-                        if (first_new_cell < 0) first_new_cell = i;
-                    }
-                }
-                previous_visible[i] = visible;
-            }
-            gfx::detail::ShipwreckFogTracePlayer(room, cell_x, cell_z,
-                                                 CharaFrame->position[1], BtActStatus.ground_height,
-                                                 visible_cells, newly_visible_cells, first_new_cell);
-        }
     }
     const bool enhanced_shipwreck = ConfigGet().enhanced_lighting &&
                                     selectMapNo == DUNGEON_SHIPWRECK &&
-                                    gfx::detail::RayTracingEnabled();
+                                    gfx::RayTracingEnabled();
     if (!enhanced_shipwreck) {
         TexManager.ReloadTexture(Vif1Packet, 0xE);
         NowDngMap->DrawRaster(CharaFrame);
     }
-    if (enhanced_shipwreck && gfx::ShipwreckLocalLightsEnabled()) {
+    if (enhanced_shipwreck && ConfigGet().shipwreck_local_lights) {
         BeginShipwreckFireLights(CharaFrame->position);
     }
 
@@ -696,7 +651,7 @@ PORT_OVERRIDE void DunMainDraw() {
     } else {
         NowDngMap->DrawFireFreeStyle(CharaFrame, NowCamera__3);
     }
-    if (enhanced_shipwreck && gfx::ShipwreckLocalLightsEnabled()) EndShipwreckFireLights();
+    if (enhanced_shipwreck && ConfigGet().shipwreck_local_lights) EndShipwreckFireLights();
 
     if (atraGetStatus != 0 && atraShortGetType != 0) {
         TexManager.ReloadTexture(Vif1Packet, 0x1C);
@@ -899,7 +854,7 @@ PORT_OVERRIDE void DunMainDraw() {
 
         TexManager.ReloadTexture(Vif1Packet, 2);
 
-        gfx::CaptureBloomScene();
+        gfx::CaptureScene();
         scene_captured = true;
         gfx::SetUiAnchor(kStatusAnchor);
 
@@ -1058,7 +1013,7 @@ PORT_OVERRIDE void DunMainDraw() {
     // otherwise fog and tone mapping composite over that fade and reveal the
     // empty shaft even while the game's fade rate is fully opaque.
     if (!scene_captured) {
-        gfx::CaptureBloomScene();
+        gfx::CaptureScene();
     }
     DispFade__3.FadeIn(Vif1Packet);
     DispFade__3.FadeOut(Vif1Packet);

@@ -3,7 +3,7 @@
 # ps2/src holds only the game's code as the PS2 build compiles it. A definition
 # port/src tags PORT_OVERRIDE replaces the one ps2/src gives the same name: the
 # port compiles a copy of each unit without those definitions
-# (tools/kazarov/scripts/port_override.py) and links it with port/src. That is how the
+# (tools/kazarov/scripts/build/port_override.py) and links it with port/src. That is how the
 # PS2-only parts are replaced: the SDK, the Metrowerks runtime, the functions
 # that touch the hardware directly and those written in assembly.
 #
@@ -26,49 +26,13 @@ if(NOT EXISTS ${KZ_ROOT}/include/kazarov/port.h)
     message(FATAL_ERROR "${KZ_ROOT} is empty: run git submodule update --init tools/kazarov")
 endif()
 
-# Python runs ${KZ_ROOT}/scripts/port_override.py.
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-# SDL3 owns the window and input; Vulkan 1.4 renders.
-find_package(SDL3 REQUIRED CONFIG)
-find_package(Vulkan 1.4 REQUIRED)
-# nlohmann/json reads config.json: the installed package where there is one, fetched otherwise.
-include(FetchContent)
-FetchContent_Declare(nlohmann_json
-    URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
-    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
-    FIND_PACKAGE_ARGS CONFIG)
-FetchContent_MakeAvailable(nlohmann_json)
+include(${KZ_ROOT}/cmake/KazarovPort.cmake)
 
-# The soundtrack decoders are Flatpak sources there, since its build sandbox has no network.
-# Other builds fetch the same pinned files at configure time.
-if(EXISTS ${CMAKE_SOURCE_DIR}/audio_decoders/dr_wav.h AND
-   EXISTS ${CMAKE_SOURCE_DIR}/audio_decoders/dr_flac.h AND
-   EXISTS ${CMAKE_SOURCE_DIR}/audio_decoders/stb_vorbis.c)
-    set(AUDIO_DECODER_DIR ${CMAKE_SOURCE_DIR}/audio_decoders)
-else()
-    set(AUDIO_DECODER_DIR ${CMAKE_BINARY_DIR}/audio_decoders)
-    file(DOWNLOAD https://raw.githubusercontent.com/mackron/dr_libs/dfe8377631000664666519fdb83da193fd8037f4/dr_wav.h
-        ${AUDIO_DECODER_DIR}/dr_wav.h EXPECTED_HASH SHA256=03e70c1a2d9787cd7ed3e966c075bea7bac6373f759db9cd7ca9ccdfc4ec4493)
-    file(DOWNLOAD https://raw.githubusercontent.com/mackron/dr_libs/dfe8377631000664666519fdb83da193fd8037f4/dr_flac.h
-        ${AUDIO_DECODER_DIR}/dr_flac.h EXPECTED_HASH SHA256=111144e778f55738db6851cb226015c419e00d04b916a09506d4856d9cff945c)
-    file(DOWNLOAD https://raw.githubusercontent.com/nothings/stb/2c980bb59875b0d32144a71867fbdebb2f77cd20/stb_vorbis.c
-        ${AUDIO_DECODER_DIR}/stb_vorbis.c EXPECTED_HASH SHA256=4c7cb2ff1f7011e9d67950446b7eb9ca044f2e464d76bfbb0b84dd2e23e65636)
-endif()
-# The message font's rasterizer (platform/ttffont.cpp): a single-file library, public domain or MIT, at a pinned
-# commit. Flatpak has it as a source, since its build sandbox has no network; other builds fetch the same file.
-if(EXISTS ${CMAKE_SOURCE_DIR}/stb_truetype/stb_truetype.h)
-    set(TTF_DIR ${CMAKE_SOURCE_DIR}/stb_truetype)
-else()
-    set(TTF_DIR ${CMAKE_BINARY_DIR}/stb_truetype)
-    file(DOWNLOAD https://raw.githubusercontent.com/nothings/stb/2c980bb59875b0d32144a71867fbdebb2f77cd20/stb_truetype.h
-        ${TTF_DIR}/stb_truetype.h EXPECTED_HASH SHA256=ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab)
-endif()
-# The button symbols' PNG atlases (platform/glyphs.cpp): the same library family at the same pinned commit, a
-# Flatpak source beside stb_truetype.h, or fetched.
-if(NOT EXISTS ${TTF_DIR}/stb_image.h)
-    file(DOWNLOAD https://raw.githubusercontent.com/nothings/stb/2c980bb59875b0d32144a71867fbdebb2f77cd20/stb_image.h
-        ${TTF_DIR}/stb_image.h EXPECTED_HASH SHA256=594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3)
-endif()
+# Python runs ${KZ_ROOT}/scripts/build/port_override.py.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+# Flatpak builds have no network: their single-file libraries are staged in audio_decoders/ and stb_truetype/; others fetch them.
+set(KZ_PORT_VENDOR_DIRS ${CMAKE_SOURCE_DIR}/audio_decoders ${CMAKE_SOURCE_DIR}/stb_truetype)
+kz_port_host_library(dc_host)
 
 set(PS2_DIR ${CMAKE_SOURCE_DIR}/ps2/src)
 set(PORT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -87,7 +51,7 @@ list(TRANSFORM PORT_DEFINITIONS PREPEND --define= OUTPUT_VARIABLE port_override_
 # only when it changes, so other edits to port/src rebuild nothing of ps2/src.
 # PORT_OVERRIDE_SOURCES changes when a unit or a stub header comes or goes, which no
 # timestamp shows.
-set(PORT_OVERRIDE_SCRIPT ${KZ_ROOT}/scripts/port_override.py)
+set(PORT_OVERRIDE_SCRIPT ${KZ_ROOT}/scripts/build/port_override.py)
 set(PORT_OVERRIDES ${CMAKE_BINARY_DIR}/port_overrides.txt)
 set(PORT_OVERRIDE_SOURCES ${CMAKE_BINARY_DIR}/port_override_sources.txt)
 file(GLOB_RECURSE PORT_OVERRIDE_STUBS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/port/include/stubs/*.hpp)
@@ -177,56 +141,9 @@ target_compile_options(dc_ps2 PRIVATE -Wall -Wno-writable-strings -Wno-unknown-p
 
 set(PORT_LIB_SOURCES ${PORT_SOURCES})
 list(FILTER PORT_LIB_SOURCES EXCLUDE REGEX "/tests/|/main\\.cpp$")
-# The host side (platform, gfx, audio) never sees a game header, so it is built
-# without dc_options: no port.h ahead of each unit and no game include paths.
-set(HOST_SOURCES ${PORT_LIB_SOURCES})
-list(FILTER HOST_SOURCES INCLUDE REGEX "/port/src/(platform|gfx|audio)/")
-list(FILTER PORT_LIB_SOURCES EXCLUDE REGEX "/port/src/(platform|gfx|audio)/")
+list(FILTER PORT_LIB_SOURCES EXCLUDE REGEX "/platform/window\\.cpp$")
 
-# Every shaders/*.vert|frag under port/src/gfx becomes a header holding its
-# SPIR-V words as a const uint32_t array named after the file (draw.frag ->
-# draw_frag), in ${SHADER_HEADER_DIR}/shaders/<file>.spv.hpp.
-find_program(GLSLANG_VALIDATOR NAMES glslangValidator REQUIRED)
-set(SHADER_DIR ${PORT_DIR}/gfx/shaders)
 set(SHADER_HEADER_DIR ${CMAKE_BINARY_DIR}/generated)
-file(GLOB SHADER_SOURCES CONFIGURE_DEPENDS ${SHADER_DIR}/*.vert ${SHADER_DIR}/*.frag)
-set(SHADER_HEADERS "")
-foreach(shader IN LISTS SHADER_SOURCES)
-    get_filename_component(shader_name ${shader} NAME)
-    string(REPLACE "." "_" shader_symbol ${shader_name})
-    set(header ${SHADER_HEADER_DIR}/shaders/${shader_name}.spv.hpp)
-    add_custom_command(OUTPUT ${header}
-        COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.4 --quiet --vn ${shader_symbol}
-            --depfile ${header}.d -o ${header} ${shader}
-        DEPENDS ${shader}
-        DEPFILE ${header}.d
-        COMMENT "Compiling ${shader_name} to SPIR-V")
-    list(APPEND SHADER_HEADERS ${header})
-endforeach()
-
-# The ray-query fragment variant is only loaded on devices that enable VK_KHR_ray_query.
-set(RAY_FRAGMENT_HEADER ${SHADER_HEADER_DIR}/shaders/draw_ray.frag.spv.hpp)
-add_custom_command(OUTPUT ${RAY_FRAGMENT_HEADER}
-    COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.4 --quiet -DRAY_QUERY_AO=1
-        --vn draw_ray_frag --depfile ${RAY_FRAGMENT_HEADER}.d -o ${RAY_FRAGMENT_HEADER}
-        ${SHADER_DIR}/draw.frag
-    DEPENDS ${SHADER_DIR}/draw.frag
-    DEPFILE ${RAY_FRAGMENT_HEADER}.d
-    COMMENT "Compiling draw.frag with ray query AO")
-list(APPEND SHADER_HEADERS ${RAY_FRAGMENT_HEADER})
-
-# Opaque mesh draws have no fragment discard, so they can run the depth test before ray queries.
-# Keep the alpha-tested ray module above on late fragment tests.
-set(EARLY_RAY_FRAGMENT_HEADER ${SHADER_HEADER_DIR}/shaders/draw_early_ray.frag.spv.hpp)
-add_custom_command(OUTPUT ${EARLY_RAY_FRAGMENT_HEADER}
-    COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.4 --quiet -DRAY_QUERY_AO=1
-        -DEARLY_RAY_OPAQUE=1 --vn draw_early_ray_frag
-        --depfile ${EARLY_RAY_FRAGMENT_HEADER}.d -o ${EARLY_RAY_FRAGMENT_HEADER}
-        ${SHADER_DIR}/draw.frag
-    DEPENDS ${SHADER_DIR}/draw.frag
-    DEPFILE ${EARLY_RAY_FRAGMENT_HEADER}.d
-    COMMENT "Compiling opaque ray mesh fragment shader with early depth testing")
-list(APPEND SHADER_HEADERS ${EARLY_RAY_FRAGMENT_HEADER})
 
 # port/icon/chronicle-128.rgba, the window icon's raw 128x128 RGBA pixels, as a byte array.
 set(ICON_RGBA ${CMAKE_SOURCE_DIR}/port/icon/chronicle-128.rgba)
@@ -256,11 +173,6 @@ endif()
 file(CONFIGURE OUTPUT ${SHADER_HEADER_DIR}/options/credits.hpp
     CONTENT "#pragma once\ninline constexpr const char *kCredits[] = {${credit_names}};\n")
 
-add_library(dc_host OBJECT ${HOST_SOURCES} ${SHADER_HEADERS})
-target_include_directories(dc_host PRIVATE ${PORT_DIR} ${SHADER_HEADER_DIR} ${AUDIO_DECODER_DIR} ${TTF_DIR})
-target_link_libraries(dc_host PRIVATE SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json)
-target_compile_options(dc_host PRIVATE -Wall -ffunction-sections -fdata-sections)
-
 # The signed NVIDIA Streamline SDK is optional and kept outside version control.
 # The port dynamically loads its interposer; without it the normal Vulkan path
 # remains available. Copy only the runtime components needed by DLSS SR/FG.
@@ -268,7 +180,7 @@ set(DC_STREAMLINE_SDK_DIR "${CMAKE_SOURCE_DIR}/.kazarov/streamline-sdk" CACHE PA
 if(WIN32 AND EXISTS "${DC_STREAMLINE_SDK_DIR}/include/sl.h" AND
    EXISTS "${DC_STREAMLINE_SDK_DIR}/bin/x64/sl.interposer.dll")
     target_include_directories(dc_host PRIVATE "${DC_STREAMLINE_SDK_DIR}/include")
-    target_compile_definitions(dc_host PRIVATE DC_HAS_STREAMLINE=1)
+    target_compile_definitions(dc_host PRIVATE KZ_HAS_STREAMLINE=1)
     set(DC_STREAMLINE_DLLS
         sl.interposer.dll sl.common.dll sl.dlss.dll sl.dlss_g.dll
         sl.reflex.dll sl.pcl.dll nvngx_dlss.dll nvngx_dlssg.dll NvLowLatencyVk.dll)
@@ -284,10 +196,17 @@ if(WIN32 AND EXISTS "${DC_STREAMLINE_SDK_DIR}/include/sl.h" AND
     add_custom_target(dc_streamline DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/dc-streamline.stamp")
 endif()
 
-add_library(dc_port OBJECT ${PORT_LIB_SOURCES})
-target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json)
-# Replacement units reach the host side as "gfx/gfx.hpp", "platform/window.hpp".
+kz_port_sce_sources(DC_SCE_SOURCES LIBS libvu0 libpad libmc sifdev sifrpc eekernel libcdvd libgraph libdma libpkt)
+add_library(dc_port OBJECT ${PORT_LIB_SOURCES} ${DC_SCE_SOURCES})
+target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json kz_port_headers)
 target_include_directories(dc_port PRIVATE ${PORT_DIR} ${SHADER_HEADER_DIR})
+# captionfont.cpp rasterizes with stb_truetype, which Kazarov stages (or fetches) for dc_host.
+get_target_property(dc_host_includes dc_host INCLUDE_DIRECTORIES)
+foreach(include_dir IN LISTS dc_host_includes)
+    if(EXISTS ${include_dir}/stb_truetype.h)
+        target_include_directories(dc_port PRIVATE ${include_dir})
+    endif()
+endforeach()
 # The game's headers trip a few warnings that only describe how MWCC's source
 # was written, not a problem in the port.
 target_compile_options(dc_port PRIVATE -Wall -Wno-mismatched-tags -Wno-unused-label
@@ -317,7 +236,7 @@ endif()
 
 function(dc_link_game target)
     target_sources(${target} PRIVATE $<TARGET_OBJECTS:dc_port> $<TARGET_OBJECTS:dc_host> $<TARGET_OBJECTS:dc_ps2>)
-    target_link_libraries(${target} PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan)
+    target_link_libraries(${target} PRIVATE dc_options kz_port_headers SDL3::SDL3 Vulkan::Vulkan)
     target_include_directories(${target} PRIVATE ${PORT_DIR})
     target_compile_options(${target} PRIVATE -Wall -Wno-mismatched-tags -Wno-unused-label
         -Wno-overloaded-virtual -Wno-unused-function)
@@ -346,13 +265,17 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/dc-lang.stamp"
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/lang $<TARGET_FILE_DIR:darkcloud>/lang
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf
             $<TARGET_FILE_DIR:darkcloud>/lang/font.ttf
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendiumThin.ttf
+            $<TARGET_FILE_DIR:darkcloud>/lang/font_thin.ttf
     COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/dc-lang.stamp"
     DEPENDS ${dc_lang_sources} ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf
+        ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendiumThin.ttf
     COMMENT "Copying the port's translated strings and message font")
 add_custom_target(dc_lang DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/dc-lang.stamp")
 add_dependencies(darkcloud dc_lang)
 install(DIRECTORY lang/ DESTINATION ${CMAKE_INSTALL_BINDIR}/lang)
 install(FILES ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf DESTINATION ${CMAKE_INSTALL_BINDIR}/lang RENAME font.ttf)
+install(FILES ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendiumThin.ttf DESTINATION ${CMAKE_INSTALL_BINDIR}/lang RENAME font_thin.ttf)
 
 # The button symbols (docs/GLYPHS.md): glyphs/ beside the executable. Rebuilt from art by tools/glyphs/build_glyphs.py.
 file(GLOB_RECURSE dc_glyph_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/glyphs/*")

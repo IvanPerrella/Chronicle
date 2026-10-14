@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-#include "settings.hpp"
+#include "platform/settings.hpp"
 
 enum class ConfigAspect {
     Auto,
@@ -46,6 +46,8 @@ struct Config : HostSettings {
     bool              debug_mode = false;
     bool              qte_always_win = false;
     bool              element_quick_select = false;
+    bool              swap_keeps_lock_on = false;
+    bool              text_wipe = false; /**< Enables the developer text comparison and tuning tool. */
     bool              interpolation = true;
     // Enhanced per-fragment lighting and atmospheric fog for world meshes.
     bool              enhanced_lighting = false;

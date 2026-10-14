@@ -9,8 +9,8 @@ disc, as on Linux and macOS.
 Install Docker Desktop with its Linux engine. `build.bat` needs no host compiler,
 Python, 7-Zip, CMake, Ninja, Vulkan SDK or PowerShell 7. `run.bat` uses the
 PowerShell included with Windows to launch the resulting executable. A Vulkan
-driver with the features listed in `port/src/gfx/README.md`, "Device", is
-required to play.
+driver with the features listed in `tools/kazarov/src/cpp/gfx/README.md`,
+"Device", is required to play.
 
 The build system is Kazarov, a submodule at `tools/kazarov`. A clone needs it:
 
@@ -38,7 +38,6 @@ cross-toolchain inside the Docker image, then writes `darkcloud.exe`,
 `dcdata.exe` and their runtime DLLs to `port\build\windows-x64-release` (or
 `port\build\windows-x64` for Debug). Later builds reuse Docker's image cache
 and Ninja's object files. Build output stays in the checkout.
-The batch wrappers accept the Windows configurations above.
 
 ## Game data
 
@@ -82,10 +81,13 @@ bounded runs; `DC_AUDIO=off` disables the audio device. Offscreen rendering
 needs no Vulkan surface. A headless Vulkan window is a hidden Win32 window,
 since SDL's offscreen video driver cannot make a Vulkan surface on Windows.
 
-## Legacy native scripts for CI and manual builds
+## Optional native scripts for CI and manual builds
 
-`.github/workflows/pc.yml` calls the native PowerShell scripts directly, and so can you. They
-default `Root` to the checkout's parent directory; pass `-Root` to use another.
+`.github/workflows/pc.yml` calls the native PowerShell scripts directly. They
+need PowerShell 7, Python 3 (`py` or `python` on PATH), 7-Zip and CMake 3.28 or
+later; `cmake` and `7z` are found on PATH or in their standard installations
+under `C:/Program Files`. The scripts default `Root` to the checkout's parent
+directory; pass `-Root` to use another.
 Sources always come from the checkout containing the scripts. `kazarov.ps1`
 passes `Root` as `<checkout>\.kazarov\windows`.
 

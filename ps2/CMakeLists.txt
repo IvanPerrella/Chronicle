@@ -43,7 +43,7 @@ if(REGION STREQUAL "PAL")
 endif()
 set(KZ_AS_FLAGS ${AS_FLAGS})
 
-include(${CMAKE_SOURCE_DIR}/tools/kazarov/cmake/Kazarov.cmake)
+include(${CMAKE_SOURCE_DIR}/tools/kazarov/CMakeLists.txt)
 
 set(CC_MW_FLAGS -O2 -c -Cpp_exceptions off -RTTI off -strings readonly
     -pragma "divbyzerocheck on" -i ${INCLUDE_DIR} -i ${KZ_INCLUDE_REL})

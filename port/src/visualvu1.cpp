@@ -17,6 +17,7 @@
 #include "main.hpp"
 #include "mdt.hpp"
 #include "mglib.hpp"
+#include "platform/config.hpp"
 #include "renderinfo.hpp"
 #include "texture.hpp"
 #include "visual.hpp"
@@ -416,11 +417,9 @@ void SpanWholeTexture(Draw3DVisual &visual, std::span<const TextureRun> runs) {
 void SetEnhancedLighting(bool enabled) { g_enhanced_lighting = enabled; }
 bool EnhancedLightingEnabled() { return g_enhanced_lighting; }
 
-namespace gfx {
-void SetNormalDetailStrength(float strength) {
+void SetEnhancedNormalDetailStrength(float strength) {
     g_normal_detail_strength = std::clamp(strength, 0.0f, 1.0f);
 }
-} // namespace gfx
 
 // ---- Records ---------------------------------------------------------------------------------
 
@@ -497,7 +496,7 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
     bool fog = info.fog_enabled != 0 && info.shadow_pass == 0;
     bool shipwreck_scene = !projected && g_enhanced_lighting &&
                            MapNo == 200 + DUNGEON_SHIPWRECK;
-    bool shipwreck_fog = shipwreck_scene && gfx::ShipwreckFogEnabled();
+    bool shipwreck_fog = shipwreck_scene && ConfigGet().shipwreck_fog;
     bool effective_fog = fog || shipwreck_fog;
 
     gfx::MeshConstants constants = {};
@@ -515,7 +514,7 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
         constants.flags = (lit ? gfx::kMeshLit : 0u) | (g_enhanced_lighting ? gfx::kMeshMaterialLighting : 0u) |
                           (visual.vertex_colour ? gfx::kMeshVertexColor : 0u) |
                           (effective_fog ? gfx::kMeshFog : 0u) |
-                          (shipwreck_fog ? gfx::kMeshShipwreckFog : 0u);
+                          (shipwreck_fog ? gfx::kMeshAtmosphere : 0u);
     }
     gfx::DrawState state = Draw3DState(info, effective_fog);
     // Clip flag 4 (the 'S' frame-name code, program_option) sends the vertices through Vu_prog0f's
@@ -545,9 +544,9 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
         bool map_material = shipwreck_scene && ShipwreckMapMaterial(strip);
         bool character_matte = shipwreck_scene && lit && ToanClothOrSkin(strip);
         constants.flags = base_flags | (strip.ground_world_uv ? gfx::kMeshWorldUv : 0u) |
-                          (map_material ? gfx::kMeshShipwreckWorld : 0u) |
-                          (map_material && lit ? gfx::kMeshWetTimber : 0u) |
-                          (character_matte ? gfx::kMeshCharacterMatte : 0u);
+                          (map_material ? gfx::kMeshEnvironment : 0u) |
+                          (map_material && lit ? gfx::kMeshWetSurface : 0u) |
+                          (character_matte ? gfx::kMeshMatte : 0u);
         constants.material_normal_slot = 0;
         constants.material_orm_slot = 0;
         constants.material_profile = static_cast<uint32_t>(gfx::MaterialProfile::Flat);
@@ -561,7 +560,7 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
         if (shipwreck_fog && strip.ground_transition) {
             // Ground transitions are alpha-blended over an already fogged opaque floor. Fogging
             // the overlay again would double the in-scattering within its rectangular strips.
-            constants.flags &= ~(gfx::kMeshFog | gfx::kMeshShipwreckFog);
+            constants.flags &= ~(gfx::kMeshFog | gfx::kMeshAtmosphere);
         }
         if (strip.ground_world_uv) {
             for (int axis = 0; axis < 4; axis++) {

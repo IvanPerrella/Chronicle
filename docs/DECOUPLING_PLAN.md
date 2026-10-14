@@ -189,7 +189,7 @@ put.
 
 Status: done. `video.aspect` (`auto` or `4:3`) and `ui_scale`; the projection,
 the screen-bound cull and `MGClipVertex` follow the window; full-frame 2D and
-frame grabs cover it (`docs/PC.md`, "Window aspect"; `port/src/gfx/README.md`,
+frame grabs cover it (`docs/PC.md`, "Window aspect"; `tools/kazarov/src/cpp/gfx/README.md`,
 "Aspect"); `aspect_*_test.cpp`. A window narrower than 4:3 keeps retail's
 horizontal field of view instead of the vertical, so the logical frame always
 fits.

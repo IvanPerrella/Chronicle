@@ -4,16 +4,16 @@
 #include <array>
 #include <cstdio>
 
-#include "gfx/shipwreck_fog.hpp"
+#include "gfx/gfx.hpp"
 
 namespace {
 
 struct Candidate {
-    gfx::detail::ShipwreckLight light;
+    gfx::LocalLight light;
     float distance_squared;
 };
 
-std::array<Candidate, gfx::detail::kMaxShipwreckLights> nearest;
+std::array<Candidate, 8> nearest;
 float eye[3];
 uint32_t count = 0;
 bool collecting = false;
@@ -58,9 +58,9 @@ void RecordShipwreckFireLight(const float position[4], float flicker_width) {
 
 void EndShipwreckFireLights() {
     collecting = false;
-    std::array<gfx::detail::ShipwreckLight, gfx::detail::kMaxShipwreckLights> lights = {};
+    std::array<gfx::LocalLight, 8> lights = {};
     for (uint32_t i = 0; i < count; ++i) lights[i] = nearest[i].light;
-    gfx::detail::ShipwreckFogSetLights(std::span<const gfx::detail::ShipwreckLight>(lights.data(), count));
+    gfx::SetLocalLights(std::span<const gfx::LocalLight>(lights.data(), count));
     if (!reported && count != 0) {
         std::fprintf(stderr, "Shipwreck: captured %u world-space fire lights from flame draws\n", count);
         reported = true;
