@@ -49,6 +49,12 @@ gfx::DrawState SpriteState();
 // Sprites put TEST and ZBUF back to mglib's shadows, not to what they replaced.
 void RestoreTestZbuf();
 
+/**
+ * Marks stable additive world fire cards for composition after the display atmosphere.
+ * Recording retains their original GS state for the canonical render.
+ */
+void SetWorldEmissive(bool enabled);
+
 // Logical rows (640x480) to rows of the current target. A render target holds the GS's texel
 // rows, which are field rows: the GS halves logical y on its way into any buffer.
 float RowScale();

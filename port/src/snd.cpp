@@ -22,6 +22,7 @@ namespace {
 
 // Retail's linear__2, which starts on.
 int g_linear = 1;
+bool g_world_emissive = false;
 
 constexpr u_long kTex1Linear = SCE_GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0);
 
@@ -91,6 +92,7 @@ gfx::DrawState CurrentState(bool fog) {
     gfx::DrawState state = draw2d::Get().draw_state();
     state.blend = true;
     state.fog = fog;
+    state.atmosphere_emissive = g_world_emissive;
     state.cull = gfx::CullMode::None;
     return state;
 }
@@ -135,6 +137,8 @@ void Sprite3D(CTexture *texture, const CRect_i_ &source, int *top_left, int *bot
 }
 
 } // namespace
+
+void draw2d::SetWorldEmissive(bool enabled) { g_world_emissive = enabled; }
 
 // Retail aligns through a 32-bit int, which truncates a buffer above 4 GiB.
 PORT_OVERRIDE void SndSetReadBuffer(unsigned int *buffer) {

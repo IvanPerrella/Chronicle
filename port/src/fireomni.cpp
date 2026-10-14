@@ -36,6 +36,7 @@ void SetLayerRegisters() {
     services.set_alpha(&alpha);
 }
 
+
 } // namespace
 
 PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera, float *colour, float scale, int layers,
@@ -69,7 +70,10 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
     const bool compact_dungeon_fire = EnhancedLightingEnabled() &&
         (MapNo == 200 + DUNGEON_SHIPWRECK || MapNo == 200 + DUNGEON_GALLERY_OF_TIME);
     const bool gallery_fire = EnhancedLightingEnabled() && MapNo == 200 + DUNGEON_GALLERY_OF_TIME;
-    if (gallery_fire) white = {0xC0, 0xB0, 0xC0, 0xC0};
+    if (gallery_fire) {
+        white = {0xA0, 0xA0, 0xB0, 0x90};
+        draw2d::SetWorldEmissive(true);
+    }
 
     if (layers & 1) {
         SetLayerRegisters();
@@ -80,13 +84,15 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
         world[3] = 1.0f;
 
         if (MGRotTransPers3DSprite(top_left, bottom_right, world,
-                                   (gallery_fire ? 6.0f : 18.0f) * scale,
-                                   (gallery_fire ? 8.0f : 9.0f) * scale, 1) == 1) {
+                                   (gallery_fire ? 7.0f : 18.0f) * scale,
+                                   (gallery_fire ? 6.0f : 9.0f) * scale, 1) == 1) {
             set3DSpriteFog(Vif1Packet, core, CRect_i_(0, 0, 64, 64), top_left, bottom_right, &white);
             // The broad additive GS halo washes over the room once the enhanced
             // world lights and volume fog are active. Keep the flame core.
-            if (!compact_dungeon_fire || gallery_fire)
-                set3DSpriteFog(Vif1Packet, glow, CRect_i_(2, 2, 124, 124), top_left, bottom_right, &white);
+            if (!compact_dungeon_fire || gallery_fire) {
+                spRGBA aura = gallery_fire ? spRGBA{0x78, 0x48, 0xA8, 0x90} : white;
+                set3DSpriteFog(Vif1Packet, glow, CRect_i_(2, 2, 124, 124), top_left, bottom_right, &aura);
+            }
         }
     }
 
@@ -95,8 +101,8 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
         // Retail's large additive fire card spills warm light well beyond the
         // lantern. Keep a compact flame in the enhanced Shipwreck scene.
         const float flame_extent = compact_dungeon_fire ? 20.0f : 45.0f;
-        const float flame_width = gallery_fire ? 10.0f : flame_extent;
-        const float flame_height = gallery_fire ? 13.0f : flame_extent / 2.0f;
+        const float flame_width = gallery_fire ? 9.0f : flame_extent;
+        const float flame_height = gallery_fire ? 7.0f : flame_extent / 2.0f;
 
         flicker_count++;
         srand(flicker_seed);
@@ -138,6 +144,7 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
     }
 
     const draw2d::Services &services = draw2d::Get();
+    if (gallery_fire) draw2d::SetWorldEmissive(false);
     services.set_test(nullptr);
     services.set_zbuf(nullptr);
     services.set_alpha(nullptr);

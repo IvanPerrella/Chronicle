@@ -166,6 +166,23 @@ void CCloth::Step(int step) {
                 work[i][j][1] = hit_sum[1] / hit_count;
                 work[i][j][2] = hit_sum[2] / hit_count;
                 rest[i][j][3] = friction / hit_count;
+
+                // The average of contact points on overlapping boxes can lie inside one of
+                // them. Recheck the averaged point against the authored boxes before using it.
+                for (int contact_pass = 0; contact_pass < 4; contact_pass++) {
+                    bool projected = false;
+                    for (box = bound; box != NULL; box = box->next) {
+                        if ((mask[i][j] & (1 << box->mask_bit)) && box->InCheck(work[i][j], hit_point) != 0) {
+                            work[i][j][0] = hit_point[0];
+                            work[i][j][1] = hit_point[1];
+                            work[i][j][2] = hit_point[2];
+                            projected = true;
+                        }
+                    }
+                    if (!projected) {
+                        break;
+                    }
+                }
             } else {
                 rest[i][j][3] = -1.0f;
             }
