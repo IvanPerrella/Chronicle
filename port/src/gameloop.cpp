@@ -411,6 +411,7 @@ void ApplyJump() {
         case GAME_MODE_DUNGEON:
             selectMapNo = g_jump.map;
             main_select_menu_no = g_jump.map;
+            EdEventInfo.map_jump_bgm_play = true;
             MapJump(g_jump.map + 200, -1);
             MGSetBGColor(0.0f, 0.0f, 0.0f, 128.0f);
             GameFollowMapJump();

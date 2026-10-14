@@ -1,7 +1,7 @@
 #pragma once
 
-// Capture the original fire draw positions and its per-fire flicker after the
-// flame sprite has updated them. Active only around Shipwreck's fire draw.
-void BeginShipwreckFireLights(const float player_position[4]);
-void RecordShipwreckFireLight(const float position[4], float flicker_width);
-void EndShipwreckFireLights();
+enum class DungeonLightScene { Shipwreck, Gallery };
+
+void BeginDungeonFireLights(const float player_position[4], DungeonLightScene scene);
+void RecordDungeonFireLight(const float position[4], float flicker_width, float scale);
+void EndDungeonFireLights();

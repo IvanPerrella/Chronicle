@@ -265,8 +265,9 @@ float ShipwreckCellDeck(CDungeonMap &map, int x, int z) {
     return hit[1] - 2.0f;
 }
 
-void UpdateShipwreckDeckField(CDungeonMap &map, int floor_number) {
+void UpdateDungeonDeckField(CDungeonMap &map, int dungeon_number, int floor_number) {
     static const CDungeonMap *cached_map = nullptr;
+    static int cached_dungeon = -1;
     static int cached_seed = 0;
     static int cached_floor = -1;
     static uint64_t cached_layout = 0;
@@ -287,8 +288,15 @@ void UpdateShipwreckDeckField(CDungeonMap &map, int floor_number) {
         }
         occupied += cell.parts_no >= 0;
     }
-    if (map.map_type != 1 || map.room_num <= 0 || occupied < 8) return;
-    if (cached_map != &map || cached_seed != map.map_seed ||
+    if (map.map_type != 1 || map.room_num <= 0 || occupied < 8) {
+        if (cached_dungeon != dungeon_number) {
+            std::array<float, 400> neutral;
+            neutral.fill(8.0f);
+            gfx::SetAtmosphereDeckHeights(neutral);
+        }
+        return;
+    }
+    if (cached_map != &map || cached_dungeon != dungeon_number || cached_seed != map.map_seed ||
         cached_floor != floor_number || cached_layout != layout) {
         std::array<float, 400> candidate;
         candidate.fill(std::numeric_limits<float>::quiet_NaN());
@@ -333,13 +341,10 @@ void UpdateShipwreckDeckField(CDungeonMap &map, int floor_number) {
         }
         heights = candidate;
         cached_map = &map;
+        cached_dungeon = dungeon_number;
         cached_seed = map.map_seed;
         cached_floor = floor_number;
         cached_layout = layout;
-        if (std::getenv("DC_SHIPWRECK_FOG_TRACE")) {
-            std::fprintf(stderr, "FogDeckField seed=%d floor=%d measured_corridor=%.2f measured_room2=%.2f\n",
-                         map.map_seed, floor_number, heights[10 + 5 * 20], heights[8 + 5 * 20]);
-        }
     }
     gfx::SetAtmosphereDeckHeights(heights);
 }
@@ -347,59 +352,6 @@ void UpdateShipwreckDeckField(CDungeonMap &map, int floor_number) {
 } // namespace
 
 PORT_OVERRIDE void DunMainDraw() {
-    // Temporary isolated regression pose: derive the target from this generated
-    // floor's room layout instead of assuming the same random seed every run.
-    static bool sweep_pose_applied = false;
-    static int sweep_play_draws = 0;
-    static int sweep_pose_holds = 0;
-    static float sweep_x = 0.0f, sweep_y = 0.0f, sweep_z = 0.0f;
-    if (gameTask == GAME_TASK_PLAY && selectMapNo == DUNGEON_SHIPWRECK)
-        ++sweep_play_draws;
-    if (!sweep_pose_applied && sweep_play_draws >= 80 &&
-        gameTask == GAME_TASK_PLAY && selectMapNo == DUNGEON_SHIPWRECK &&
-        std::getenv("DC_SHIPWRECK_SWEEP_POSE") && NowDngMap && NowDngMap->room_num > 2) {
-        const ROOM_INFO &target = NowDngMap->rooms[2];
-        const int cell_x = target.x + target.width / 2;
-        // The interior deck is just south of room 2's northern cell; its
-        // geometric centre lies on the cross-beam/void in this room layout.
-        const int cell_z = target.y + 1;
-        if (target.width > 0 && target.height > 0 && cell_x >= 0 && cell_x < 20 &&
-            cell_z >= 0 && cell_z < 20) {
-            const float deck_y = ShipwreckCellDeck(*NowDngMap, cell_x, cell_z);
-            if (std::isfinite(deck_y)) {
-                sweep_x = 160.0f * cell_x;
-                sweep_y = deck_y + 2.0f;
-                sweep_z = 160.0f * cell_z + 40.0f;
-                NowCamera__3->SetAngleSoon(0.0f);
-                NowCamera__3->SetHeight(30.0f);
-                NowCamera__3->FollowOn();
-                sweep_pose_applied = true;
-                std::fprintf(stderr, "DC_SHIPWRECK_SWEEP_POSE seed=%d rooms=%d target_cell=%d,%d deck=%.2f pos=%.1f,%.1f,%.1f after %d play draws\n",
-                             NowDngMap->map_seed, NowDngMap->room_num, cell_x, cell_z,
-                             deck_y, sweep_x, sweep_y, sweep_z, sweep_play_draws);
-                for (int room = 0; room < NowDngMap->room_num; ++room) {
-                    const ROOM_INFO &bounds = NowDngMap->rooms[room];
-                    std::fprintf(stderr, "DC_SHIPWRECK_SWEEP_POSE room%d bounds=%d,%d %dx%d\n",
-                                 room, bounds.x, bounds.y, bounds.width, bounds.height);
-                }
-            }
-        }
-    }
-    if (sweep_pose_applied) {
-        CharaFrame->SetPosition(sweep_x, sweep_y, sweep_z);
-        NowCamera__3->SetFollow(sweep_x, sweep_y, sweep_z);
-        // Reapply translation after MoveChara each draw. The input still owns
-        // next_angle and height, so the isolated sweep can yaw and pitch.
-        NowCamera__3->Step(-1);
-        ++sweep_pose_holds;
-        if (sweep_pose_holds == 1 || sweep_pose_holds == 24 || sweep_pose_holds % 120 == 0) {
-            sceVu0FVECTOR camera_eye;
-            NowCamera__3->GetPos(camera_eye);
-            std::fprintf(stderr, "DC_SHIPWRECK_SWEEP_POSE hold=%d char=%.1f,%.1f,%.1f camera=%.1f,%.1f,%.1f\n",
-                         sweep_pose_holds, CharaFrame->position[0], CharaFrame->position[1],
-                         CharaFrame->position[2], camera_eye[0], camera_eye[1], camera_eye[2]);
-        }
-    }
     sceVu0FMATRIX camera;
     sceVu0FVECTOR eye;
     sceVu0FMATRIX view;
@@ -460,13 +412,6 @@ PORT_OVERRIDE void DunMainDraw() {
                 entry_reveal.revealed = true;
             }
         }
-    }
-    if (std::getenv("DC_CAMERA_TRACE") && selectMapNo == DUNGEON_SHIPWRECK) {
-        static int trace_draw = 0;
-        std::fprintf(stderr,
-                     "DC_HOOK_FADE draw=%d task=%d demo=%d fade=%.2f all_draw=%d eye=(%.2f,%.2f,%.2f)\n",
-                     trace_draw++, gameTask, autoDemo, DispFade__3.GetRate(), BtAllDrawFlag,
-                     eye[0], eye[1], eye[2]);
     }
 
     if (BtAllDrawFlag == 0) {
@@ -630,20 +575,22 @@ PORT_OVERRIDE void DunMainDraw() {
     sceVu0FVECTOR raster_pos;
 
     sceVu0CopyVector(raster_pos, CharaFrame->position);
-    // Shipwreck's collision ground is two units above the visible d03b deck
-    // (runtime first-room measurements: character/nav Y=10, deck Y≈8).
-    if (ConfigGet().enhanced_lighting && selectMapNo == DUNGEON_SHIPWRECK) {
-        UpdateShipwreckDeckField(*NowDngMap, UserStatus->cur_floor);
+    if (ConfigGet().enhanced_lighting &&
+        (selectMapNo == DUNGEON_SHIPWRECK || selectMapNo == DUNGEON_GALLERY_OF_TIME)) {
+        UpdateDungeonDeckField(*NowDngMap, selectMapNo, UserStatus->cur_floor);
     }
     const bool enhanced_shipwreck = ConfigGet().enhanced_lighting &&
-                                    selectMapNo == DUNGEON_SHIPWRECK &&
-                                    gfx::RayTracingEnabled();
-    if (!enhanced_shipwreck) {
+                                    selectMapNo == DUNGEON_SHIPWRECK;
+    const bool enhanced_gallery = ConfigGet().enhanced_lighting &&
+                                 selectMapNo == DUNGEON_GALLERY_OF_TIME;
+    if (!((enhanced_shipwreck || enhanced_gallery) && gfx::RayTracingEnabled())) {
         TexManager.ReloadTexture(Vif1Packet, 0xE);
         NowDngMap->DrawRaster(CharaFrame);
     }
-    if (enhanced_shipwreck && ConfigGet().shipwreck_local_lights) {
-        BeginShipwreckFireLights(CharaFrame->position);
+    const bool capture_lights = (enhanced_shipwreck || enhanced_gallery) && ConfigGet().shipwreck_local_lights;
+    if (capture_lights) {
+        BeginDungeonFireLights(CharaFrame->position, enhanced_gallery ? DungeonLightScene::Gallery :
+                                                               DungeonLightScene::Shipwreck);
     }
 
     if (NowDngMap->map_type == 1) {
@@ -651,7 +598,7 @@ PORT_OVERRIDE void DunMainDraw() {
     } else {
         NowDngMap->DrawFireFreeStyle(CharaFrame, NowCamera__3);
     }
-    if (enhanced_shipwreck && ConfigGet().shipwreck_local_lights) EndShipwreckFireLights();
+    if (capture_lights) EndDungeonFireLights();
 
     if (atraGetStatus != 0 && atraShortGetType != 0) {
         TexManager.ReloadTexture(Vif1Packet, 0x1C);

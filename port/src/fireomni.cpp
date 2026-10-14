@@ -66,7 +66,10 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
     sceVu0Normalize(camera_direction, camera_direction);
     sceVu0ScaleVector(camera_direction, camera_direction, camera_offset);
     spRGBA white = {0x80, 0x80, 0x80, 0x80};
-    const bool compact_shipwreck_fire = EnhancedLightingEnabled() && MapNo == 200 + DUNGEON_SHIPWRECK;
+    const bool compact_dungeon_fire = EnhancedLightingEnabled() &&
+        (MapNo == 200 + DUNGEON_SHIPWRECK || MapNo == 200 + DUNGEON_GALLERY_OF_TIME);
+    const bool gallery_fire = EnhancedLightingEnabled() && MapNo == 200 + DUNGEON_GALLERY_OF_TIME;
+    if (gallery_fire) white = {0xC0, 0xB0, 0xC0, 0xC0};
 
     if (layers & 1) {
         SetLayerRegisters();
@@ -76,11 +79,13 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
         world[2] = pos[2];
         world[3] = 1.0f;
 
-        if (MGRotTransPers3DSprite(top_left, bottom_right, world, 18.0f * scale, 9.0f * scale, 1) == 1) {
+        if (MGRotTransPers3DSprite(top_left, bottom_right, world,
+                                   (gallery_fire ? 6.0f : 18.0f) * scale,
+                                   (gallery_fire ? 8.0f : 9.0f) * scale, 1) == 1) {
             set3DSpriteFog(Vif1Packet, core, CRect_i_(0, 0, 64, 64), top_left, bottom_right, &white);
             // The broad additive GS halo washes over the room once the enhanced
             // world lights and volume fog are active. Keep the flame core.
-            if (!compact_shipwreck_fire)
+            if (!compact_dungeon_fire || gallery_fire)
                 set3DSpriteFog(Vif1Packet, glow, CRect_i_(2, 2, 124, 124), top_left, bottom_right, &white);
         }
     }
@@ -89,7 +94,9 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
         SetLayerRegisters();
         // Retail's large additive fire card spills warm light well beyond the
         // lantern. Keep a compact flame in the enhanced Shipwreck scene.
-        const float flame_extent = compact_shipwreck_fire ? 20.0f : 45.0f;
+        const float flame_extent = compact_dungeon_fire ? 20.0f : 45.0f;
+        const float flame_width = gallery_fire ? 10.0f : flame_extent;
+        const float flame_height = gallery_fire ? 13.0f : flame_extent / 2.0f;
 
         flicker_count++;
         srand(flicker_seed);
@@ -104,8 +111,8 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
         world[2] = pos[2];
         world[3] = 1.0f;
 
-        if (MGRotTransPers3DSprite(top_left, bottom_right, world, flame_extent * flicker_width * scale,
-                                   flame_extent * flicker_height * scale / 2.0f, 1) == 1) {
+        if (MGRotTransPers3DSprite(top_left, bottom_right, world, flame_width * flicker_width * scale,
+                                   flame_height * flicker_height * scale, 1) == 1) {
             top_right[0] = bottom_right[0];
             top_right[1] = top_left[1];
             top_right[2] = top_left[2];
@@ -118,15 +125,16 @@ PORT_OVERRIDE void CFireOmni::DrawFire(int unused0, int unused1, CCamera *camera
             world[1] += camera_direction[1];
             world[2] += camera_direction[2];
 
-            if (MGRotTransPers3DSprite(near_top_left, near_bottom_right, world, flame_extent * scale + flicker_width,
-                                       (flame_extent * scale + flicker_height) / 2.0f, 0) == 1) {
+            if (MGRotTransPers3DSprite(near_top_left, near_bottom_right, world,
+                                       flame_width * scale + flicker_width,
+                                       flame_height * scale + flicker_height / 2.0f, 0) == 1) {
                 top_right[2] = top_left[2] = bottom_left[2] = bottom_right[2] = near_top_left[2];
             }
 
             set3DSpriteFog(Vif1Packet, core, CRect_i_(0, 0, 64, 64), top_left, top_right, bottom_left, bottom_right,
                            0x80);
         }
-        RecordShipwreckFireLight(pos, flicker_width);
+        RecordDungeonFireLight(pos, flicker_width, scale);
     }
 
     const draw2d::Services &services = draw2d::Get();

@@ -9,6 +9,7 @@
 
 #include "caption_text.hpp"
 #include "dataalloc.hpp"
+#include "gfx/materialmaps.hpp"
 #include "localize_texture.hpp"
 #include "mglib.hpp"
 #include "texture_port.hpp"
@@ -183,6 +184,24 @@ void DumpTexture(const char *name, const PortDecodedTexture &texture) {
     }
 }
 
+uint64_t MaterialFingerprint(const PortDecodedTexture &texture) {
+    uint64_t hash = 14695981039346656037ull;
+    auto append = [&](uint8_t byte) { hash = (hash ^ byte) * 1099511628211ull; };
+    for (unsigned shift = 0; shift < 32; shift += 8) append(static_cast<uint8_t>(texture.width >> shift));
+    for (unsigned shift = 0; shift < 32; shift += 8) append(static_cast<uint8_t>(texture.height >> shift));
+    if (texture.levels.empty()) return hash;
+    const size_t count = static_cast<size_t>(texture.width) * texture.height;
+    if (texture.format == gfx::TextureFormat::Index8) {
+        for (size_t i = 0; i < count; ++i) {
+            uint32_t color = texture.palette[texture.levels[0][i]];
+            for (unsigned shift = 0; shift < 32; shift += 8) append(static_cast<uint8_t>(color >> shift));
+        }
+    } else {
+        for (size_t i = 0; i < count * 4; ++i) append(texture.levels[0][i]);
+    }
+    return hash;
+}
+
 // Ground models repeat these images across UV islands and cells. Their source edges differ, so
 // blend a narrow indexed border into a periodic image before uploading it.
 void MakeGroundPeriodic(const char *name, PortDecodedTexture &texture) {
@@ -355,6 +374,7 @@ void Enter(CTextureManager &manager, EnterMode mode, int block, char *name, u_ch
         MakeGroundPeriodic(name, decoded);
         DumpTexture(name, decoded);
         tbp = PortCreateTexture(decoded, PortTextureOwner::Manager, &cbp);
+        gfx::RegisterMaterialTextureFingerprint(tbp, MaterialFingerprint(decoded));
     }
     tex->tex0 = Tex0(tbp, tbw, psm, tw, th, cbp, indexed ? 1 : 0);
 

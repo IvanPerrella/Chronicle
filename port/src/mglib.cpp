@@ -76,13 +76,6 @@ constexpr float kCameraCutCosine = 0.7071f;
 bool          g_cut_next_tick = true;
 bool          g_have_tick_view = false;
 sceVu0FMATRIX g_tick_view;
-int g_view_calls_this_tick = 0;
-
-bool TraceIntroCamera() {
-    static const bool enabled = std::getenv("DC_CAMERA_TRACE") != nullptr;
-    const auto frame = GameFrameCount();
-    return enabled && frame >= 120 && frame <= 380;
-}
 
 // The logical frame's rect of a GS sprite whose corners are 12.4 window offsets on the field.
 gfx::LogicalRect FieldRect(int x, int y, int width, int height) {
@@ -208,20 +201,12 @@ void CheckCameraCut(sceVu0FMATRIX view) {
                               (after[8] * after[8] + after[9] * after[9] + after[10] * after[10]));
     float moved = std::sqrt(dx * dx + dy * dy + dz * dz);
     const bool cut = moved > kCameraCutDistance || forward < kCameraCutCosine * lengths;
-    if (TraceIntroCamera()) {
-        std::fprintf(stderr,
-                     "IntroCamera tick=%lld view=%d prev_eye=(%.2f %.2f %.2f) eye=(%.2f %.2f %.2f) moved=%.2f cosine=%.4f cut=%d\n",
-                     static_cast<long long>(GameFrameCount()), g_view_calls_this_tick,
-                     before[12], before[13], before[14], after[12], after[13], after[14], moved,
-                     lengths > 0.0f ? forward / lengths : 0.0f, cut);
-    }
     if (cut) {
         gfx::CutCameraInterpolation();
     }
 }
 
 void SetViewMatrix(sceVu0FMATRIX view) {
-    ++g_view_calls_this_tick;
     CheckCameraCut(view);
     sceVu0CopyMatrix(mgRenderInfo.view, view);
     mgRenderInfo.position[0] = view[3][0];
@@ -583,7 +568,6 @@ void MGPortCutInterpolation() {
 // A tick records its drawing as a display list; MGEndFrame renders it. A frame someone opened
 // with gfx::BeginFrame is drawn into as it is.
 PORT_OVERRIDE void MGBeginFrame() {
-    g_view_calls_this_tick = 0;
     if (!gfx::InFrame()) {
         gfx::BeginRecording();
         if (g_cut_next_tick) {

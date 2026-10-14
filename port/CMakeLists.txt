@@ -292,8 +292,9 @@ install(DIRECTORY glyphs/ DESTINATION ${CMAKE_INSTALL_BINDIR}/glyphs)
 # installed and Docker-built Windows binaries work from any current directory.
 file(GLOB_RECURSE dc_material_sources CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/assets/materials/*")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/dc-materials.stamp"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets
-            $<TARGET_FILE_DIR:darkcloud>/assets
+    COMMAND ${CMAKE_COMMAND} -E rm -rf $<TARGET_FILE_DIR:darkcloud>/assets/materials
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/materials
+            $<TARGET_FILE_DIR:darkcloud>/assets/materials
     COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/dc-materials.stamp"
     DEPENDS ${dc_material_sources}
     COMMENT "Copying material normal and ORM maps")

@@ -6,6 +6,7 @@
 #include <cstring>
 #include <memory>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -88,18 +89,14 @@ void TakeMaterial(Draw3DStrip &strip, const MDT_MATERIAL &material) {
     std::memcpy(strip.specular, material.specular, sizeof(strip.specular));
 }
 
-bool ShipwreckMapMaterial(const Draw3DStrip &strip) {
-    return std::strncmp(strip.texture_name, "d03b", 4) == 0;
+bool DungeonMapMaterial(const Draw3DStrip &strip, bool shipwreck, bool gallery) {
+    return (shipwreck && std::strncmp(strip.texture_name, "d03b", 4) == 0) ||
+           (gallery && std::strncmp(strip.texture_name, "d06b", 4) == 0);
 }
 
-bool ToanClothOrSkin(const Draw3DStrip &strip) {
-    // The body uses several c01d atlases, including the simulated immediate cloth mesh.
-    // c01w is the independently textured weapon and keeps its separate finish.
-    return std::strncmp(strip.texture_name, "c01d", 4) == 0;
-}
-
-gfx::MaterialProfile ShipwreckProfile(const Draw3DStrip &strip) {
-    return gfx::MaterialProfileForTexture(strip.texture_name);
+bool MatteCharacterMaterial(gfx::MaterialProfile profile) {
+    return profile == gfx::MaterialProfile::Cloth || profile == gfx::MaterialProfile::Skin ||
+           profile == gfx::MaterialProfile::Leather;
 }
 
 // VU1 took normalised STQ, and the GS scales S and T by 2^TW and 2^TH; the renderer normalises to
@@ -494,10 +491,11 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
     }
     bool lit = info.shadow_pass == 0 && info.unlit == 0;
     bool fog = info.fog_enabled != 0 && info.shadow_pass == 0;
-    bool shipwreck_scene = !projected && g_enhanced_lighting &&
-                           MapNo == 200 + DUNGEON_SHIPWRECK;
-    bool shipwreck_fog = shipwreck_scene && ConfigGet().shipwreck_fog;
-    bool effective_fog = fog || shipwreck_fog;
+    bool enhanced_dungeon = !projected && g_enhanced_lighting;
+    bool shipwreck_scene = enhanced_dungeon && MapNo == 200 + DUNGEON_SHIPWRECK;
+    bool gallery_scene = enhanced_dungeon && MapNo == 200 + DUNGEON_GALLERY_OF_TIME;
+    bool dungeon_fog = (shipwreck_scene && ConfigGet().shipwreck_fog) || gallery_scene;
+    bool effective_fog = fog || dungeon_fog;
 
     gfx::MeshConstants constants = {};
     gfx::MeshTransform transform;
@@ -514,7 +512,7 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
         constants.flags = (lit ? gfx::kMeshLit : 0u) | (g_enhanced_lighting ? gfx::kMeshMaterialLighting : 0u) |
                           (visual.vertex_colour ? gfx::kMeshVertexColor : 0u) |
                           (effective_fog ? gfx::kMeshFog : 0u) |
-                          (shipwreck_fog ? gfx::kMeshAtmosphere : 0u);
+                          (dungeon_fog ? gfx::kMeshAtmosphere : 0u);
     }
     gfx::DrawState state = Draw3DState(info, effective_fog);
     // Clip flag 4 (the 'S' frame-name code, program_option) sends the vertices through Vu_prog0f's
@@ -541,23 +539,40 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
         }
         // The 58-strip, 1300-vertex c01d02 visual is Toan, not the deck. Identify the
         // authored map and character atlases per strip so their finishes never cross over.
-        bool map_material = shipwreck_scene && ShipwreckMapMaterial(strip);
-        bool character_matte = shipwreck_scene && lit && ToanClothOrSkin(strip);
+        int texture_handle = strip.texture;
+        if (texture_handle >= 0 && strip.texture_name[0] != 0 &&
+            std::strcmp(TexManager.GetTexture(texture_handle)->name, strip.texture_name) != 0) {
+            char name[sizeof(strip.texture_name)];
+            std::memcpy(name, strip.texture_name, sizeof(name));
+            int moved = TexManager.GetTextureHandle(name, -1);
+            if (moved >= 0) texture_handle = moved;
+        }
+        uint32_t texture_key = texture_handle >= 0 ?
+            static_cast<uint32_t>(TexManager.GetTexture(texture_handle)->tex0) & 0x3fffu : 0u;
+        const gfx::MaterialBinding material = !enhanced_dungeon ? gfx::MaterialBinding{} :
+            texture_handle >= 0 ? gfx::ResolveMaterial(strip.texture_name, texture_key) :
+            lit ? gfx::ResolveUntexturedMaterial(&strip) : gfx::MaterialBinding{};
+        bool map_material = material.resolved && DungeonMapMaterial(strip, shipwreck_scene, gallery_scene);
+        bool character_matte = material.resolved && lit && MatteCharacterMaterial(material.profile);
+        bool wet_surface = map_material && lit &&
+            ((shipwreck_scene && material.profile == gfx::MaterialProfile::WoodFloor) ||
+             (gallery_scene && material.profile == gfx::MaterialProfile::Stone));
         constants.flags = base_flags | (strip.ground_world_uv ? gfx::kMeshWorldUv : 0u) |
                           (map_material ? gfx::kMeshEnvironment : 0u) |
-                          (map_material && lit ? gfx::kMeshWetSurface : 0u) |
+                          (wet_surface ? gfx::kMeshWetSurface : 0u) |
                           (character_matte ? gfx::kMeshMatte : 0u);
         constants.material_normal_slot = 0;
         constants.material_orm_slot = 0;
         constants.material_profile = static_cast<uint32_t>(gfx::MaterialProfile::Flat);
-        if (shipwreck_scene) {
-            gfx::MaterialProfile profile = strip.texture >= 0 ? ShipwreckProfile(strip) :
-                                           gfx::MaterialProfile::Prop;
-            constants.material_normal_slot = gfx::MaterialNormalMap(profile) & 0xffffu;
-            constants.material_orm_slot = gfx::MaterialOrmMap(profile) & 0xffffu;
-            constants.material_profile = static_cast<uint32_t>(profile);
+        constants.material_pad = shipwreck_scene ? 1u : gallery_scene ? 2u : 0u;
+        if (material.resolved) {
+            constants.material_normal_slot = material.normal & 0xffffu;
+            constants.material_orm_slot = material.orm & 0xffffu;
+            constants.material_profile = static_cast<uint32_t>(material.profile);
+            if (material.excluded) constants.flags &= ~(gfx::kMeshMaterialLighting | gfx::kMeshWetSurface |
+                                                       gfx::kMeshEnvironment | gfx::kMeshMatte);
         }
-        if (shipwreck_fog && strip.ground_transition) {
+        if (dungeon_fog && strip.ground_transition) {
             // Ground transitions are alpha-blended over an already fogged opaque floor. Fogging
             // the overlay again would double the in-scattering within its rectangular strips.
             constants.flags &= ~(gfx::kMeshFog | gfx::kMeshAtmosphere);
@@ -577,17 +592,8 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
         }
 
         gfx::TextureBinding binding;
-        if (lit && strip.texture >= 0) {
-            int handle = strip.texture;
-            if (strip.texture_name[0] != 0 && std::strcmp(TexManager.GetTexture(handle)->name, strip.texture_name) != 0) {
-                char name[sizeof(strip.texture_name)];
-                std::memcpy(name, strip.texture_name, sizeof(name));
-                int moved = TexManager.GetTextureHandle(name, -1);
-                if (moved >= 0) {
-                    handle = moved;
-                }
-            }
-            PortTextureRef ref = Draw3DResolveHandle(handle);
+        if (lit && texture_handle >= 0) {
+            PortTextureRef ref = Draw3DResolveHandle(texture_handle);
             if (ref.valid) {
                 binding = ref.binding;
                 // SetEnv sends CLAMP_1 = 5 every frame; TEX1's MMAG picks the filter.
@@ -605,7 +611,7 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
         if (strip.ground_transition) {
             strip_state.alpha = {0, 1, 0, 1, 0x80};
             strip_state.depth_write = false;
-            if (shipwreck_fog) strip_state.fog = false;
+            if (dungeon_fog) strip_state.fog = false;
         }
 
         if (visual.immediate) {

@@ -11,6 +11,9 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
+#include <unordered_set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -24,13 +27,51 @@ struct Maps {
     TextureHandle orm = kNullTexture;
 };
 
+struct Variant {
+    MaterialProfile profile = MaterialProfile::Flat;
+    Maps maps;
+    bool excluded = false;
+};
+
+struct Record : Variant {
+    std::unordered_map<uint64_t, Variant> variants;
+};
+
 constexpr std::array<const char *, static_cast<size_t>(MaterialProfile::Count)> kNames = {
     "wood_floor", "wood_wall", "cloth", "leather", "skin", "metal", "stone", "prop", "flat",
+    "grass", "moss", "effect",
 };
 std::array<Maps, kNames.size()> g_maps{};
 uint32_t g_loaded_count = 0;
-std::unordered_map<std::string, MaterialProfile> g_texture_assignments;
-std::vector<std::pair<std::string, MaterialProfile>> g_prefix_assignments;
+std::unordered_map<std::string, Record> g_records;
+std::unordered_set<std::string> g_unresolved;
+std::unordered_set<const void *> g_untextured_surfaces;
+std::unordered_map<std::string, TextureHandle> g_loaded_files;
+std::unordered_map<uint32_t, uint64_t> g_texture_fingerprints;
+
+std::string Normalize(std::string_view name) {
+    std::string result;
+    result.reserve(name.size());
+    for (char c : name) {
+        if (c == 0) break;
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        result.push_back(c);
+    }
+    return result;
+}
+
+bool ParseFingerprint(std::string_view text, uint64_t &fingerprint) {
+    if (text.size() != 16) return false;
+    uint64_t value = 0;
+    for (char c : text) {
+        unsigned digit = c >= '0' && c <= '9' ? c - '0' :
+                         c >= 'a' && c <= 'f' ? c - 'a' + 10 : 16;
+        if (digit > 15) return false;
+        value = (value << 4) | digit;
+    }
+    fingerprint = value;
+    return true;
+}
 
 std::vector<uint8_t> Downsample(const std::vector<uint8_t> &source, int width, int height,
                                 bool normal_map, uint32_t level) {
@@ -64,7 +105,7 @@ std::vector<uint8_t> Downsample(const std::vector<uint8_t> &source, int width, i
                 result[dst + 1] = static_cast<uint8_t>(std::clamp(channels[1] + 1.5f * level, 0.0f, 255.0f));
                 result[dst + 2] = static_cast<uint8_t>(channels[2]);
             }
-            result[dst + 3] = 255;
+            result[dst + 3] = static_cast<uint8_t>(std::clamp(channels[3], 0.0f, 255.0f));
         }
     }
     return result;
@@ -73,6 +114,7 @@ std::vector<uint8_t> Downsample(const std::vector<uint8_t> &source, int width, i
 TextureHandle LoadOne(const std::filesystem::path &dir, const nlohmann::json &record, const char *field) {
     if (!record.contains(field) || !record[field].is_string()) return kNullTexture;
     const std::string name = record[field].get<std::string>();
+    if (const auto found = g_loaded_files.find(name); found != g_loaded_files.end()) return found->second;
     const std::filesystem::path leaf = PathsFromUtf8(name);
     if (leaf.filename() != leaf || leaf.extension() != ".png") return kNullTexture;
     const auto file = dir / leaf;
@@ -104,6 +146,7 @@ TextureHandle LoadOne(const std::filesystem::path &dir, const nlohmann::json &re
         }
     }
     ++g_loaded_count;
+    g_loaded_files.emplace(name, texture);
     return texture;
 }
 
@@ -120,7 +163,8 @@ bool LoadMaterialMaps(const std::filesystem::path &executable) {
     }
     try {
         const nlohmann::json manifest = nlohmann::json::parse(input);
-        if (manifest.at("version").get<int>() != 1 || !manifest.at("profiles").is_object()) {
+        if (manifest.at("version").get<int>() != 2 || !manifest.at("profiles").is_object() ||
+            !manifest.at("texture_records").is_object()) {
             std::fprintf(stderr, "material maps: unsupported manifest %s\n", PathsDisplay(file).c_str());
             return false;
         }
@@ -131,41 +175,110 @@ bool LoadMaterialMaps(const std::filesystem::path &executable) {
             g_maps[i].normal = LoadOne(dir, record, "normal");
             g_maps[i].orm = LoadOne(dir, record, "orm");
         }
-        auto read_assignments = [&](const char *key, bool prefix) {
-            if (!manifest.contains(key) || !manifest.at(key).is_object()) return;
-            const auto &groups = manifest.at(key);
-            for (size_t i = 0; i < kNames.size(); ++i) {
-                if (!groups.contains(kNames[i]) || !groups.at(kNames[i]).is_array()) continue;
-                for (const auto &entry : groups.at(kNames[i])) {
-                    if (!entry.is_string()) continue;
-                    const std::string name = entry.get<std::string>();
-                    if (name.empty() || name.size() > 32) continue;
-                    if (prefix) g_prefix_assignments.emplace_back(name, static_cast<MaterialProfile>(i));
-                    else g_texture_assignments.emplace(name, static_cast<MaterialProfile>(i));
+        for (auto it = manifest.at("texture_records").begin();
+             it != manifest.at("texture_records").end(); ++it) {
+            if (!it.value().is_object() || !it.value().contains("profile") ||
+                !it.value().at("profile").is_string()) continue;
+            const std::string name = Normalize(it.key());
+            if (name.empty() || name.size() > 32 || name != it.key()) continue;
+            const std::string profile_name = it.value().at("profile").get<std::string>();
+            const auto profile_it = std::find_if(kNames.begin(), kNames.end(),
+                                                 [&](const char *candidate) { return profile_name == candidate; });
+            if (profile_it == kNames.end()) {
+                std::fprintf(stderr, "material maps: unknown profile %s for %s\n", profile_name.c_str(), name.c_str());
+                continue;
+            }
+            Record record;
+            record.profile = static_cast<MaterialProfile>(profile_it - kNames.begin());
+            if (!it.value().contains("classification") || !it.value().at("classification").is_string()) {
+                std::fprintf(stderr, "material maps: missing classification for %s\n", name.c_str());
+                continue;
+            }
+            const std::string classification = it.value().at("classification").get<std::string>();
+            if (classification != "authored" && classification != "excluded") continue;
+            record.excluded = classification == "excluded";
+            record.maps.normal = LoadOne(dir, it.value(), "normal");
+            record.maps.orm = LoadOne(dir, it.value(), "orm");
+            bool variants_valid = true;
+            if (it.value().contains("variants")) {
+                if (!it.value().at("variants").is_object() || it.value().at("variants").empty()) {
+                    variants_valid = false;
+                } else {
+                    for (auto variant = it.value().at("variants").begin();
+                         variant != it.value().at("variants").end(); ++variant) {
+                        uint64_t fingerprint = 0;
+                        if (!ParseFingerprint(variant.key(), fingerprint) || !variant.value().is_object()) {
+                            variants_valid = false;
+                            break;
+                        }
+                        Variant value;
+                        value.profile = record.profile;
+                        value.excluded = record.excluded;
+                        if (variant.value().contains("profile")) {
+                            if (!variant.value().at("profile").is_string()) {
+                                variants_valid = false;
+                                break;
+                            }
+                            const std::string variant_profile = variant.value().at("profile").get<std::string>();
+                            const auto found_profile = std::find_if(kNames.begin(), kNames.end(),
+                                [&](const char *candidate) { return variant_profile == candidate; });
+                            if (found_profile == kNames.end()) {
+                                variants_valid = false;
+                                break;
+                            }
+                            value.profile = static_cast<MaterialProfile>(found_profile - kNames.begin());
+                        }
+                        if (variant.value().contains("classification")) {
+                            if (!variant.value().at("classification").is_string()) {
+                                variants_valid = false;
+                                break;
+                            }
+                            const std::string variant_class = variant.value().at("classification").get<std::string>();
+                            if (variant_class != "authored" && variant_class != "excluded") {
+                                variants_valid = false;
+                                break;
+                            }
+                            value.excluded = variant_class == "excluded";
+                        }
+                        value.maps = {LoadOne(dir, variant.value(), "normal"),
+                                      LoadOne(dir, variant.value(), "orm")};
+                        if (value.maps.normal == kNullTexture || value.maps.orm == kNullTexture) {
+                            variants_valid = false;
+                            break;
+                        }
+                        record.variants.emplace(fingerprint, value);
+                    }
                 }
             }
-        };
-        read_assignments("texture_assignments", false);
-        read_assignments("texture_prefix_assignments", true);
+            if (!variants_valid) {
+                std::fprintf(stderr, "material maps: invalid variants for %s\n", name.c_str());
+                continue;
+            }
+            if (record.maps.normal == kNullTexture || record.maps.orm == kNullTexture) {
+                std::fprintf(stderr, "material maps: incomplete record %s\n", name.c_str());
+                continue;
+            }
+            g_records.emplace(name, record);
+        }
     } catch (const nlohmann::json::exception &error) {
         std::fprintf(stderr, "material maps: invalid manifest %s: %s\n", PathsDisplay(file).c_str(), error.what());
         UnloadMaterialMaps();
         return false;
     }
-    std::fprintf(stderr, "material maps: loaded %u/%zu textures from %s\n", g_loaded_count,
-                 kNames.size() * 2, PathsDisplay(dir).c_str());
-    return g_loaded_count == kNames.size() * 2;
+    std::fprintf(stderr, "material maps: loaded %u images and %zu exact records from %s\n", g_loaded_count,
+                 g_records.size(), PathsDisplay(dir).c_str());
+    return !g_records.empty();
 }
 
 void UnloadMaterialMaps() {
-    for (Maps &maps : g_maps) {
-        if (maps.normal != kNullTexture) DestroyTexture(maps.normal);
-        if (maps.orm != kNullTexture) DestroyTexture(maps.orm);
-        maps = {};
-    }
+    for (const auto &[name, texture] : g_loaded_files) DestroyTexture(texture);
+    g_loaded_files.clear();
+    g_maps.fill({});
     g_loaded_count = 0;
-    g_texture_assignments.clear();
-    g_prefix_assignments.clear();
+    g_records.clear();
+    g_unresolved.clear();
+    g_untextured_surfaces.clear();
+    g_texture_fingerprints.clear();
 }
 
 TextureHandle MaterialNormalMap(MaterialProfile profile) {
@@ -180,13 +293,49 @@ TextureHandle MaterialOrmMap(MaterialProfile profile) {
 
 uint32_t MaterialMapCount() { return g_loaded_count; }
 
-MaterialProfile MaterialProfileForTexture(std::string_view texture_name) {
-    if (const auto found = g_texture_assignments.find(std::string(texture_name));
-        found != g_texture_assignments.end()) return found->second;
-    for (const auto &[prefix, profile] : g_prefix_assignments) {
-        if (texture_name.starts_with(prefix)) return profile;
+MaterialBinding ResolveMaterial(std::string_view texture_name, uint32_t texture_key) {
+    const std::string name = Normalize(texture_name);
+    if (const auto found = g_records.find(name); found != g_records.end()) {
+        const Record &record = found->second;
+        const Variant *binding = &record;
+        if (!record.variants.empty()) {
+            const auto fingerprint = g_texture_fingerprints.find(texture_key);
+            const auto variant = fingerprint == g_texture_fingerprints.end() ? record.variants.end() :
+                                 record.variants.find(fingerprint->second);
+            if (variant != record.variants.end()) binding = &variant->second;
+            else {
+                std::ostringstream identifier;
+                identifier << name << '#' << std::hex << std::setw(16) << std::setfill('0') <<
+                              (fingerprint == g_texture_fingerprints.end() ? 0 : fingerprint->second);
+                if (g_unresolved.insert(identifier.str()).second)
+                    std::fprintf(stderr, "material maps: unresolved variant %s\n", identifier.str().c_str());
+                return {};
+            }
+        }
+        return {binding->profile, binding->maps.normal, binding->maps.orm, true, binding->excluded};
     }
-    return MaterialProfile::Prop;
+    if (!name.empty() && g_unresolved.insert(name).second) {
+        std::fprintf(stderr, "material maps: unresolved texture %s\n", name.c_str());
+    }
+    return {};
+}
+
+uint32_t UnresolvedMaterialCount() { return static_cast<uint32_t>(g_unresolved.size()); }
+
+MaterialBinding ResolveUntexturedMaterial(const void *surface) {
+    if (surface != nullptr && g_untextured_surfaces.insert(surface).second) {
+        const size_t count = g_untextured_surfaces.size();
+        if ((count & (count - 1)) == 0)
+            std::fprintf(stderr, "material maps: %zu untextured strips assigned authored neutral prop detail\n", count);
+    }
+    const Maps &maps = g_maps[static_cast<size_t>(MaterialProfile::Prop)];
+    return {MaterialProfile::Prop, maps.normal, maps.orm, true, false};
+}
+
+uint32_t UntexturedMaterialCount() { return static_cast<uint32_t>(g_untextured_surfaces.size()); }
+
+void RegisterMaterialTextureFingerprint(uint32_t texture_key, uint64_t fingerprint) {
+    if (texture_key != 0) g_texture_fingerprints[texture_key] = fingerprint;
 }
 
 } // namespace gfx
