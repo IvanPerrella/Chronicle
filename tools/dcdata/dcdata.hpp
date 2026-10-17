@@ -1054,6 +1054,7 @@ inline void FillFloorPlates(const fs::path &out) {
 
 inline Summary Extract(const Archive &archive, const fs::path &out, std::FILE *log,
                        const ProgressCallback &progress = {}) {
+    const bool converted_textures = fs::is_regular_file(out / "textures/catalog.json");
     std::vector<unsigned char> hd2 = ReadExtent(archive.hd2);
     std::vector<Record>        records = ParseIndex(hd2);
     Summary                    summary;
@@ -1076,7 +1077,7 @@ inline Summary Extract(const Archive &archive, const fs::path &out, std::FILE *l
     for (const Record *record : reachable) {
         fs::path target = out / fs::path(record->path);
         summary.bytes += record->size;
-        if (IsCurrent(target, record->size)) {
+        if (!converted_textures && IsCurrent(target, record->size)) {
             summary.kept++;
             done.files++;
             done.bytes += record->size;

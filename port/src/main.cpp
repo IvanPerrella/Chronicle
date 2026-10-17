@@ -247,11 +247,11 @@ void UpdateChronicleAtmosphere() {
     gfx::AtmosphereSettings atmosphere = {};
     atmosphere.enabled = fog;
     atmosphere.background_color[0] = gallery ? 0.011f : 0.010f;
-    atmosphere.background_color[1] = gallery ? 0.008f : 0.028f;
-    atmosphere.background_color[2] = gallery ? 0.017f : 0.040f;
+    atmosphere.background_color[1] = gallery ? 0.010f : 0.028f;
+    atmosphere.background_color[2] = gallery ? 0.013f : 0.040f;
     atmosphere.lower_color[0] = gallery ? 0.012f : 0.007f;
     atmosphere.lower_color[1] = gallery ? 0.011f : 0.026f;
-    atmosphere.lower_color[2] = gallery ? 0.014f : 0.031f;
+    atmosphere.lower_color[2] = gallery ? 0.012f : 0.031f;
     atmosphere.clear_color[0] = atmosphere.background_color[0];
     atmosphere.clear_color[1] = atmosphere.background_color[1];
     atmosphere.clear_color[2] = atmosphere.background_color[2];

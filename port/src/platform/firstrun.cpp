@@ -1,4 +1,5 @@
 #include "firstrun.hpp"
+#include "../../../tools/texture_assets/texture_assets.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -405,6 +406,8 @@ FirstRunOutcome FirstRunExtract(const fs::path &source, const fs::path &root,
                 dcdata::Fail("{} files are missing or the wrong size after extraction, {} among them",
                              bad.size(), bad.front()->path);
             }
+            fs::remove(target / "textures/catalog.json");
+            texture_assets::Convert(target, [&] { return !cancel.load(); });
             if (!in_place) {
                 // The data check found root missing or without a file, so anything there is empty
                 // directories.

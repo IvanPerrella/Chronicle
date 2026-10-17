@@ -691,6 +691,24 @@ Cross enters the selected dungeon and Circle returns to the developer menu:
 with `--jump menu` enters town 1 (Norune); `0 key:grave` with `1` releasing it
 does the same from the keyboard.
 
+## PNG textures and datapacks
+
+`dcdata extract` and the first-run disc importer convert texture pixels to PNGs
+under `data/textures/`, with a `texture.json` layout descriptor for each source
+and a shared `catalog.json`. Standalone IMG/TIM2 files are removed. Packed files
+keep their non-texture data and offsets, with image and palette payloads zeroed.
+The native file loader reconstructs the game's buffers from PNGs before handing
+them to game code. Palette indices, mip levels, swizzling and normalized icon
+sheets retain their original behaviour. PS2 builds still use the original disc.
+
+For an existing extracted tree, run `dcdata textures data` once, or extract the
+disc again. Conversion verifies every reconstructed source byte before replacing
+the original files. PNGs and descriptors remain disc-derived data outside Git.
+
+The sibling `datapacks/` folder provides PNG and JSON overrides, enabled in
+`datapacks/datapacks.json`. Later folders in `load_order` take precedence. See
+[the datapack guide](../datapacks/README.md) for paths and editing constraints.
+
 ## Start-up and the main loop
 
 `port/src/main.cpp` is the executable's `main`. In order: `PathsConsumeArgs`
@@ -776,9 +794,16 @@ rate, with motion interpolated between ticks (`tools/kazarov/src/cpp/gfx/README.
 
 A grab of the frame that the tick draws back (the depth of field's blur, the water)
 is taken again by each display frame from its own image, so it lines up with the
-interpolated scene; the game's texture keeps the tick's grab. A cloth is blended
-vertex by vertex unless one moved more than 10 units in the tick, which is where
+interpolated scene; the game's texture keeps the tick's grab. Cloth vertices blend
+in their anchor frame's space, whose rotation is interpolated with the body, so
+turns keep the poncho outside the torso. A cloth keeps its newest pose if a vertex
+moved more than 10 units in the tick, which is where
 `CCloth::Step` stops simulating and carries the grid along.
+
+DLSS motion vectors for CPU-skinned meshes and cloth use the previous displayed
+vertex positions as well as the previous displayed transform. Intermediate
+display frames advance this history; canonical tick renders do not. Camera cuts
+reset it.
 
 What a display frame does not interpolate: 2D (the HUD is tick-exact), 3D
 sprites (2D quads with depth), skinned poses, objects that moved more than

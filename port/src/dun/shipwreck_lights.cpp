@@ -44,11 +44,11 @@ void RecordDungeonFireLight(const float position[4], float flicker_width, float 
     // attenuation within this radius.
     candidate.light.position_radius[1] += 4.6f;
     const bool gallery = scene == DungeonLightScene::Gallery;
-    candidate.light.position_radius[3] = (gallery ? 96.0f : 45.0f) * std::clamp(scale, 0.5f, 1.5f);
-    candidate.light.color_intensity[0] = gallery ? 0.67f : 1.0f;
+    candidate.light.position_radius[3] = (gallery ? 72.0f : 45.0f) * std::clamp(scale, 0.5f, 1.5f);
+    candidate.light.color_intensity[0] = gallery ? 0.48f : 1.0f;
     candidate.light.color_intensity[1] = gallery ? 0.18f : 0.42f;
     candidate.light.color_intensity[2] = gallery ? 1.0f : 0.13f;
-    candidate.light.color_intensity[3] = (gallery ? 2.2f : 0.8f) *
+    candidate.light.color_intensity[3] = (gallery ? 1.2f : 0.8f) *
                                          std::clamp(flicker_width, 0.85f, 1.15f) *
                                          std::clamp(scale, 0.5f, 1.5f);
 

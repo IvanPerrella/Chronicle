@@ -5,6 +5,8 @@
 
 #include "bound.hpp"
 #include "cloth.hpp"
+#include "draw3d.hpp"
+#include "frame.hpp"
 
 namespace {
 
@@ -19,9 +21,9 @@ float NormalizedRadius(const CBound &bound, const float *point) {
 
 TEST(ClothCollision, OverlappingBoundsDoNotKeepAveragedContactInside) {
     alignas(CCloth) unsigned char storage[sizeof(CCloth)] = {};
-    CCloth *cloth = new (storage) CCloth(1, 2, 1.0f);
-    CBound left(1.0f, 1.0f, 1.0f);
-    CBound right(1.0f, 1.0f, 1.0f);
+    CCloth                       *cloth = new (storage) CCloth(1, 2, 1.0f);
+    CBound                        left(1.0f, 1.0f, 1.0f);
+    CBound                        right(1.0f, 1.0f, 1.0f);
     left.position[0] = -0.5f;
     right.position[0] = 0.5f;
     left.next = &right;
@@ -48,5 +50,45 @@ TEST(ClothCollision, OverlappingBoundsDoNotKeepAveragedContactInside) {
     cloth->Step(0);
     EXPECT_GE(NormalizedRadius(left, cloth->point[0][1]), 0.999f);
     EXPECT_GE(NormalizedRadius(right, cloth->point[0][1]), 0.999f);
+    cloth->~CCloth();
+}
+
+TEST(ClothDrawing, VerticesStayInAnchorSpaceDuringTurns) {
+    alignas(CCloth) unsigned char storage[sizeof(CCloth)] = {};
+    CCloth                       *cloth = new (storage) CCloth(2, 2, 1.0f);
+    CFrame                        anchor;
+    cloth->frame = &anchor;
+    cloth->material.texture[0] = '\0';
+    unsigned int packet[kDraw3DBlockQuads * 4] = {};
+    for (float angle : {0.0f, 1.570796327f, 3.141592654f}) {
+        anchor.SetPosition(3, 4, 5);
+        anchor.SetRotation(0, angle, 0);
+        sceVu0FMATRIX world;
+        anchor.GetLWMatrix(world);
+        for (int i = 0; i < 2; ++i) {
+            for (int j = 0; j < 2; ++j) {
+                float local[4] = {2.0f + i, static_cast<float>(j), 1, 1};
+                sceVu0ApplyMatrix(cloth->point[i][j], world, local);
+                for (int axis = 0; axis < 3; ++axis) {
+                    cloth->normal_grid[i][j][axis] = world[2][axis];
+                }
+            }
+        }
+        cloth->CreateVUData(packet);
+        const Draw3DVisual *visual = Draw3DFindVisual(packet);
+        ASSERT_NE(visual, nullptr);
+        ASSERT_EQ(visual->vertices.size(), 4u);
+        for (int j = 0; j < 2; ++j) {
+            for (int i = 0; i < 2; ++i) {
+                const auto &vertex = visual->vertices[j * 2 + i];
+                EXPECT_NEAR(vertex.position[0], 2.0f + i, 0.00001f);
+                EXPECT_NEAR(vertex.position[1], j, 0.00001f);
+                EXPECT_NEAR(vertex.position[2], 1, 0.00001f);
+                EXPECT_NEAR(vertex.normal[0], 0, 0.00001f);
+                EXPECT_NEAR(vertex.normal[2], 1, 0.00001f);
+            }
+        }
+    }
+    Draw3DSweepVisuals();
     cloth->~CCloth();
 }

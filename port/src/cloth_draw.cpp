@@ -2,6 +2,7 @@
 
 #include "cloth.hpp"
 #include "draw3d.hpp"
+#include "frame.hpp"
 #include "mglib.hpp"
 #include "renderinfo.hpp"
 #include "texture.hpp"
@@ -9,13 +10,18 @@
 // The grid is rebuilt every frame from the simulation, so it is drawn as an immediate triangle
 // list: one strip per row pair, each row drawn from the far side (wound the other way) when
 // polygon_divide says so, all with the fixed cloth material and the model's texture. The vertices
-// are world positions under an identity model, so the draw is known by the cloth and the display
-// list interpolates its vertices between ticks as it does the matrices of the body it hangs from.
+// are stored relative to the anchor frame so interpolated turns carry the cloth with the body.
 PORT_OVERRIDE int CCloth::CreateVUData(u_int *packet) {
     if (packet == nullptr) {
         return kDraw3DBlockQuads;
     }
     Draw3DVisual &visual = Draw3DRegisterVisual(packet, true);
+    sceVu0FMATRIX world;
+    if (frame != nullptr) {
+        frame->GetLWMatrix(world);
+    }
+    float inverse[16];
+    bool  anchored = frame != nullptr && gfx::InvertAffineTransform(&world[0][0], inverse);
 
     Draw3DStrip strip;
     float       cloth_ambient[4] = {0.3f, 0.3f, 0.3f, 0.0f};
@@ -41,6 +47,15 @@ PORT_OVERRIDE int CCloth::CreateVUData(u_int *packet) {
         gfx::Vertex3D vertex = {};
         std::memcpy(vertex.position, point[i][j], sizeof(vertex.position));
         std::memcpy(vertex.normal, normal_grid[i][j], sizeof(vertex.normal));
+        if (anchored) {
+            for (int axis = 0; axis < 3; ++axis) {
+                vertex.position[axis] = inverse[axis] * point[i][j][0] + inverse[4 + axis] * point[i][j][1] +
+                                        inverse[8 + axis] * point[i][j][2] + inverse[12 + axis];
+                // Normals transform by the transpose of the local-to-world matrix.
+                vertex.normal[axis] = world[axis][0] * normal_grid[i][j][0] +
+                                      world[axis][1] * normal_grid[i][j][1] + world[axis][2] * normal_grid[i][j][2];
+            }
+        }
         vertex.uv[0] = texture_coord[i][j][0] * su;
         vertex.uv[1] = texture_coord[i][j][1] * sv;
         vertex.color[0] = vertex.color[1] = vertex.color[2] = vertex.color[3] = 0x80;
@@ -66,17 +81,28 @@ PORT_OVERRIDE int CCloth::CreateVUData(u_int *packet) {
 }
 
 PORT_OVERRIDE int CCloth::DrawVu1(u_int *packet, float (*matrix)[4], RenderInfo *info, VU1_PROGRAM program, u_long128 *draw_state,
-                                int unknown1, int unknown2) {
+                                  int unknown1, int unknown2) {
     CreateVUData(vu_block[DBuffID]);
     vu_data = vu_block[DBuffID];
     if (const Draw3DVisual *visual = Draw3DFindVisual(vu_data)) {
         Draw3DIdentityScope identity(this, kDraw3DTeleportDistance, true);
-        Draw3DDrawVisual(*visual, matrix, *info, program);
+        sceVu0FMATRIX       world;
+        if (frame != nullptr) {
+            frame->GetLWMatrix(world);
+        }
+        float inverse[16];
+        if (frame != nullptr && gfx::InvertAffineTransform(&world[0][0], inverse)) {
+            float anchored[4][4];
+            Draw3DMul(anchored, matrix, world);
+            Draw3DDrawVisual(*visual, anchored, *info, program);
+        } else {
+            Draw3DDrawVisual(*visual, matrix, *info, program);
+        }
     }
     return 0;
 }
 
 PORT_OVERRIDE int CCloth::DrawVu1(sceVif1Packet *packet, float (*matrix)[4], RenderInfo *info, VU1_PROGRAM program,
-                                u_long128 *draw_state, int unknown1, int unknown2) {
+                                  u_long128 *draw_state, int unknown1, int unknown2) {
     return CCloth::DrawVu1(static_cast<u_int *>(nullptr), matrix, info, program, draw_state, unknown1, unknown2);
 }

@@ -18,6 +18,9 @@
 #include "language.h"
 #include "localize.hpp"
 #include "platform/paths.hpp"
+#include "platform/datapacks.hpp"
+#include "../../tools/texture_assets/texture_assets.hpp"
+#include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
 
@@ -25,6 +28,8 @@ namespace {
 
 std::unordered_map<std::string, fs::path> data_index;
 bool                                      data_indexed;
+std::unordered_map<std::string, fs::path> texture_descriptors;
+std::unordered_map<std::string, size_t> texture_sizes;
 BG_READ_INFO                              bg_read_info[32];
 
 // Disc paths can contain names outside the active Windows code page. Index UTF-8 bytes directly;
@@ -81,6 +86,21 @@ const fs::path *Lookup(std::string_view path) {
 // The drive wrote whole sectors, so up to 2047 bytes past the file were overwritten and callers
 // sized their buffers for that; the tail is zeroed rather than left as whatever was there.
 int ReadWhole(const fs::path &file, void *buffer) {
+    const auto descriptor = texture_descriptors.find(GenericUtf8(file));
+    if (descriptor != texture_descriptors.end()) {
+        const auto resolve = [](const fs::path &relative) {
+            if (auto replacement = datapacks::Resolve(relative)) return *replacement;
+            return PathsDataRoot() / relative;
+        };
+        auto relative = descriptor->second.lexically_relative(PathsDataRoot());
+        const auto bytes = texture_assets::Read(PathsDataRoot(), resolve(relative), resolve);
+        if (bytes.size() != texture_sizes.at(GenericUtf8(file)))
+            throw std::runtime_error("datapack changed a texture source's buffer size");
+        std::memcpy(buffer, bytes.data(), bytes.size());
+        const auto padded = dcdata::SectorsFor(bytes.size()) * dcdata::kSector;
+        std::memset(static_cast<char *>(buffer) + bytes.size(), 0, padded - bytes.size());
+        return static_cast<int>(bytes.size());
+    }
     std::error_code error;
     std::uintmax_t  size = fs::file_size(file, error);
     std::ifstream   stream(file, std::ios::binary);
@@ -126,6 +146,9 @@ PORT_OVERRIDE void InitCDFile() {
     const fs::path &root = PathsDataRoot();
     std::error_code error;
     data_index.clear();
+    texture_descriptors.clear();
+    texture_sizes.clear();
+    datapacks::Load(root);
     data_indexed = false;
     if (!fs::is_directory(root, error)) {
         NoData(root, "is not a directory");
@@ -140,6 +163,22 @@ PORT_OVERRIDE void InitCDFile() {
             data_index.emplace(dcdata::FoldPath(relative), it->path());
         }
     }
+    const fs::path catalog = root / "textures/catalog.json";
+    if (fs::is_regular_file(catalog)) {
+        std::ifstream input(catalog);
+        const auto metadata = nlohmann::json::parse(input);
+        if (metadata.at("schema_version") != 1) throw std::runtime_error("unsupported texture catalog");
+        for (const auto &source : metadata.at("sources")) {
+            const auto path = source.at("path").get<std::string>();
+            const auto descriptor = source.at("descriptor").get<std::string>();
+            if (!dcdata::IsSafeRelative(path) || !dcdata::IsSafeRelative(descriptor))
+                throw std::runtime_error("unsafe texture catalog path");
+            const auto file = root / PathsFromUtf8(path);
+            data_index[dcdata::FoldPath(path)] = file;
+            texture_descriptors[GenericUtf8(file)] = root / PathsFromUtf8(descriptor);
+            texture_sizes[GenericUtf8(file)] = source.at("size").get<size_t>();
+        }
+    }
     fs::path normalized = root / "normalized";
     if (fs::is_directory(normalized)) {
         for (const fs::directory_entry &entry : fs::recursive_directory_iterator(normalized)) {
@@ -149,6 +188,11 @@ PORT_OVERRIDE void InitCDFile() {
             }
         }
     }
+    for (const auto &[file, descriptor] : texture_descriptors) {
+        auto relative = PathsFromUtf8(file).lexically_relative(normalized);
+        if (!relative.empty() && *relative.begin() != "..")
+            data_index[dcdata::FoldPath(GenericUtf8(relative))] = PathsFromUtf8(file);
+    }
     if (error) {
         std::fprintf(stderr, "%s: %s\n", PathsDisplay(root).c_str(), error.message().c_str());
     }
@@ -156,7 +200,7 @@ PORT_OVERRIDE void InitCDFile() {
         NoData(root, "is empty");
     }
     data_indexed = true;
-    CheckAgainstIndex(root);
+    if (texture_descriptors.empty()) CheckAgainstIndex(root);
 }
 
 PORT_OVERRIDE int LoadFile(char *path, void *buffer, int *out_size) {

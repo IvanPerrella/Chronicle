@@ -3,11 +3,13 @@
 #include <exception>
 
 #include "dcdata.hpp"
+#include "../texture_assets/texture_assets.hpp"
 
 namespace {
 
 int Usage() {
     std::fputs("usage: dcdata extract <iso-or-directory> <data-directory>\n"
+               "       dcdata textures <data-directory>\n"
                "       dcdata list <iso-or-directory>\n",
                stderr);
     return 2;
@@ -54,6 +56,8 @@ int Extract(const std::filesystem::path &source, const std::filesystem::path &ou
     }
     dcdata::Log(stdout, "verified {}/{} files in {}{}\n", reachable, reachable, out.string(),
                 summary.warnings ? std::format(" ({} warnings)", summary.warnings) : "");
+    std::filesystem::remove(out / "textures/catalog.json");
+    texture_assets::Convert(out);
     return 0;
 }
 
@@ -61,6 +65,10 @@ int Extract(const std::filesystem::path &source, const std::filesystem::path &ou
 
 int main(int argc, char **argv) {
     try {
+        if (argc == 3 && std::strcmp(argv[1], "textures") == 0) {
+            texture_assets::Convert(argv[2]);
+            return 0;
+        }
         if (argc == 4 && std::strcmp(argv[1], "extract") == 0) {
             return Extract(argv[2], argv[3]);
         }
