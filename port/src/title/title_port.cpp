@@ -37,6 +37,18 @@ CRect_i_ Rect(const CRect<int> &rect) { return CRect_i_(rect.x, rect.y, rect.w, 
 // TEX1 0x61: LCM 1, linear both ways, as setbilinear(1) leaves the title's sprites.
 constexpr u_long kFogTex1 = 0x61;
 
+gfx::TextureHandle fog_frame = gfx::kNullTexture;
+gfx::LogicalRect   fog_layout = {};
+
+gfx::TextureHandle FogFrameForLayout(const gfx::LogicalRect &visible) {
+    if (visible.y >= 0.0f || visible.x != fog_layout.x || visible.y != fog_layout.y ||
+        visible.w != fog_layout.w || visible.h != fog_layout.h) {
+        // Fall back to the continuously refreshed frame_image until this layout is captured.
+        fog_frame = gfx::kNullTexture;
+    }
+    return fog_frame == gfx::FindNamedRenderTarget("title fog frame") ? fog_frame : gfx::kNullTexture;
+}
+
 } // namespace
 
 // The previous frame is 640x480 logical; its TEX0 counts field rows, as the frame buffer's did.
@@ -53,12 +65,16 @@ void TitlePortFeedback(u_char alpha) {
  * Captures the title background for feedback beyond the logical frame's vertical edges.
  */
 void TitlePortCaptureFog() {
-    if (gfx::VisibleLogicalRect(gfx::kMainTarget).y >= 0.0f) {
+    const gfx::LogicalRect visible = gfx::VisibleLogicalRect(gfx::kMainTarget);
+    fog_frame = gfx::kNullTexture;
+    if (visible.y >= 0.0f) {
         return;
     }
     gfx::TextureHandle frame = gfx::NamedRenderTarget("title fog frame", 640, 480, false, false, true);
     if (frame != gfx::kNullTexture) {
         gfx::SnapshotFrame(frame);
+        fog_layout = visible;
+        fog_frame = frame;
     }
 }
 
@@ -90,7 +106,7 @@ void TitlePortFog(std::span<const TitleFogBand> bands) {
     }
 
     const gfx::LogicalRect   visible = gfx::VisibleLogicalRect(gfx::kMainTarget);
-    const gfx::TextureHandle full_frame = visible.y < 0.0f ? gfx::FindNamedRenderTarget("title fog frame") : gfx::kNullTexture;
+    const gfx::TextureHandle full_frame = FogFrameForLayout(visible);
 
     constexpr int   kTaps = 8;
     constexpr float kAcross[2] = {-0.5f, 0.5f};
