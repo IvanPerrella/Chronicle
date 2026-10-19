@@ -71,6 +71,10 @@ add_custom_command(OUTPUT ${PORT_OVERRIDES}
 # of ps2/src: it declares what the port defines in place of code PORT leaves
 # out, and supplies or renames what the unit takes from MWCC alone.
 foreach(unit IN LISTS PS2_SOURCES)
+    set(private_overrides "")
+    if(unit STREQUAL "editloop3.cpp")
+        set(private_overrides --private-variables --private-functions)
+    endif()
     set(copy ${CMAKE_BINARY_DIR}/ps2_src/${unit})
     string(REGEX REPLACE "\\.cpp$" ".hpp" header ${CMAKE_SOURCE_DIR}/port/include/stubs/${unit})
     if(EXISTS ${header})
@@ -81,7 +85,7 @@ foreach(unit IN LISTS PS2_SOURCES)
     endif()
     add_custom_command(OUTPUT ${copy}
         COMMAND ${Python3_EXECUTABLE} ${PORT_OVERRIDE_SCRIPT} strip --overrides ${PORT_OVERRIDES} ${stubs}
-            ${port_override_defines} ${PS2_DIR}/${unit} ${copy}
+            ${private_overrides} ${port_override_defines} ${PS2_DIR}/${unit} ${copy}
         DEPENDS ${PS2_DIR}/${unit} ${PORT_OVERRIDES} ${PORT_OVERRIDE_SOURCES} ${PORT_OVERRIDE_SCRIPT} ${header}
         COMMENT "Removing overridden definitions from ps2/src/${unit}"
         VERBATIM)
@@ -97,6 +101,7 @@ endforeach()
 set(PORT_OVERRIDES_CHECKED ${CMAKE_BINARY_DIR}/port_overrides.checked)
 add_custom_command(OUTPUT ${PORT_OVERRIDES_CHECKED}
     COMMAND ${Python3_EXECUTABLE} ${PORT_OVERRIDE_SCRIPT} check --overrides ${PORT_OVERRIDES}
+        --private-variables --private-functions --private-function-unit editloop3.cpp
         --stubs ${CMAKE_SOURCE_DIR}/port/include/stubs ${port_override_defines} ${PS2_DIR}
         -o ${PORT_OVERRIDES_CHECKED}
     DEPENDS ${PS2_ORIGINALS} ${PORT_OVERRIDES} ${PORT_OVERRIDE_SOURCES} ${PORT_OVERRIDE_SCRIPT}

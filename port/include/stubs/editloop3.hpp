@@ -1,5 +1,8 @@
 #pragma once
 
+#define menu_mode PortEventMenuMode
+#define _WORLD_MAP PortWorldMapCommand
+
 // The port's EdMoveVillager and EdMoveVillagerSubMap (port/src/editloop3.cpp) call this unit's
 // static EdSetVillagerNextPos, which gets a global forwarder; that also keeps clang from dropping
 // the static as unused.
