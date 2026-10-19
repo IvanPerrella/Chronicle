@@ -51,6 +51,11 @@ float SmoothVillagerGroundHeight(int villager, int map_no, float height) {
     return g_villager_ground_height[villager];
 }
 
+// The villagers retail itself keeps (the two nearest of KeepNearVillagers). Only these play their
+// footsteps: every footstep of a ground keys the same effect, so one from a villager retail would
+// not have drawn cuts off the player's, even where it is too far away to be heard.
+bool g_villager_retail_near[10] = {};
+
 // Retail's GetNearVill and the choice its callers make from it. Of the villagers flagged to draw,
 // the two nearest the player that stand in front of the camera stay flagged where they are within
 // 150 of the player, and so does every one within video.detail_distance of the player; the rest
@@ -94,9 +99,14 @@ void KeepNearVillagers(CCamera *camera, CCharacter *player) {
         }
     }
 
+    for (int i = 0; i < 10; i++) {
+        g_villager_retail_near[i] = false;
+    }
+
     for (int i = 0; i < 2; i++) {
         if (nearest[i] >= 0) {
             EdVillager[nearest[i]].near_camera = true;
+            g_villager_retail_near[nearest[i]] = true;
         }
     }
 }
@@ -105,7 +115,8 @@ void KeepNearVillagers(CCamera *camera, CCharacter *player) {
 
 // Retail's EdMoveVillager, with a larger detail distance and the fixed ground model's collision
 // added for walking villagers. The editable grid's flat polygons alone can place them above the
-// sculpted Muska Racka terrain.
+// sculpted Muska Racka terrain. A villager the detail distance keeps past retail's choice walks
+// silently.
 PORT_OVERRIDE void EdMoveVillager(VILLAGER_INFO *villagers) {
     CEditGround *ground = EdExchangeInfo.ground;
     CCharacter  *player = EdExchangeInfo.player;
@@ -178,7 +189,7 @@ PORT_OVERRIDE void EdMoveVillager(VILLAGER_INFO *villagers) {
             EdVillager[i].FootSoundEnable(0);
 
             if (EdVillager[i].CheckDraw()) {
-                EdVillager[i].FootSoundEnable(1);
+                EdVillager[i].FootSoundEnable(g_villager_retail_near[i]);
                 WorkBuffer__2->used = 0;
                 CCPoly    *polys = (CCPoly *) WorkBuffer__2->Alloc(2000);
                 int        count = 0;
