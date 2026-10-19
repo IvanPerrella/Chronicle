@@ -40,6 +40,7 @@
 #include "platform/input.hpp"
 #include "platform/overlay.hpp"
 #include "platform/paths.hpp"
+#include "quest_host.hpp"
 #include "presence.hpp"
 #include "save_slots.hpp"
 #include "savedata.hpp"
@@ -302,6 +303,7 @@ void StartNewGame() {
     for (int i = 0; i < 6; ++i) {
         std::memcpy(g_save_data.GetCharaName(i), names[i], sizeof(names[i]));
     }
+    QuestHostNewGame();
     TrialStart();
 }
 

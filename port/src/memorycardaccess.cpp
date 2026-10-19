@@ -13,6 +13,7 @@
 #include "menu_save.hpp"
 #include "platform/files.hpp"
 #include "platform/save_state.hpp"
+#include "quest_host.hpp"
 #include "save_slots.hpp"
 #include "savedata.hpp"
 
@@ -316,6 +317,8 @@ PORT_OVERRIDE int CMemoryCardAccess::SaveToMc(int file_no) {
     this->file_no = file_no;
     ConfigWord(kConfigLastFile) = file_no;
     this->card[this->port].dir_exists = 1;
+    // The quests' progress goes beside the save; a failure is reported, and the save stands.
+    QuestHostSave(SaveSlotDirectory(file_no));
     return SaveStateWrite(SaveStatePath(), CurrentState()) ? 1 : -1;
 }
 
@@ -329,6 +332,7 @@ PORT_OVERRIDE int CMemoryCardAccess::LoadFromMc(int file_no) {
     SaveState state = CurrentState();
     SaveStateRead(SaveStatePath(), state);
     memcpy(SaveData, g_image, sizeof(CSaveData));
+    QuestHostLoad(SaveSlotDirectory(file_no));
 
     // The save screen keeps starting at the last numbered save.
     if (file_no == kSaveSlotAutosave) {
@@ -359,6 +363,7 @@ PORT_OVERRIDE int CMemoryCardAccess::DeleteFile(int file_no) {
         return -1;
     }
 
+    QuestHostDelete(SaveSlotDirectory(file_no));
     fs::remove(SaveSlotDirectory(file_no), error);
     return 1;
 }
@@ -375,5 +380,9 @@ bool SaveSlotWriteAutosave() {
         return false;
     }
     BuildImage(g_image, kVersion);
-    return FilesWrite(SaveSlotPath(kSaveSlotAutosave), g_image, kImageSize, true) == FilesResult::kWritten;
+    if (FilesWrite(SaveSlotPath(kSaveSlotAutosave), g_image, kImageSize, true) != FilesResult::kWritten) {
+        return false;
+    }
+    QuestHostSave(SaveSlotDirectory(kSaveSlotAutosave));
+    return true;
 }
