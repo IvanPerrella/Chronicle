@@ -105,7 +105,7 @@ void TitlePortFog(std::span<const TitleFogBand> bands) {
         return;
     }
 
-    const gfx::LogicalRect visible = gfx::VisibleLogicalRect(gfx::kMainTarget);
+    const gfx::LogicalRect   visible = gfx::VisibleLogicalRect(gfx::kMainTarget);
     const gfx::TextureHandle full_frame = FogFrameForLayout(visible);
 
     constexpr int   taps = 8;
@@ -129,10 +129,11 @@ void TitlePortFog(std::span<const TitleFogBand> bands) {
             const float bottom = static_cast<float>(band.screen.y + band.screen.height);
             const float x0 = static_cast<float>(band.screen.x);
             const float x1 = static_cast<float>(band.screen.x + band.screen.width);
-            const float y0 = band.screen.y <= 0 ? (full_frame != gfx::kNullTexture ? visible.y : top) : top + shift;
-            const float y1 = band.screen.y + band.screen.height >= SCREEN_HEIGHT
-                                 ? (full_frame != gfx::kNullTexture ? visible.y + visible.h : bottom)
-                                 : bottom + shift;
+            const bool  full_height = full_frame != gfx::kNullTexture;
+            const float first_row = full_height ? visible.y : top;
+            const float last_row = full_height ? visible.y + visible.h : bottom;
+            const float y0 = band.screen.y <= 0 ? first_row : top + shift;
+            const float y1 = band.screen.y + band.screen.height >= SCREEN_HEIGHT ? last_row : bottom + shift;
             const float u0 = static_cast<float>(band.texel.x) + du;
             const float u1 = static_cast<float>(band.texel.x + band.texel.width) + du;
             const float v0 = static_cast<float>(band.texel.y) + (y0 - top - shift) * v_step;

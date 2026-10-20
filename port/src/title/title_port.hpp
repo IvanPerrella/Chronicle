@@ -18,7 +18,7 @@ void TitlePortFeedback(u_char alpha);
 struct TitleFogBand {
     CRect_i_ screen;
     CRect_i_ texel;
-    u_char   alpha;
+    u_char   alpha = {};
 };
 
 // The fog's bands, softened as the PS2 softened them (see the definition).

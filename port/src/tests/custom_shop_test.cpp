@@ -45,7 +45,7 @@ std::string PacName(int shop_kind, int shop_no, std::string_view expected) {
 // Whether the game's data is here. Looking a file up indexes PathsDataRoot() first, and that stops
 // the program (InitCDFile) where it is not a directory or holds nothing.
 bool HaveGameData() {
-    std::error_code error;
+    std::error_code              error;
     const std::filesystem::path &root = PathsDataRoot();
     return std::filesystem::is_directory(root, error) && !std::filesystem::is_empty(root, error);
 }

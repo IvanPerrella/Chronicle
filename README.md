@@ -114,20 +114,20 @@ Install JDK 17 and Android Studio's SDK platform 35, build tools 35.0.0, NDK 27.
 
 ```powershell
 git clone --recurse-submodules https://github.com/anxiousintrovert/Chronicle-Android.git
-cd Chronicle-Android\android
+cd Chronicle-Android\port\android
 .\fetch-deps.ps1
 .\gradlew.bat assembleDebug
 ```
 
 The Gradle wrapper pins Gradle 8.13. `fetch-deps.ps1` downloads SDL 3.4.16 and glslang 16.6.0, checking
 their archive SHA-256 values before extraction. The debug APK is written to
-`android/app/build/outputs/apk/debug/app-debug.apk`.
+`port/android/app/build/outputs/apk/debug/app-debug.apk`.
 
-For local device testing, `android/publish-test-apk.ps1` builds and zips a timestamp-labeled package,
+For local device testing, `port/android/publish-test-apk.ps1` builds and zips a timestamp-labeled package,
 archives previous Chronicle test packages in `DARKCLOUDBUILDS`, and leaves the current ZIP in the chosen
 destination root. Its default destination is the maintainer's mapped `Z:\` Games share; pass
 `-DestinationRoot` to use another folder.
 
-See [`android/README.md`](android/README.md) for prerequisites, setup, and build details. Prebuilt test
+See [`port/android/README.md`](port/android/README.md) for prerequisites, setup, and build details. Prebuilt test
 packages, when available, are published on the [GitHub Releases page](https://github.com/anxiousintrovert/Chronicle-Android/releases).
 They contain the app only; users must supply their own compatible PAL disc image.

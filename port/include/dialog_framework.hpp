@@ -187,16 +187,16 @@ void                SetExternalLocalizeLookup(ExternalLocalizeFn lookup_fn);
 void                SetTokenContext(const TokenContext &token_ctx);
 const TokenContext &GetTokenContext() noexcept;
 
-std::string              ResolveKey(std::string_view key_or_raw);
-std::string              SubstituteTokens(std::string_view             text,
-                                          std::span<const std::string> positional_args = {},
-                                          const TokenContext          *token_ctx = nullptr);
-std::string              StripControlCodes(std::string_view markup_text);
+std::string ResolveKey(std::string_view key_or_raw);
+std::string SubstituteTokens(std::string_view             text,
+                             std::span<const std::string> positional_args = {},
+                             const TokenContext          *token_ctx = nullptr);
+std::string StripControlCodes(std::string_view markup_text);
 /**
  * Lists the framework localization keys and their English text.
  */
 std::vector<std::pair<std::string, std::string>> Strings();
-std::vector<std::string> SplitRawPages(std::string_view markup_text);
+std::vector<std::string>                         SplitRawPages(std::string_view markup_text);
 
 // Layout & measurement
 void                SetTextMeasurer(MeasureTextWidthFn measurer_fn);

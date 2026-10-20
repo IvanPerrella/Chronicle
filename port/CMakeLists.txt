@@ -269,7 +269,7 @@ endif()
 # The strings the port draws itself, translated (docs/LOCALIZATION.md): lang/ beside the executable, where the
 # game reads its language files.
 if(ANDROID)
-    set(ANDROID_ASSETS ${CMAKE_SOURCE_DIR}/android/app/src/main/assets)
+    set(ANDROID_ASSETS ${CMAKE_SOURCE_DIR}/port/android/app/src/main/assets)
     file(MAKE_DIRECTORY ${ANDROID_ASSETS}/lang ${ANDROID_ASSETS}/glyphs)
     file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/lang/ DESTINATION ${ANDROID_ASSETS}/lang)
     configure_file(${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf ${ANDROID_ASSETS}/lang/font.ttf COPYONLY)

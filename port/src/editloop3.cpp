@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "battlemenu.hpp"
 #include "boxvu0.hpp"
 #include "camera.hpp"
 #include "camerafollow.hpp"
@@ -32,12 +33,15 @@
 #include "npcharacter.hpp"
 #include "platform/config.hpp"
 #include "quest_host.hpp"
+#include "runscript.hpp"
 #include "savedata.hpp"
 
 void PortEdSetVillagerNextPos(CNPCharacter *villager, VILLAGER_INFO *info, CEditGround *ground);
 int  PortEdRunEvent(int program, CDataAlloc2<1> *arena);
 
 namespace {
+
+RS_STACKDATA *world_map_result = nullptr;
 
 float g_villager_ground_height[10] = {};
 bool  g_villager_ground_height_valid[10] = {};
@@ -834,4 +838,35 @@ PORT_OVERRIDE int EdTalkMode(CCharacter *player, CCameraFollow *camera, int mode
 // Starts the event interpreter held by this translation unit.
 PORT_OVERRIDE int EdRunEvent(int program, CDataAlloc2<1> *arena) {
     return PortEdRunEvent(program, arena);
+}
+
+/**
+ * Runs the original town menu handler.
+ */
+int PortOriginalEdMenuMode();
+
+PORT_OVERRIDE int PortEventMenuMode = ED_MENU_NONE;
+
+/**
+ * Opens the world map while retaining the script result pointer at native width.
+ */
+PORT_OVERRIDE int PortWorldMapCommand(RS_STACKDATA *stack, int argument_count) {
+    if (stack->type != RS_PTR) {
+        return 0;
+    }
+    world_map_result = stack->p;
+    PortEventMenuMode = ED_MENU_WORLD_MAP;
+    return 1;
+}
+
+/**
+ * Publishes the world-map choice when its menu finishes.
+ */
+int EdMenuMode() {
+    const int done = PortOriginalEdMenuMode();
+    if (done && PortEventMenuMode == ED_MENU_WORLD_MAP && world_map_result != nullptr) {
+        world_map_result->i = MenuMapJumpMode + 1;
+        world_map_result = nullptr;
+    }
+    return done;
 }

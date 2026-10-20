@@ -111,9 +111,9 @@ void GinaOnTheSlingshot(Scene &scene) {
 } // namespace
 
 std::span<const Quest::Text> CarlsSlingshotTexts() {
-    static constexpr Text texts[] = {kCarlAsk,    kCarlAbout, kCarlStory, kCarlWaiting, kCarlBird,
-                                     kCarlAgain,  kCarlJunk,  kCarlNoRoom, kReceived,   kGinaAbout,
-                                     kGinaExcuse, kGinaBird,  kGinaConfess, kGinaWaiting};
+    static constexpr Text texts[] = {kCarlAsk, kCarlAbout, kCarlStory, kCarlWaiting, kCarlBird,
+                                     kCarlAgain, kCarlJunk, kCarlNoRoom, kReceived, kGinaAbout,
+                                     kGinaExcuse, kGinaBird, kGinaConfess, kGinaWaiting};
     return texts;
 }
 
