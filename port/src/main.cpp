@@ -1,4 +1,7 @@
 #include <SDL3/SDL_stdinc.h>
+#ifdef __SWITCH__
+#include "switch_main.hpp"
+#endif
 
 #include <cstddef>
 #include <cstdint>
@@ -430,7 +433,7 @@ int Run(int argc, const char **argv) {
     if (options.font != nullptr) {
         LocalizeSetFontPath(PathsFromUtf8(options.font));
     }
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__SWITCH__)
     if (options.export_text == nullptr) {
         // Once per save folder: the extracted data's text as JSON for translators (docs/LOCALIZATION.md).
         std::filesystem::path seed = PathsSaveRoot() / "lang-export";
@@ -455,8 +458,10 @@ int Run(int argc, const char **argv) {
 
     DisplaySetOverrides(options.width, options.height, options.headless);
     WindowConfig window = DisplayWindowConfig(config);
-#if defined(__ANDROID__)
-    window.fixed_display = true;
+#if defined(__SWITCH__)
+    window.width = 0;
+    window.height = 0;
+    window.fullscreen = true;
 #endif
     bool offscreen = options.offscreen || (options.headless && !gfx::HeadlessSurfaceAvailable());
     window.vulkan = !offscreen;
@@ -474,6 +479,9 @@ int Run(int argc, const char **argv) {
     renderer.display_aspect = 4.0f / 3.0f;
     renderer.present_mode = PresentMode(config.present_mode);
     renderer.pipeline_cache = PathsSaveRoot() / "pipeline_cache.bin";
+#if defined(__SWITCH__)
+    SwitchConfigureRenderer(renderer);
+#endif
     renderer.progress = ReportShaderProgress;
     renderer.offscreen = offscreen;
     renderer.render_thread = config.render_thread;
@@ -712,7 +720,11 @@ int func_01DD2220() {
 
 #ifndef DC_NO_ENTRYPOINT
 PORT_OVERRIDE int main(int argc, const char **argv, const char **envp) {
+#if defined(__SWITCH__)
+    return SwitchMain(argc, argv, Run);
+#else
     return Run(argc, argv);
+#endif
 }
 
 #if defined(__ANDROID__)

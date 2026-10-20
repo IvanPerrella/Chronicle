@@ -84,6 +84,7 @@ for files elsewhere. Build output stays in `port/build/`.
 | `macos-arm64`         | macOS ARM64   | Debug                               |
 | `windows-x64-release` | Windows x64   | Release                             |
 | `windows-x64`         | Windows x64   | Debug                               |
+| `switch`              | Nintendo Switch | Homebrew `.nro` (see [`docs/SWITCH.md`](docs/SWITCH.md)) |
 
 ### Build Options
 

@@ -16,7 +16,12 @@ enable_language(CXX)
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+if(NINTENDO_SWITCH)
+    # newlib exposes some POSIX declarations only outside strict ISO mode.
+    set(CMAKE_CXX_EXTENSIONS ON)
+else()
+    set(CMAKE_CXX_EXTENSIONS OFF)
+endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # darkcloud is position-independent (DC_LINK_OPTIONS below).
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -28,11 +33,18 @@ endif()
 
 include(${KZ_ROOT}/cmake/KazarovPort.cmake)
 
+if(NINTENDO_SWITCH)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/switch/switch.cmake)
+endif()
+
 # Python runs the port override script from the Kazarov submodule.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 # Flatpak builds have no network: their single-file libraries are staged in audio_decoders/ and stb_truetype/; others fetch them.
 set(KZ_PORT_VENDOR_DIRS ${CMAKE_SOURCE_DIR}/audio_decoders ${CMAKE_SOURCE_DIR}/stb_truetype)
 kz_port_host_library(dc_host)
+if(NINTENDO_SWITCH)
+    dc_switch_host(dc_host)
+endif()
 # Chronicle still loads retail HD/BD/SQ audio. These compatibility declarations extend the shared
 # semantic audio API; every host and game unit must see the same class definitions.
 target_include_directories(dc_host BEFORE PRIVATE ${CMAKE_SOURCE_DIR}/port/include)
@@ -42,6 +54,9 @@ set(PORT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 file(GLOB_RECURSE PS2_SOURCES CONFIGURE_DEPENDS RELATIVE ${PS2_DIR} ${PS2_DIR}/*.cpp)
 file(GLOB_RECURSE PORT_SOURCES CONFIGURE_DEPENDS ${PORT_DIR}/*.cpp)
 list(FILTER PORT_SOURCES EXCLUDE REGEX "/tests/")
+if(NINTENDO_SWITCH)
+    list(FILTER PORT_SOURCES EXCLUDE REGEX "/platform/(discord|firstrun)\\.cpp$")
+endif()
 # Temporary files beside a source are not units.
 list(FILTER PS2_SOURCES EXCLUDE REGEX "(^|/)tmp[^/]*$")
 
@@ -121,7 +136,12 @@ target_include_directories(dc_options INTERFACE
 target_compile_options(dc_options INTERFACE
     "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/include/port.h\""
     -fms-extensions -ffunction-sections -fdata-sections
-    -Wno-register -Wno-c++11-narrowing -Wno-return-mismatch)
+    -Wno-register)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(dc_options INTERFACE -fpermissive -Wno-narrowing -fno-aggressive-loop-optimizations)
+else()
+    target_compile_options(dc_options INTERFACE -Wno-c++11-narrowing -Wno-return-mismatch)
+endif()
 # arm64 clang fuses a*b+c into one rounding by default; x86-64 has no FMA in its
 # baseline. Off everywhere so the game's arithmetic rounds the same on both.
 target_compile_options(dc_options INTERFACE -ffp-contract=off)
@@ -140,8 +160,12 @@ target_link_libraries(dc_ps2 PRIVATE dc_options)
 # that return a value, and ps2/src keeps both because the match depends on
 # them. MWCC gave each a defined if arbitrary result; these flags give the port
 # a defined one too, along with the type punning and wraparound the code assumes.
-target_compile_options(dc_ps2 PRIVATE -ftrivial-auto-var-init=zero -fno-strict-return
-    -fno-strict-aliasing -fwrapv)
+target_compile_options(dc_ps2 PRIVATE -ftrivial-auto-var-init=zero -fno-strict-aliasing -fwrapv)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(dc_ps2 PRIVATE -Werror=return-type)
+else()
+    target_compile_options(dc_ps2 PRIVATE -fno-strict-return)
+endif()
 # What is left on warns about behaviour the port may still need to answer for:
 # uninitialised reads, missing returns, format strings, overlapping copies and
 # the like. What is turned off describes how MWCC-era source is spelled -- string
@@ -194,6 +218,9 @@ file(CONFIGURE OUTPUT ${SHADER_HEADER_DIR}/options/credits.hpp
 
 kz_port_sce_sources(DC_SCE_SOURCES LIBS libvu0 libpad libmc sifdev sifrpc eekernel libcdvd libgraph libdma libpkt)
 add_library(dc_port OBJECT ${PORT_LIB_SOURCES} ${DC_SCE_SOURCES})
+if(NINTENDO_SWITCH)
+    dc_switch_port(dc_port)
+endif()
 target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json kz_port_headers)
 target_include_directories(dc_port PRIVATE ${PORT_DIR} ${SHADER_HEADER_DIR})
 # captionfont.cpp rasterizes with stb_truetype, which Kazarov stages (or fetches) for dc_host.
@@ -219,7 +246,9 @@ target_compile_options(dc_port PRIVATE -Wall -Wno-mismatched-tags -Wno-unused-la
 # the names that are not aliases, EditGaijiTbl among them. ItemPutListTbl12_bytes
 # is not one: port/include/stubs/dngstatusdata.hpp turns GetItem's read through
 # it into a WeaponList lookup.
-if(WIN32)
+if(NINTENDO_SWITCH)
+    set(DC_LINK_OPTIONS -Wl,--gc-sections -Wl,--defsym=draw_rect=draw_rect_store -Wl,--defsym=WorkBuffer__2=WorkBuffer)
+elseif(WIN32)
     # The two aliases are /alternatename directives in port/src/linknames.cpp.
     set(DC_LINK_OPTIONS -fuse-ld=lld -Wl,--gc-sections -Wl,--error-limit=0)
 elseif(APPLE)
@@ -255,6 +284,9 @@ else()
     set(darkcloud_target darkcloud)
 endif()
 dc_link_game(${darkcloud_target})
+if(NINTENDO_SWITCH)
+    dc_switch_nro(darkcloud)
+endif()
 if(WIN32)
     target_link_options(darkcloud PRIVATE -municode)
     enable_language(RC)
@@ -262,7 +294,7 @@ if(WIN32)
 endif()
 
 include(GNUInstallDirs)
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT NINTENDO_SWITCH)
     install(TARGETS darkcloud RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
@@ -301,10 +333,10 @@ endif()
 
 # The tests use an installed GoogleTest, or fetch one at configure time; a build with neither turns them off.
 option(DC_BUILD_TESTS "Build darkcloud_tests" ON)
-if(DC_BUILD_TESTS AND NOT ANDROID)
+if(DC_BUILD_TESTS AND NOT ANDROID AND NOT NINTENDO_SWITCH)
     enable_testing()
     add_subdirectory(src/tests)
 endif()
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT NINTENDO_SWITCH)
     add_subdirectory(${CMAKE_SOURCE_DIR}/tools/dcdata ${CMAKE_BINARY_DIR}/tools/dcdata)
 endif()
