@@ -444,7 +444,7 @@ PORT_OVERRIDE void TitleDraw() {
         }
 
         MGSetAmbient(ambient);
-        Cloud__2.SetScale(TitlePortBackdropScale(), 1.0f, 1.0f);
+        Cloud__2.SetScale(TitlePortBackdropScale(), TitlePortBackdropHeightScale(), 1.0f);
         Cloud__2.Draw();
     }
 
@@ -474,6 +474,7 @@ PORT_OVERRIDE void TitleDraw() {
         sceGsTex0 tex0;
         sceGsTex0 image;
 
+        TitlePortCaptureFog();
         MGGetFBuffTex(&tex0);
         image = std::bit_cast<sceGsTex0>(TexManager.GetTexture("frame_image", -1)->tex0);
         tex0.PSM = 1;
