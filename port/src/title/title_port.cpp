@@ -105,8 +105,11 @@ void TitlePortFog(std::span<const TitleFogBand> bands) {
         return;
     }
 
-    const gfx::LogicalRect   visible = gfx::VisibleLogicalRect(gfx::kMainTarget);
-    const gfx::TextureHandle full_frame = FogFrameForLayout(visible);
+    const gfx::LogicalRect    visible = gfx::VisibleLogicalRect(gfx::kMainTarget);
+    const gfx::TextureHandle  full_frame = FogFrameForLayout(visible);
+    const bool                full_height = full_frame != gfx::kNullTexture;
+    const float               last_texel = (full_height ? (visible.y + visible.h) * 0.5f : SCREEN_HALF_HEIGHT_F) - 0.5f;
+    const gfx::TextureBinding binding{.texture = full_frame, .ignore_alpha = true};
 
     constexpr int   taps = 8;
     constexpr float across[2] = {-0.5f, 0.5f};
@@ -129,7 +132,6 @@ void TitlePortFog(std::span<const TitleFogBand> bands) {
             const float bottom = static_cast<float>(band.screen.y + band.screen.height);
             const float x0 = static_cast<float>(band.screen.x);
             const float x1 = static_cast<float>(band.screen.x + band.screen.width);
-            const bool  full_height = full_frame != gfx::kNullTexture;
             const float first_row = full_height ? visible.y : top;
             const float last_row = full_height ? visible.y + visible.h : bottom;
             const float y0 = band.screen.y <= 0 ? first_row : top + shift;
@@ -138,7 +140,7 @@ void TitlePortFog(std::span<const TitleFogBand> bands) {
             const float u1 = static_cast<float>(band.texel.x + band.texel.width) + du;
             const float v0 = static_cast<float>(band.texel.y) + (y0 - top - shift) * v_step;
             const float v1 = std::min(static_cast<float>(band.texel.y) + (y1 - top - shift) * v_step,
-                                      (full_frame != gfx::kNullTexture ? (visible.y + visible.h) * 0.5f : SCREEN_HALF_HEIGHT_F) - 0.5f);
+                                      last_texel);
             if (y1 <= y0) {
                 continue;
             }
@@ -149,13 +151,7 @@ void TitlePortFog(std::span<const TitleFogBand> bands) {
                 draw2d::Vertex(x1, y1, 0.0f, u1, v1, 0x80, 0x80, 0x80, a),
                 draw2d::Vertex(x0, y1, 0.0f, u0, v1, 0x80, 0x80, 0x80, a),
             };
-            if (full_frame != gfx::kNullTexture) {
-                gfx::TextureBinding binding;
-                binding.texture = full_frame;
-                binding.filter = gfx::Filter::Linear;
-                binding.wrap_u = gfx::Wrap::Clamp;
-                binding.wrap_v = gfx::Wrap::Clamp;
-                binding.ignore_alpha = true;
+            if (full_height) {
                 for (gfx::Vertex2D &vertex : quad) {
                     vertex.v *= 2.0f;
                 }

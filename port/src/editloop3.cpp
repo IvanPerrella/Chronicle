@@ -840,11 +840,6 @@ PORT_OVERRIDE int EdRunEvent(int program, CDataAlloc2<1> *arena) {
     return PortEdRunEvent(program, arena);
 }
 
-/**
- * Runs the original town menu handler.
- */
-int PortOriginalEdMenuMode();
-
 PORT_OVERRIDE int PortEventMenuMode = ED_MENU_NONE;
 
 /**
@@ -862,8 +857,8 @@ PORT_OVERRIDE int PortWorldMapCommand(RS_STACKDATA *stack, int argument_count) {
 /**
  * Publishes the world-map choice when its menu finishes.
  */
-int EdMenuMode() {
-    const int done = PortOriginalEdMenuMode();
+int PortEdEventMenuMode() {
+    const int done = EdMenuMode();
     if (done && PortEventMenuMode == ED_MENU_WORLD_MAP && world_map_result != nullptr) {
         world_map_result->i = MenuMapJumpMode + 1;
         world_map_result = nullptr;
