@@ -8,6 +8,7 @@
 #include "area_card.hpp"
 #include "clsmes.hpp"
 #include "dataread.hpp"
+#include "dialog_framework.hpp"
 #include "gameloop.hpp"
 #include "gamepad.hpp"
 #include "gameutil.hpp"
@@ -20,6 +21,7 @@
 #include "platform/display.hpp"
 #include "platform/input.hpp"
 #include "platform/window.hpp"
+#include "quests/quests.hpp"
 #include "snd.hpp"
 #include "sound.hpp"
 #include "texture.hpp"
@@ -714,6 +716,12 @@ std::vector<std::pair<std::string, std::string>> OptionStrings() {
         out.push_back(std::move(entry));
     }
     for (auto &entry : UI::JournalStrings()) {
+        out.push_back(std::move(entry));
+    }
+    for (auto &entry : Dialog::Strings()) {
+        out.push_back(std::move(entry));
+    }
+    for (auto &entry : QuestStrings()) {
         out.push_back(std::move(entry));
     }
     return out;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -12,6 +13,7 @@
 #include "gametext.hpp"
 #include "itemdata.hpp"
 #include "menuetc.hpp"
+#include "platform/paths.hpp"
 #include "shop.hpp"
 
 // ps2/src/shop.cpp's prices, as custom_shop.cpp declares them.
@@ -38,6 +40,14 @@ std::string PacName(int shop_kind, int shop_no, std::string_view expected) {
     auto name = std::make_unique<char[]>(expected.size() + 1);
     ItemShopGetPacFileName(shop_kind, shop_no, name.get());
     return name.get();
+}
+
+// Whether the game's data is here. Looking a file up indexes PathsDataRoot() first, and that stops
+// the program (InitCDFile) where it is not a directory or holds nothing.
+bool HaveGameData() {
+    std::error_code error;
+    const std::filesystem::path &root = PathsDataRoot();
+    return std::filesystem::is_directory(root, error) && !std::filesystem::is_empty(root, error);
 }
 
 std::string ImageName(int shop_kind, int shop_no, std::string_view expected) {
@@ -81,6 +91,9 @@ TEST_F(CustomShopTest, LeavesRetailShopsAsTheyAre) {
 }
 
 TEST_F(CustomShopTest, AKeeperTheDataDoesNotHaveIsLooksOwn) {
+    if (!HaveGameData()) {
+        GTEST_SKIP() << "the game's data is not here";
+    }
     CustomShop shop;
     shop.look = 0;
     shop.keeper = "gedit/none/chara/zz99a.chr";
@@ -91,7 +104,7 @@ TEST_F(CustomShopTest, AKeeperTheDataDoesNotHaveIsLooksOwn) {
 
 TEST_F(CustomShopTest, ATownModelStandsBehindTheCounter) {
     const char *villager = "gedit/e01/chara/p13a.chr";
-    if (DataFileSize(villager) == 0) {
+    if (!HaveGameData() || DataFileSize(villager) == 0) {
         GTEST_SKIP() << "the game's data is not here";
     }
     CustomShop shop;

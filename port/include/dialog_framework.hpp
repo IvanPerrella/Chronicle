@@ -192,6 +192,10 @@ std::string              SubstituteTokens(std::string_view             text,
                                           std::span<const std::string> positional_args = {},
                                           const TokenContext          *token_ctx = nullptr);
 std::string              StripControlCodes(std::string_view markup_text);
+/**
+ * Lists the framework localization keys and their English text.
+ */
+std::vector<std::pair<std::string, std::string>> Strings();
 std::vector<std::string> SplitRawPages(std::string_view markup_text);
 
 // Layout & measurement

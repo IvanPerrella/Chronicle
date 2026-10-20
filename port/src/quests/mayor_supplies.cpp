@@ -62,6 +62,11 @@ void HandOutSupplies(Scene &scene) {
 const int kNoruneMayorSupplies[5] = {ITEM_TASTY_WATER, ITEM_BREAD, ITEM_REPAIR_POWDER, ITEM_ESCAPE_POWDER,
                                      ITEM_ANTIDOTE_DRINK};
 
+std::span<const Quest::Text> MayorSuppliesTexts() {
+    static constexpr Text texts[] = {kAsk, kHere, kBuggy, kStocked, kNoRoom};
+    return texts;
+}
+
 Quest::Definition MayorSupplies() {
     return Quest::Builder("mayor_supplies")
         .Stages({"open"})
