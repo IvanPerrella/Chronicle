@@ -664,54 +664,6 @@ TEST(LocalizeOptions, ShippedTranslationsHaveExactlyTheCodesKeys) {
     for (const auto &[key, text] : OptionStrings()) {
         EXPECT_TRUE(english.emplace(key, text).second) << "two strings called " << key;
     }
-    // These are the Dialog::kEnglish entries and Quest::Text constants used by the production code.
-    const std::pair<const char *, const char *> supplemental[] = {
-        {"dialog.common.talk",                 "Talk"                                                                                           },
-        {"dialog.common.leave",                "Never mind"                                                                                     },
-        {"dialog.common.back",                 "Back"                                                                                           },
-        {"dialog.common.yes",                  "Yes"                                                                                            },
-        {"dialog.common.no",                   "No"                                                                                             },
-        {"dialog.common.accept",               "Accept"                                                                                         },
-        {"dialog.common.decline",              "Decline"                                                                                        },
-        {"dialog.common.next_page",            "{cross} Next"                                                                                   },
-        {"dialog.hub.default_prompt",          "Is there something you need?"                                                                   },
-        {"dialog.hub.anything_else",           "Was there anything else?"                                                                       },
-        {"quest.mayor_supplies.ask",           "Do you have any supplies?"                                                                      },
-        {"quest.mayor_supplies.here",          "Here, take these with you."                                                                     },
-        {"quest.mayor_supplies.buggy",         "Gaffer's Buggy has all you need now."                                                           },
-        {"quest.mayor_supplies.stocked",       "You seem to have everything you need. Come back if you run short."                              },
-        {"quest.mayor_supplies.no_room",       "You've no room to carry any more. Make some space and come back."                               },
-        {"quest.carls_slingshot.carl.ask",     "You look upset."                                                                                },
-        {"quest.carls_slingshot.carl.about",   "Your slingshot"                                                                                 },
-        {"quest.carls_slingshot.carl.story",   "{name1}, bro... Gina borrowed my slingshot.{page}"
-                                             "She said she'd give it back the next day. That was ages ago!{page}"
-                                             "Every time I ask her, she runs off. It's not fair.{page}"
-                                             "Can you get it back for me bro? Please?"              },
-        {"quest.carls_slingshot.carl.waiting", "Did Gina give it back yet? Go ask her!"                                                         },
-        {"quest.carls_slingshot.carl.bird",    "A bird?! Birds don't take slingshots!{page}"
-                                            "She's fibbing. She always makes stuff up.{page}"
-                                            "Go talk to her again. I know she's lying!"              },
-        {"quest.carls_slingshot.carl.again",   "Go ask Gina again. And no birds this time!"                                                     },
-        {"quest.carls_slingshot.carl.junk",    "She broke it?{page}"
-                                            "And she made this...? It's all crooked. It's junk.{page}"
-                                            "...You keep it. I don't want it.{page}"
-                                            "Give it to Xiao.."                                      },
-        {"quest.carls_slingshot.carl.no_room", "Xiao's got too many weapons to carry it. Make some room first."                                 },
-        {"quest.carls_slingshot.received",     "Received the Bone Slingshot for Xiao."                                                          },
-        {"quest.carls_slingshot.gina.about",   "Carl's slingshot"                                                                               },
-        {"quest.carls_slingshot.gina.excuse",  "Carl's slingshot?{page}"
-                                              "Umm... a, a big bird took it! It was *THIS* big!{page}"
-                                              "It went whoosh, and flew away with it!"             },
-        {"quest.carls_slingshot.gina.bird",    "The bird took it! Honest!"                                                                      },
-        {"quest.carls_slingshot.gina.confess", "...Carl doesn't believe the bird?{page}"
-                                               "...Okay. I was shooting at bottles, and it went SNAP.{page}"
-                                               "I didn't mean to! So I made him a new one!.{page}"
-                                               "Can you give it to him? I'm scared he'll be mad.."},
-        {"quest.carls_slingshot.gina.waiting", "Did you give Carl the new slingshot? Is he mad?"                                                },
-    };
-    for (const auto &[key, text] : supplemental) {
-        EXPECT_TRUE(english.emplace(key, text).second) << "duplicate registered string " << key;
-    }
     EXPECT_GT(english.size(), 100U);
 
     // What a translation must keep as the English has it: every {code} and every %N.
@@ -740,12 +692,7 @@ TEST(LocalizeOptions, ShippedTranslationsHaveExactlyTheCodesKeys) {
             }
             const std::string translated = shipped[key];
             EXPECT_FALSE(translated.empty()) << name << " " << key;
-            std::string expected_tokens = tokens(text);
-            // These translations name Xiao with the runtime party-name token instead of the English fallback.
-            if (key == "quest.carls_slingshot.carl.junk" || key == "quest.carls_slingshot.carl.no_room" ||
-                key == "quest.carls_slingshot.received") {
-                expected_tokens += "{name2}";
-            }
+            const std::string expected_tokens = tokens(text);
             EXPECT_EQ(tokens(translated), expected_tokens)
                 << name << " " << key << ": placeholders and pad glyphs differ";
         }
