@@ -706,7 +706,6 @@ PORT_OVERRIDE int CVisualVu1::CreateVUdataFromMDTRemake(u_int *block, u_int *dat
     u_int  *index = view.strip;
     size_t  vertex = 0;
     size_t  strip_number = 0;
-    bool    vertices_changed = false;
     for (int s = 0; s < view.strips; s++) {
         uint32_t count = index[1];
         int      material = static_cast<int>(index[2]);
@@ -724,18 +723,17 @@ PORT_OVERRIDE int CVisualVu1::CreateVUdataFromMDTRemake(u_int *block, u_int *dat
         }
         strip_number++;
         for (uint32_t i = 0; i < count && vertex < visual->vertices.size(); i++, index += view.stride, vertex++) {
-            gfx::Vertex3D      &out = visual->vertices[vertex];
-            const gfx::Vertex3D before = out;
+            gfx::Vertex3D &out = visual->vertices[vertex];
             std::memcpy(out.position, view.vertex[index[0]], sizeof(out.position));
             if (view.colour) {
                 for (int c = 0; c < 4; c++) {
                     out.color[c] = ColourByte(view.colour[index[3]][c]);
                 }
             }
-            vertices_changed |= std::memcmp(&before, &out, sizeof(out)) != 0;
         }
     }
-    if (vertices_changed && visual->mesh != gfx::kNullMesh) {
+    // Record stationary poses too: a display frame needs both ends when animation starts or stops.
+    if (visual->mesh != gfx::kNullMesh) {
         gfx::UpdateMeshVertices(visual->mesh, 0, visual->vertices);
     }
     return vu_size;
@@ -745,17 +743,18 @@ PORT_OVERRIDE int CVisualVu1::CreateVUdataFromMDTRemake(u_int *block, u_int *dat
 
 // copy_on_draw kept a private copy of the block for each draw because the DMA read it at the end
 // of the frame; the renderer orders a remake after a draw of the same frame by itself.
+// Use one host mesh across display buffers so consecutive poses retain the same surface identity.
 PORT_OVERRIDE int CVisualMDTVu1::DrawVu1(u_int *packet, float (*matrix)[4], RenderInfo *info, VU1_PROGRAM program,
                                          u_long128 *draw_state, int unknown1, int unknown2) {
-    vu_data = vu_data_buffer[DBuffID];
+    vu_data = vu_data_buffer[0];
     int result = CVisualVu1::DrawVu1(packet, matrix, info, program, draw_state, unknown1, unknown2);
-    vu_data = vu_data_buffer[DBuffID];
+    vu_data = vu_data_buffer[0];
     return result;
 }
 
 PORT_OVERRIDE int CVisualMDTVu1::DrawVu1(sceVif1Packet *packet, float (*matrix)[4], RenderInfo *info, VU1_PROGRAM program,
                                          u_long128 *draw_state, int unknown1, int unknown2) {
-    vu_data = vu_data_buffer[DBuffID];
+    vu_data = vu_data_buffer[0];
     return CVisualVu1::DrawVu1(static_cast<u_int *>(nullptr), matrix, info, program, draw_state, unknown1, unknown2);
 }
 
@@ -763,5 +762,5 @@ PORT_OVERRIDE int CVisualMDTVu1::RemakeData(u_int *block) {
     if (data == nullptr) {
         return 0;
     }
-    return CreateVUdataFromMDTRemake(vu_data_buffer[DBuffID], data, 1);
+    return CreateVUdataFromMDTRemake(vu_data_buffer[0], data, 1);
 }

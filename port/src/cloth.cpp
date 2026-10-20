@@ -4,24 +4,49 @@
 #include <memory>
 
 #include "draw3d.hpp"
+#include "frame.hpp"
 #include "mglib.hpp"
 #include "renderinfo.hpp"
 #include "texture.hpp"
 
 namespace {
 
-// CCloth::Step carries the grid along rigidly, without simulating, when its root moved further than
-// this in a tick (a cut, a warp, a turn on the spot in an event). The vertices of the two ticks are
-// then not one motion, and blended they pass through each other, so such a tick is not blended.
+// Cut interpolation for attachment or local deformation jumps beyond the simulation's reset distance.
 constexpr float kClothResetDistance = 10.0f;
+
+void ClothDrawMatrix(CFrame *frame, sceVu0FMATRIX matrix) {
+    sceVu0UnitMatrix(matrix);
+    if (frame == nullptr) {
+        return;
+    }
+    sceVu0FMATRIX world;
+    frame->GetLWMatrix(world);
+    sceVu0CopyVector(matrix[3], world[3]);
+
+    // Use a rigid basis so scale and shear stay in the vertices and the inverse remains exact.
+    sceVu0FVECTOR x;
+    sceVu0FVECTOR y;
+    sceVu0FVECTOR z;
+    sceVu0Normalize(x, world[0]);
+    sceVu0OuterProduct(z, x, world[1]);
+    if (sceVu0InnerProduct(x, x) == 0.0f || sceVu0InnerProduct(z, z) == 0.0f) {
+        return;
+    }
+    sceVu0Normalize(z, z);
+    sceVu0OuterProduct(y, z, x);
+    sceVu0CopyVector(matrix[0], x);
+    sceVu0CopyVector(matrix[1], y);
+    sceVu0CopyVector(matrix[2], z);
+    matrix[0][3] = matrix[1][3] = matrix[2][3] = 0.0f;
+}
 
 } // namespace
 
 // The grid is rebuilt every frame from the simulation, so it is drawn as an immediate triangle
 // list: one strip per row pair, each row drawn from the far side (wound the other way) when
 // polygon_divide says so, all with the fixed cloth material and the model's texture. The vertices
-// are world positions under an identity model, so the draw is known by the cloth and the display
-// list interpolates its vertices between ticks as it does the matrices of the body it hangs from.
+// are relative to the attachment frame, so display frames carry them with the body's rotation
+// while interpolating the simulated deformation separately.
 PORT_OVERRIDE int CCloth::CreateVUData(u_int *packet) {
     if (packet == nullptr) {
         return kDraw3DBlockQuads;
@@ -30,6 +55,10 @@ PORT_OVERRIDE int CCloth::CreateVUData(u_int *packet) {
         return kDraw3DBlockQuads;
     }
     Draw3DVisual &visual = Draw3DRegisterVisual(packet, true);
+    sceVu0FMATRIX model;
+    sceVu0FMATRIX inverse;
+    ClothDrawMatrix(frame, model);
+    sceVu0InversMatrix(inverse, model);
 
     Draw3DStrip strip;
     float       cloth_ambient[4] = {0.3f, 0.3f, 0.3f, 0.0f};
@@ -52,8 +81,14 @@ PORT_OVERRIDE int CCloth::CreateVUData(u_int *packet) {
 
     auto add = [&](int i, int j) {
         gfx::Vertex3D vertex = {};
-        std::memcpy(vertex.position, point[i][j], sizeof(vertex.position));
-        std::memcpy(vertex.normal, normal_grid[i][j], sizeof(vertex.normal));
+        sceVu0FVECTOR world_point = {point[i][j][0], point[i][j][1], point[i][j][2], 1.0f};
+        sceVu0FVECTOR local_point;
+        sceVu0FVECTOR local_normal;
+        sceVu0ApplyMatrix(local_point, inverse, world_point);
+        sceVu0FVECTOR world_normal = {normal_grid[i][j][0], normal_grid[i][j][1], normal_grid[i][j][2], 0.0f};
+        sceVu0ApplyMatrix(local_normal, inverse, world_normal);
+        std::memcpy(vertex.position, local_point, sizeof(vertex.position));
+        std::memcpy(vertex.normal, local_normal, sizeof(vertex.normal));
         vertex.uv[0] = texture_coord[i][j][0] * su;
         vertex.uv[1] = texture_coord[i][j][1] * sv;
         vertex.color[0] = vertex.color[1] = vertex.color[2] = vertex.color[3] = 0x80;
@@ -78,13 +113,15 @@ PORT_OVERRIDE int CCloth::CreateVUData(u_int *packet) {
     return kDraw3DBlockQuads;
 }
 
-PORT_OVERRIDE int CCloth::DrawVu1(u_int *packet, float (*matrix)[4], RenderInfo *info, VU1_PROGRAM program, u_long128 *draw_state,
+PORT_OVERRIDE int CCloth::DrawVu1(u_int *packet, float (* /*matrix*/)[4], RenderInfo *info, VU1_PROGRAM program, u_long128 *draw_state,
                                   int unknown1, int unknown2) {
     CreateVUData(vu_block[DBuffID]);
     vu_data = vu_block[DBuffID];
     if (const Draw3DVisual *visual = Draw3DFindVisual(vu_data)) {
+        sceVu0FMATRIX model;
+        ClothDrawMatrix(frame, model);
         Draw3DIdentityScope identity(this, kClothResetDistance, true);
-        Draw3DDrawVisual(*visual, matrix, *info, program);
+        Draw3DDrawVisual(*visual, model, *info, program);
     }
     return 0;
 }
@@ -100,7 +137,6 @@ PORT_OVERRIDE int CCloth::DrawVu1(sceVif1Packet *packet, float (*matrix)[4], Ren
 
 #include "bound.hpp"
 #include "cloth.hpp"
-#include "frame.hpp"
 #include "stubs/cloth.hpp"
 #include "vu0_ops.hpp"
 #include "wind.hpp"

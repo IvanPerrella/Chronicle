@@ -790,12 +790,20 @@ rate, with motion interpolated between ticks (`tools/kazarov/src/cpp/gfx/README.
 
 A grab of the frame that the tick draws back (the depth of field's blur, the water)
 is taken again by each display frame from its own image, so it lines up with the
-interpolated scene; the game's texture keeps the tick's grab. A cloth is blended
-vertex by vertex unless one moved more than 10 units in the tick, which is where
-`CCloth::Step` stops simulating and carries the grid along.
+interpolated scene; the game's texture keeps the tick's grab. Cloth draws use a
+rigid coordinate system attached to their frame, with scale retained in the
+vertices. Display frames interpolate that transform and the local deformation
+separately, so turns carry the poncho around the body instead of blending its
+world positions through it. A frame or local vertex movement over 10 units cuts
+interpolation. The simulation and its world-space collisions are unchanged.
+
+Animated MDT visuals use the first VU block's host mesh for both display
+buffers. The display list records each remake, including stationary poses, so
+body geometry matches between ticks and interpolates alongside attached cloth.
+Alternating host meshes would prevent the renderer from matching those poses.
 
 What a display frame does not interpolate: 2D (the HUD is tick-exact), 3D
-sprites (2D quads with depth), skinned poses, objects that moved more than
+sprites (2D quads with depth), objects that moved more than
 `kDraw3DTeleportDistance` (200 units) in a tick, a camera that moved more than
 200 units or turned more than 45 degrees, and the first tick of every mode
 (`RunGame` cuts there). `interpolation = off` presents each canonical image once,
