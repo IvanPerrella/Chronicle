@@ -8,7 +8,6 @@
 #include "caption_text.hpp"
 #include "gameutil.hpp"
 #include "gfx/gfx.hpp"
-#include "item_icon3d.hpp"
 #include "itemdata.hpp"
 #include "memcard.hpp"
 #include "menu_dungeon.hpp"
@@ -158,8 +157,4 @@ PORT_OVERRIDE void DrawMenuVibeItem(int x, int y, int offset_x, int offset_y, in
 
         DrawAttachNumberOrWeapon(item_x, item_y, 0, 0x280, item_no, number, 0x80, 1);
     }
-}
-
-PORT_OVERRIDE CTexture *RetCTex(short item_no, int &u, int &v) {
-    return ItemIcon3DRetCTex(item_no, u, v);
 }

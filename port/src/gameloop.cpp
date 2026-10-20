@@ -30,7 +30,6 @@
 #include "gamemode.hpp"
 #include "gamepad.hpp"
 #include "gametext.hpp"
-#include "item_icon3d.hpp"
 #include "langset.hpp"
 #include "localize.hpp"
 #include "main.hpp"
@@ -908,7 +907,6 @@ std::string GameFpsText() {
 // kPreviousFrame outside a frame is the newest main image: the canonical render, or the loading
 // screen's frame after it. ReadbackFrame would read a display frame, overlay and all.
 bool GameScreenshot(std::vector<std::uint8_t> &rgba, std::uint32_t &width, std::uint32_t &height) {
-    ItemIcons3DDumpDebug();
     return gfx::ReadbackTexture(gfx::kPreviousFrame, rgba, width, height);
 }
 

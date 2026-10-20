@@ -13,7 +13,6 @@
 #include "character.hpp"
 #include "dataset.hpp"
 #include "dun/gameloop.hpp"
-#include "dungeon_aerial.hpp"
 #include "dungeonparts.hpp"
 #include "frame.hpp"
 #include "frameattr.hpp"
@@ -610,10 +609,6 @@ PORT_OVERRIDE void CDungeonMap::DrawDummyModel(CCamera *camera) {
             }
         }
     }
-}
-
-PORT_OVERRIDE void CDungeonMap::DrawMiniMap(float *pos, float angle) {
-    DrawDungeonAerialMap(this, pos, angle);
 }
 
 // Moon Sea places Atla across an open field, so distance from the player does not hide them.
