@@ -1,13 +1,10 @@
 #include "menu_draw.hpp"
 
-#include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 
 #include "caption_text.hpp"
 #include "gameutil.hpp"
-#include "gfx/gfx.hpp"
 #include "itemdata.hpp"
 #include "memcard.hpp"
 #include "menu_dungeon.hpp"
@@ -51,13 +48,9 @@ PORT_OVERRIDE void DrawFullSizePicture(CTexture *texture, int x, int y, int alph
     if (texture == nullptr) {
         return;
     }
-    // Stretch full-screen backdrops across the visible logical target to fill widescreen viewports.
-    gfx::LogicalRect visible = gfx::VisibleLogicalRect(gfx::kMainTarget);
-    int              left = x + static_cast<int>(std::floor(visible.x));
-    int              top = y + static_cast<int>(std::floor(visible.y));
-    int              right = x + static_cast<int>(std::ceil(visible.x + visible.w));
-    int              bottom = y + static_cast<int>(std::ceil(visible.y + visible.h));
-    DrawMenu2DSprite(texture, CRect_i_(left, top, right - left, bottom - top), MenuDispRc, alpha);
+    // PAL artwork has 448 rows; the renderer expands full-screen sprites to the viewport.
+    DrawMenu2DSprite(texture, CRect_i_(x, y, MenuDispRc.width, MenuDispRc.height),
+                     CRect_i_(0, 0, 640, 448), alpha);
 }
 
 PORT_OVERRIDE void DrawMenu2DSprite(CTexture *texture, CRect_i_ screen, CRect_i_ texel, unsigned char r, unsigned char g,

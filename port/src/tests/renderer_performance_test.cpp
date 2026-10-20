@@ -9,8 +9,36 @@
 #include "gameloop.hpp"
 #include "gfx/displaylist.hpp"
 #include "gfx_fixture.hpp"
+#include "menu_draw.hpp"
+#include "menu_inventory.hpp"
 #include "platform/clock.hpp"
 #include "renderinfo.hpp"
+#include "texture.hpp"
+#include "texture_port.hpp"
+
+TEST(ChroniclePresentation, FullSizePictureFillsWidescreenWithoutSamplingPastArtwork) {
+    dc::test::GfxFixture fixture(1280, 720, 1.0f, dc::test::GfxOptions{.offscreen = true});
+    PortDecodedTexture   image;
+    image.width = 640;
+    image.height = 448;
+    image.levels.emplace_back(640 * 448 * 4, 255);
+    for (unsigned y = 0; y < image.height; ++y) {
+        for (unsigned x = 0; x < image.width; ++x) {
+            image.levels[0][(y * image.width + x) * 4] = static_cast<uint8_t>(y / 2);
+            image.levels[0][(y * image.width + x) * 4 + 1] = static_cast<uint8_t>(x / 3);
+        }
+    }
+    const unsigned key = PortCreateTexture(image, PortTextureOwner::Manager, nullptr);
+    ASSERT_NE(key, 0u);
+    CTexture texture;
+    texture.tex0 = SCE_GS_SET_TEX0(key, 10, 0, 10, 9, 1, 0, 0, 0, 0, 0, 0);
+    fixture.Frame({0, 0, 0, 128}, [&] { DrawFullSizePicture(&texture, 0, 0, 128); });
+    EXPECT_TRUE(fixture.PixelNear(80, 360, 112, 13, 255));
+    EXPECT_TRUE(fixture.PixelNear(1200, 360, 112, 200, 255));
+    EXPECT_TRUE(fixture.PixelNear(640, 360, 112, 106, 255));
+    EXPECT_TRUE(fixture.PixelNear(640, 684, 212, 106, 255));
+    PortReleaseKey(key);
+}
 
 TEST(ChroniclePresentation, ClearedVisualBlocksAreRejectedBetweenSweeps) {
     alignas(16) unsigned int block[16] = {};
