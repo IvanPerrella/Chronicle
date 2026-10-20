@@ -9,7 +9,8 @@
 # The Flatpak job (docs/FLATPAK.md) packages the Linux build in Flathub's
 # freedesktop 26.08 image. Its manifest uses the commit under test as a git
 # source, and its smoke run checks that the packaged binary reaches its data
-# check. All three downloadable builds belong to the same workflow run.
+# check. The PC builds belong to the same workflow run. The large Switch
+# toolchain is built on manual dispatch so it can be checked without slowing each PC change.
 name: PC builds
 
 on:
@@ -52,7 +53,7 @@ jobs:
         working-directory: port/build/pc
         run: |
           llvm-readobj --file-headers darkcloud | grep -q 'Type: SharedObject'
-          env -u DC_DATA ctest --output-on-failure -j4
+          env -u DC_DATA ctest --output-on-failure -j2
 
       - name: Audit pointer truncations
         run: /usr/bin/python3 scripts/port/truncations.py --build port/build/pc --check
@@ -91,7 +92,7 @@ jobs:
       # The runner's Apple Paravirtual GPU draws black for two of Kazarov's prog0 cases that pass on
       # Apple silicon.
       - name: Test
-        run: ctest --preset macos-arm64 -E '^GfxMeshDc2\.(RefSphere|Prog0CullModeFollowsFlagAndMirror)$'
+        run: ctest --preset macos-arm64 -E '^GfxGpuMeshDc2\.(RefSphere|Prog0CullModeFollowsFlagAndMirror)$'
 
       # No game data: one stand-in file gets darkcloud through renderer start-up and pipeline compilation to the
       # game's first asset load, which fails with status 4 naming the file.
@@ -118,7 +119,7 @@ jobs:
           [ "$status" -eq 0 ] || [ "$status" -eq 4 ]
 
       - name: Package the macOS build
-        run: tar -czf artifacts/chronicle-macos-arm64.tar.gz -C port/build/macos-arm64 darkcloud dcdata
+        run: tar -czf artifacts/chronicle-macos-arm64.tar.gz -C port/build/macos-arm64 darkcloud dcdata lang glyphs
 
       - name: Upload the macOS build
         uses: actions/upload-artifact@v7
@@ -170,13 +171,13 @@ jobs:
           Copy-Item $env:VULKAN_RUNTIME/vulkan-1.dll port/build/windows
 
       # The renderer's cases run on Linux and macOS: this runner's Vulkan loader has no surface extension, so the cases
-      # that open a window (GfxMeshDc2, GfxTim2's upload) cannot start here.
+      # GPU cases cannot start here. The named GfxGpu tests create the same surface even when they render offscreen.
       - name: Test
-        run: ctest --test-dir port/build/windows --output-on-failure -j4 -E '^(GfxMisc|GfxMeshDc2|GfxTim2|TexDecode|AreaCard|CaptionLine)\.'
+        run: ctest --test-dir port/build/windows --output-on-failure -j4 -E '(^|/)GfxGpu|^(GfxMisc|GfxMeshDc2|GfxTim2|TexDecode|AreaCard|CaptionLine|TextureBuffer)\.|^ChroniclePresentation\.(FullSizePictureFillsWidescreenWithoutSamplingPastArtwork|ClothTurnsWithItsAttachmentWithoutBlendingAcrossTheBody|AsyncPublishesAndStopsTheWorker|AdjacentMatchingStripsBatchWithoutReorderingMaterials|AnimatedBodyMatchesAcrossDisplayBuffersAndStationaryPoses)$'
 
       - name: Package the Windows build
         run: |
-          $files = @('darkcloud.exe', 'dcdata.exe', 'libc++.dll', 'libunwind.dll', 'libwinpthread-1.dll', 'SDL3.dll', 'vulkan-1.dll')
+          $files = @('darkcloud.exe', 'dcdata.exe', 'libc++.dll', 'libunwind.dll', 'libwinpthread-1.dll', 'SDL3.dll', 'vulkan-1.dll', 'lang', 'glyphs')
           $paths = $files | ForEach-Object { Join-Path 'port/build/windows' $_ }
           Compress-Archive -LiteralPath $paths -DestinationPath chronicle-windows-x64.zip
 
@@ -233,3 +234,26 @@ jobs:
           cat run.txt
           echo "darkcloud exited $status"
           [ "$status" -eq 3 ] && grep -q 'no game data: /tmp/xdg/chronicle/data' run.txt
+
+  switch:
+    if: github.event_name == 'workflow_dispatch'
+    name: Build Nintendo Switch homebrew
+    runs-on: ubuntu-26.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Build the Switch NRO
+        run: port/switch/build.sh
+
+      - name: Upload the Switch build
+        uses: actions/upload-artifact@v7
+        with:
+          name: chronicle-switch
+          path: |
+            port/build/switch/darkcloud.nro
+            port/build/switch/lang/**
+            port/build/switch/glyphs/**
+          if-no-files-found: error

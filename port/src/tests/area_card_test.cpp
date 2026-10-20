@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -15,6 +16,13 @@
 #include "texture_port.hpp"
 
 namespace {
+
+constexpr std::array<uint8_t, 70> kBlackRgbaPng = {
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x60, 0x60, 0x60, 0xF8,
+    0x0F, 0x00, 0x01, 0x04, 0x01, 0x00, 0x5F, 0xE5, 0xC3, 0x4B, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
 
 struct CardFiles {
     std::filesystem::path dir = std::filesystem::temp_directory_path() /
@@ -43,8 +51,10 @@ void CheckTranslatedCard(const char *text) {
     std::ofstream(files.dir / "fr_fr.json") << "{\"area.mt01\":\"" << text << "\"}";
     std::ofstream(files.dir / "textures" / "plates" / "mt01.json")
         << R"({"layout":{"underline":0},"style":{"fill":[255,255,255],"edge_width":0,"glow_width":0}})";
-    const uint8_t black[] = {0, 0, 0, 255};
-    ASSERT_TRUE(gfx::WritePng(files.dir / "textures" / "plates" / "mt01.png", black, 1, 1));
+    std::ofstream plate(files.dir / "textures" / "plates" / "mt01.png", std::ios::binary);
+    plate.write(reinterpret_cast<const char *>(kBlackRgbaPng.data()), kBlackRgbaPng.size());
+    plate.close();
+    ASSERT_TRUE(plate.good());
     const auto font = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path() /
                       "tools" / "font" / "DarkCloudCompendium.ttf";
     ASSERT_TRUE(capfont::Load(font));

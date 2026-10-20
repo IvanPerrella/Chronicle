@@ -10,7 +10,9 @@ EXTRACT_STATIC         = YES
 INPUT                  = ps2/src \
                          ps2/include \
                          README.md \
-                         docs/PC.md
+                         docs/PC.md \
+                         docs/SWITCH.md \
+                         port/android/README.md
 FILE_PATTERNS          = *.c \
                          *.cpp \
                          *.h \

@@ -31,6 +31,14 @@ if(NOT EXISTS ${KZ_ROOT}/include/kazarov/port.h)
     message(FATAL_ERROR "${KZ_ROOT} is empty: run git submodule update --init tools/kazarov")
 endif()
 
+# Flatpak stages pinned FetchContent sources before its network-restricted CMake build.
+foreach(dependency IN ITEMS simdjson fastgltf)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/${dependency}/CMakeLists.txt")
+        string(TOUPPER "${dependency}" dependency_upper)
+        set(FETCHCONTENT_SOURCE_DIR_${dependency_upper} "${CMAKE_SOURCE_DIR}/${dependency}" CACHE PATH "" FORCE)
+    endif()
+endforeach()
+
 include(${KZ_ROOT}/cmake/KazarovPort.cmake)
 
 if(NINTENDO_SWITCH)

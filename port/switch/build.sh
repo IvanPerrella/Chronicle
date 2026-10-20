@@ -17,8 +17,8 @@ if [ "$preset" != switch ]; then
     exit 2
 fi
 
-# Include the SDL patch in the tag so editing it rebuilds the image.
-tag=$(cat "$containerfile" "$root/port/switch/patches/sdl-vulkan-window-without-egl.patch" | sha256sum | cut -c1-12)
+# Include every patch in the tag so editing one rebuilds the image.
+tag=$({ cat "$containerfile"; cat "$root"/port/switch/patches/*.patch; } | sha256sum | cut -c1-12)
 image=$name:$tag
 if ! "$builder" image inspect "$image" > /dev/null 2>&1; then
     echo "switch: building $image (the first build takes a while)" >&2
