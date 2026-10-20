@@ -10,6 +10,17 @@ to and records the phases; this document describes what is built.
 
 ## Building and running
 
+`run.bat` and `run.sh` launch native builds with `port/run/` as their working
+directory and explicitly select `port/run/data/` and `port/run/save/`. Runtime
+files, including soundtrack files, Windows icons and shortcuts, and relative
+screenshot output, stay under this ignored directory. Explicit `--data` and
+`--save` arguments override these script defaults. Relative file arguments are
+resolved from `port/run/`; use absolute paths for inputs elsewhere.
+
+For an existing checkout, move `data/`, `save/`, `soundtrack/` and `darkcloud.ico`
+from the repository root into `port/run/` before the first script launch to keep
+using them. A directly launched executable retains the path defaults below.
+
 ```sh
 ./build.sh linux-x64
 (cd port/build/pc && ctest --output-on-failure -j4)

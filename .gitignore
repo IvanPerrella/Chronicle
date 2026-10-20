@@ -2,6 +2,7 @@
 /build/
 /ps2/build/*
 /port/build/*
+/port/run/
 !/ps2/build/.gitkeep
 !/port/build/.gitkeep
 

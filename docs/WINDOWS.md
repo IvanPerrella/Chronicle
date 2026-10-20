@@ -47,7 +47,7 @@ downloads and locks in `<checkout>\.kazarov`, which both configurations share:
 ## Game data
 
 `run.bat` extracts the data with `dcdata.exe` from `rom\pal\Dark Cloud (PAL).iso`,
-or from `rom\Dark Cloud (PAL).iso` when the first is missing, into `data\` in the checkout.
+or from `rom\Dark Cloud (PAL).iso` when the first is missing, into `port\run\data\` in the checkout.
 It records the disc's and `dcdata.exe`'s sizes and times in `data\.kazarov-data`, so a
 later run with both unchanged skips the extraction.
 
@@ -80,6 +80,9 @@ Options, controls and `config.json` are described in `docs/PC.md`. Without
 explicit paths or local directories, Windows uses
 `%LOCALAPPDATA%/chronicle/data` and `%LOCALAPPDATA%/chronicle/save` before the
 XDG/HOME fallbacks. `--data`, `--save`, `DC_DATA` and `DC_SAVE` take precedence.
+`run.bat` explicitly selects `port\run\data` and `port\run\save` and launches
+from `port\run`, keeping runtime output there. Pass `--data` or `--save` to the
+script to override its defaults; use absolute paths for inputs outside that folder.
 
 `--offscreen`, `--frames`, `--input` and `--screenshot` work as on Linux for
 bounded runs; `DC_AUDIO=off` disables the audio device. Offscreen rendering

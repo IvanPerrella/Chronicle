@@ -66,6 +66,12 @@ build.bat <configuration>
 ./run.sh <configuration> [arguments]
 ```
 
+Native runs through `run.bat` or `run.sh` keep runtime files in the ignored
+`port/run/` directory: extracted data in `data/`, saves and settings in `save/`,
+and soundtrack files, icons and relative screenshot output alongside them.
+Relative input and output arguments resolve from `port/run/`; use absolute paths
+for files elsewhere. Build output stays in `port/build/`.
+
 ### Build Configurations
 
 | Configuration         | Platform      | Build                               |
