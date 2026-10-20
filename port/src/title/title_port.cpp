@@ -76,21 +76,21 @@ void TitlePortFog(std::span<const TitleFogBand> bands) {
         return;
     }
 
-    constexpr int   kTaps = 8;
-    constexpr float kAcross[2] = {-0.5f, 0.5f};
-    constexpr float kFieldOffset[2] = {1.125f, -1.375f};
-    constexpr float kFieldStep[2] = {-0.5f, 0.0f};
-    constexpr float kDown[2] = {-0.5f, 0.5f};
+    constexpr int   taps = 8;
+    constexpr float across[2] = {-0.5f, 0.5f};
+    constexpr float field_offset[2] = {1.125f, -1.375f};
+    constexpr float field_step[2] = {-0.5f, 0.0f};
+    constexpr float down[2] = {-0.5f, 0.5f};
 
-    for (int tap = 0; tap < kTaps; tap++) {
+    for (int tap = 0; tap < taps; tap++) {
         for (const TitleFogBand &band : bands) {
-            const float u_step = static_cast<float>(band.texel.width) / static_cast<float>(band.screen.width);
-            const float v_step = static_cast<float>(band.texel.height) / static_cast<float>(band.screen.height);
-            const float du = -0.5f * u_step + kAcross[tap & 1];
-            const float dv = kFieldOffset[(tap >> 1) & 1] + 2.0f * v_step * kFieldStep[(tap >> 1) & 1] + kDown[tap >> 2];
-            const float shift = -dv / v_step;
-            const float share = static_cast<float>(band.alpha) / 128.0f / static_cast<float>(kTaps);
-            const float blend = share / (1.0f - static_cast<float>(kTaps - 1 - tap) * share);
+            const float  u_step = static_cast<float>(band.texel.width) / static_cast<float>(band.screen.width);
+            const float  v_step = static_cast<float>(band.texel.height) / static_cast<float>(band.screen.height);
+            const float  du = -0.5f * u_step + across[tap & 1];
+            const float  dv = field_offset[(tap >> 1) & 1] + 2.0f * v_step * field_step[(tap >> 1) & 1] + down[tap >> 2];
+            const float  shift = -dv / v_step;
+            const float  share = static_cast<float>(band.alpha) / 128.0f / static_cast<float>(taps);
+            const float  blend = share / (1.0f - static_cast<float>(taps - 1 - tap) * share);
             const u_char a = static_cast<u_char>(std::lround(std::clamp(blend, 0.0f, 1.0f) * 128.0f));
 
             const float top = static_cast<float>(band.screen.y);

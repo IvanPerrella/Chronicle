@@ -56,6 +56,7 @@ struct Folders {
         fs::remove_all(root, error);
         fs::create_directories(data);
     }
+
     ~Folders() {
         std::error_code error;
         fs::remove_all(root, error);
@@ -80,7 +81,7 @@ TEST(DcdataTextures, ALanguagesFolderIsNamedByItsDirectory) {
 
 TEST(DcdataTextures, APictureDecodesWithPs2AlphaDoubled) {
     std::vector<unsigned char> file = Image("tex", 2, 2, 9);
-    auto pictures = dcdata::DecodeTim2(file, 0x40, false);
+    auto                       pictures = dcdata::DecodeTim2(file, 0x40, false);
     ASSERT_EQ(pictures.size(), 1u);
     EXPECT_EQ(pictures[0].width, 2u);
     EXPECT_EQ(pictures[0].rgba[0], 9);
@@ -93,10 +94,10 @@ TEST(DcdataTextures, PngsRoundTripThroughThePortsReader) {
         rgba[i] = static_cast<uint8_t>((i / 8) * 5);
     }
     Folders f;
-    auto png = dcdata::EncodePng(rgba.data(), 64, 32);
+    auto    png = dcdata::EncodePng(rgba.data(), 64, 32);
     Put(f.root / "p.png", png);
-    int w = 0;
-    int h = 0;
+    int                  w = 0;
+    int                  h = 0;
     std::vector<uint8_t> back;
     ASSERT_TRUE(imagefile::LoadPng(f.root / "p.png", w, h, back));
     EXPECT_EQ(w, 64);
@@ -118,8 +119,8 @@ TEST(DcdataTextures, APictureTheAreasShareIsWrittenOnceAndADifferentOneInItsArea
     EXPECT_FALSE(fs::exists(f.assets / "d01" / "textures" / "same.png"));
     EXPECT_FALSE(fs::exists(f.assets / "d02" / "textures" / "same.png"));
     EXPECT_TRUE(fs::exists(f.assets / "textures" / "only.png"));
-    int w = 0;
-    int h = 0;
+    int                  w = 0;
+    int                  h = 0;
     std::vector<uint8_t> px;
     ASSERT_TRUE(imagefile::LoadPng(f.assets / "d03" / "textures" / "same.png", w, h, px));
     EXPECT_EQ(px[0], 2);

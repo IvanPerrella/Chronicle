@@ -1,6 +1,5 @@
-#include "quests/quests.hpp"
-
 #include "itemdata.hpp"
+#include "quests/quests.hpp"
 
 // The Mayor of Norune's supplies. Retail's talk script (gedit/e01/event.stb, the talk event) hands
 // the player one of each of these they have none of, in the pack or stored, each time they talk to

@@ -15,7 +15,7 @@ inline constexpr int kNoruneMayorLines = 280;
 
 // The Mayor of Norune's supplies, a choice of his menu rather than handed out unasked: Tasty Water,
 // Bread, Repair Powder, Escape Powder and Antidote Drink, as his talk script hands them out.
-extern const int kNoruneMayorSupplies[5];
+extern const int  kNoruneMayorSupplies[5];
 Quest::Definition MayorSupplies();
 
 // Carl's Slingshot: Gina borrowed it and won't give it back; the Bone Slingshot for Xiao in the end.

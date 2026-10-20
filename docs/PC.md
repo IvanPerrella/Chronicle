@@ -32,7 +32,7 @@ same.
 It needs clang 20 with lld, Python 3, CMake 3.28, Ninja,
 `glslangValidator`, SDL3 (3.4) and the Vulkan 1.4 headers and loader, and at
 run time a device with Vulkan 1.3 or later, `dualSrcBlend` and `shaderClipDistance`
-(any desktop driver; Mesa's lavapipe in CI; `tools/kazarov/port/gfx/README.md`, "Device", has the whole list). `.github/workflows/pc.yml` is a
+(any desktop driver; Mesa's lavapipe in CI; `tools/kazarov/src/cpp/gfx/README.md`, "Device", has the whole list). `.github/workflows/pc.yml` is a
 complete recipe on Ubuntu 26.04.
 
 The game's files come from the disc (see "Game data"). Without them a
@@ -138,6 +138,7 @@ key is optional; these are the defaults:
     "video": {
         "present_mode": "fifo",     // fifo, mailbox or immediate (each falls back to the next safer one)
         "interpolation": true,      // false: present each tick's image once, as rendered
+        "render_thread": "async",   // off, lockstep or async; takes effect after restarting
         "max_fps": 0,               // display frames per second at most; 0: as the present mode allows
         "text_font": "sharp",       // sharp: message text from lang/font.ttf; original: the game's bitmaps
         "width": 0,                 // window size in pixels; 0: the monitor's resolution. Both 0: fullscreen on the
@@ -275,7 +276,7 @@ next one.
 ### Keyboard and mouse
 
 The keyboard and the mouse drive pad 1 next to the first gamepad
-(`tools/kazarov/port/platform/input.cpp`, `mouse.cpp`); a second gamepad is pad 2.
+(`tools/kazarov/src/cpp/platform/input.cpp`, `mouse.cpp`); a second gamepad is pad 2.
 The defaults, and what the game does with each button (PAL, English: the
 dungeon's `PadInput_OK` is cross and `PadInput_NO` circle,
 `ps2/src/dun/gameloop.cpp:1666`):
@@ -504,7 +505,7 @@ the item viewer) and the event script's `GET_APAD` read the stick alone.
 
 ### Scripted input
 
-`--input FILE` (`tools/kazarov/port/platform/input_script.cpp`) replaces the pads with
+`--input FILE` (`tools/kazarov/src/cpp/platform/input_script.cpp`) replaces the pads with
 a script, through `InputSetOverride`. Each line is
 
 ```
@@ -751,7 +752,7 @@ with the hardware taken out, line for line otherwise:
 ### Ticks and display frames
 
 The game logic runs at the fixed tick rate; the window is presented at its own
-rate, with motion interpolated between ticks (`tools/kazarov/port/gfx/README.md`,
+rate, with motion interpolated between ticks (`tools/kazarov/src/cpp/gfx/README.md`,
 "Display lists"):
 
 1. `MGBeginFrame` starts recording the tick's display list: what the game draws,
@@ -799,7 +800,7 @@ With `video.show_fps` (on by default; `fps_toggle`, F3, flips it at any
 time), every presented frame carries one line at the window's top-left
 corner, in the game's own message font (white with a black edge, as the menus
 draw their text) while a mode has the font's textures loaded, and in the
-port's 5x7 font (`tools/kazarov/port/platform/overlay.cpp`, white on a translucent black
+port's 5x7 font (`tools/kazarov/src/cpp/platform/overlay.cpp`, white on a translucent black
 backdrop, on whole pixels: one per logical unit, rounded) on the loading
 screens and between modes, where it has not:
 
@@ -848,7 +849,7 @@ that mode's `case`: the developer menu sets `mode` itself and returns 1.
 
 ## Platform
 
-The host side is Kazarov's `tools/kazarov/port` (`gfx`, `audio`, `platform`, `sce`); `port/src/platform` keeps the game's config, firstrun, discord and save_state.
+The host side is Kazarov's `tools/kazarov/src/cpp` (`gfx`, `audio`, `platform`, `sce`); `port/src/platform` keeps the game's config, firstrun, discord and save_state.
 They build as `dc_host` without `port.h` or the game's include paths, so no
 game header or SDK type reaches them. Game types meet them only in the
 replacement units.
@@ -895,12 +896,12 @@ replacement units.
 
 ## Rendering
 
-`tools/kazarov/port/gfx` is a Vulkan 1.3+ renderer: one graphics queue that presents,
+`tools/kazarov/src/cpp/gfx` is a Vulkan 1.3+ renderer: one graphics queue that presents,
 two frames in flight, dynamic rendering, synchronization2, a bindless texture
 array, every pipeline created at start-up against the on-disk pipeline
 cache, reverse-Z D32 depth with stencil, an immediate 2D API in the game's 640x480 logical
 space (centred in the window) and a mesh API in 3D, named render targets,
-copies, blits, depth readback and screenshots. `tools/kazarov/port/gfx/README.md` is its
+copies, blits, depth readback and screenshots. `tools/kazarov/src/cpp/gfx/README.md` is its
 contract: spaces, colour and alpha units, how the GS blend equation maps to
 Vulkan blending and where it does not.
 
@@ -927,7 +928,7 @@ shape. With `video.aspect` `auto` the rest of the window is not bars:
 - **2D** stays in logical space. Full-frame 2D (fades, the screen filter's
   `MGFillBox`, the previous-frame feedback, frame grabs drawn back; the loading
   screen clears the whole window) reaches the window's edges by the rule in
-  `tools/kazarov/port/gfx/README.md`, "Aspect": an untextured or frame-image rectangle that
+  `tools/kazarov/src/cpp/gfx/README.md`, "Aspect": an untextured or frame-image rectangle that
   reaches an edge of the frame from inside is carried to the window's edge. A
   4:3 picture that covers the whole frame (the cutscenes' stills over the 3D
   scene) is stretched to the window's edges instead, so it no longer leaves the
@@ -940,7 +941,7 @@ shape. With `video.aspect` `auto` the rest of the window is not bars:
   `video.ui_scale` scales the depthless 2D about the window's centre.
 - **HUD.** The pieces that sit by an edge of the frame keep their distance to
   that edge of the window instead, at their own size (`gfx::UiAnchor`,
-  `tools/kazarov/port/gfx/README.md`, "Aspect"): the dungeon's status panel (life, weapon
+  `tools/kazarov/src/cpp/gfx/README.md`, "Aspect"): the dungeon's status panel (life, weapon
   and water to the top left, the quick items top centre, the floor plate and the
   mini map to the top right, the weapon's portrait and gauge to the bottom left;
   `DrawGame`, `port/src/dun/gameloop.cpp`) and the town's clock (top right;
@@ -1057,7 +1058,7 @@ share small internal headers:
 
 ## Audio
 
-All music and effects are sequenced. `tools/kazarov/port/audio` decodes VAG ADPCM,
+All music and effects are sequenced. `tools/kazarov/src/cpp/audio` decodes VAG ADPCM,
 parses HD banks and SQ sequences, and runs a sixteen-port MIDI player into a
 48-voice synth with envelopes and an approximated reverb (`audio::Mixer`).
 `port/src/sound.cpp` replaces `CSound` (bank and sequence transfers, play,
@@ -1164,7 +1165,7 @@ write it.
 `CMemoryCardAccess` with plain reads and writes of these files
 (`port/src/save_slots.cpp` names and lists them, `port/src/platform/save_state.cpp`
 reads and writes `state.json`); each finishes in the step that starts it. Every write goes through `FilesWrite`
-(`tools/kazarov/port/platform/files.cpp`): a temporary file of its own beside the
+(`tools/kazarov/src/cpp/platform/files.cpp`): a temporary file of its own beside the
 target, `<target>.<16 hex digits>.tmp`, created exclusively, written,
 flushed to the disk and closed, then moved onto the target. Until that move
 the target keeps what it held. Removing the temporary file after a failure
@@ -1490,8 +1491,8 @@ The hit areas are the places the pages draw their brackets at (`ItemMenuModeDraw
 `InitializeDataBuffer`, `BufferAllClear`, `SetDataBuffer` and
 `SetPacketReadBuffer` (`dataset.cpp`, `dataalloc2_1.cpp`) give each arena its
 own block, an ordinary anonymous mapping wherever the system puts it
-(`tools/kazarov/port/platform/memory.hpp`), sized at four times the quadwords retail
-asked for (`kArenaHeadroom`, `tools/kazarov/port/platform/arena.hpp`, shared with Dark Chronicle), because the game sizes
+(`tools/kazarov/include/platform/memory.hpp`), sized at four times the quadwords retail
+asked for (`kArenaHeadroom`, `tools/kazarov/include/platform/arena.hpp`, shared with Dark Chronicle), because the game sizes
 allocations with the host's larger `sizeof`s. A guard page follows each
 block, and an overflow aborts naming the arena instead of retail's endless
 loop. A debug build stops when no block lies above 4 GiB, so a mapping that
@@ -1551,14 +1552,14 @@ widens it against the image's own address.
 
 ## What is still a stub
 
-`tools/kazarov/port/sce/stubs/` holds the remaining SDK stubs: libdma, libgraph (all but
-`sceGsSyncV`, which is `tools/kazarov/port/sce/libgraph.cpp`) and libpkt. Each calls
+`tools/kazarov/src/cpp/sce/stubs/` holds the remaining SDK stubs: libdma, libgraph (all but
+`sceGsSyncV`, which is `tools/kazarov/src/cpp/sce/libgraph.cpp`) and libpkt. Each calls
 `PS2_UNIMPLEMENTED()` (`port/include/port.h`), which prints the function,
 file and line and aborts. They stay stubs by design: the port does not
 emulate DMA chains, VIF/GIF packets or the GS, so a call that reaches one
 is a drawing path no replacement unit covers yet.
 
-Everything else from the SDK is implemented in `tools/kazarov/port/sce/`: libvu0 in
+Everything else from the SDK is implemented in `tools/kazarov/src/cpp/sce/`: libvu0 in
 C++ (static constructors call it before `main`), libpad, libmc, sifdev,
 eekernel (`FlushCache` and friends do nothing, `Exit` exits), libcdvd's
 `sceCdInit`/`sceCdMmode` and sifrpc's IOP boot and module loads (no-ops).
@@ -1591,7 +1592,7 @@ executable's symbols).
   `MakeFukidashi`'s mask) is not emulated. TEX1 LOD (L, K) is ignored in
   favour of standard trilinear filtering. The GS blends that need a factor
   above 1 or a destination scaled past 1 are approximated
-  (`tools/kazarov/port/gfx/README.md`, "Blending" and "Not done here").
+  (`tools/kazarov/src/cpp/gfx/README.md`, "Blending" and "Not done here").
 - **Overlay re-initialisation.** Retail reloads `TITLE.BIN` or `DUN.BIN` and
   re-runs its constructors on every switch; the port links both once and
   runs nothing again but the title objects it lays out with host classes
@@ -1940,7 +1941,7 @@ The layout of `data/` is the archive's own: `dun/pack/maindat.pac`,
 `commenu/a_eng/savetex.pak`, `sound/bgm/...` and so on. Lookups fold case,
 as the game's `strcasecmp` does, so the case on disk does not matter.
 
-`tools/kazarov/port/platform/paths.cpp` finds the data directory from `--data <dir>`,
+`tools/kazarov/src/cpp/platform/paths.cpp` finds the data directory from `--data <dir>`,
 then `DC_DATA`, then `data/` in the working directory, then `data/` beside
 the executable, and failing all of those `$XDG_DATA_HOME/chronicle/data`
 (`~/.local/share/chronicle/data` when `XDG_DATA_HOME` is unset or relative),
@@ -1977,3 +1978,48 @@ to `<dir>/bin`; an installed copy finds its data and saves under
 `org.themoonpeople.Chronicle`, built from `port/flatpak/` by
 `.github/workflows/pc.yml`; `docs/FLATPAK.md` covers building,
 installing, the first start and where the data and saves live.
+
+
+## Renderer performance and threading
+
+The Kazarov dependency is pinned to upstream `master` at `28281ce`. It includes
+ChronicleTwo's renderer work: cached camera re-basing, bone palettes stored separately
+from draw constants, shared storage-buffer records, deduplicated uploads and descriptor
+bindings, cached display-list rewrites, full-cover grabs without a redundant copy, and
+device-local host-visible transient memory when the device supports it. Bone palettes
+apply to prog0 draws; Chronicle's own animated MDTs still use its CPU skinning path.
+`KZ_TRANSIENT_MEMORY=host` selects the host-memory fallback.
+
+`video.render_thread` selects `async` (the desktop default), `lockstep`, or `off`.
+`DC_RENDER_THREAD` overrides the setting; `KZ_RENDER_THREAD` overrides both.
+Headless and screenshot runs force `off`, and Android always uses `off`.
+Changing the config key requires a restart. Async publishes immutable scene, previous
+scene and FPS-overlay lists. The worker presents while the game records the next tick;
+canonical rendering and depth readback hold a render lease. Shutdown parks the worker
+before reading screenshots or releasing the renderer. Input and game state remain on
+the game thread, so input is sampled at the game tick rate in async mode.
+
+Chronicle combines only adjacent strips with identical materials, texture state and
+terrain flags, preserving triangle order. Remaking a mesh uploads vertices only when
+their bytes change; material-only animation still updates its draw constants.
+Transient visuals are released every frame; persistent visual tables are swept every
+sixteen frames, with immediate tag validation on lookup.
+
+Chronicle retains the retail HD/BD/SQ readers under `port/src/audio` because its
+extracted data uses the retail audio formats. The compatibility declarations under
+`port/include/audio` extend the shared audio API and must precede Kazarov's headers
+for every host and game unit. The SQ reader normalizes retail events once when a
+sequence loads; playback uses Kazarov's current event player. This does not require
+re-extracting disc data.
+
+
+Verification on Windows x64 (2026-10-20): the release game and test executables
+build against this pin. The full suite has three failures in untouched code:
+`LocalizeOptions.ShippedTranslationsHaveExactlyTheCodesKeys` (quest translation keys)
+and the two `AreaCard.Translated*` cases (the shared PNG loader accepts RGBA only,
+while the tests write RGB). The async handoff, batching, cleared-block validation,
+config persistence and retail audio compatibility have dedicated passing tests.
+The shared render-thread and palette tests also pass. A 120-frame offscreen town
+run wrote its screenshot, and a windowed async town run completed 120 ticks and
+478 display frames. These runs establish functionality, not a measured speedup;
+Android and interactive resize/fullscreen transitions are not qualified here.

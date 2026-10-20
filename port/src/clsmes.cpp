@@ -1,5 +1,4 @@
 #include "clsmes.hpp"
-#include "clsmes_port.hpp"
 #include "mathconst.h"
 
 #include <algorithm>
@@ -10,6 +9,7 @@
 #include <span>
 #include <vector>
 
+#include "clsmes_port.hpp"
 #include "draw2d_port.hpp"
 #include "gametext.hpp"
 #include "gameutil.hpp"
@@ -28,8 +28,8 @@
 #include "texture.hpp"
 #include "textwipe.hpp"
 
-extern float     RandTbl[64];
-extern float     RandTbl2[64];
+extern float RandTbl[64];
+extern float RandTbl2[64];
 
 namespace {
 
@@ -65,7 +65,7 @@ short *FindMessage(short *file, int line) {
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
 // The wide argument DrawGaijiFont takes for a character of palette entry clut on row. 1 dims it, as retail
@@ -212,7 +212,7 @@ float TtfEm(const ClsMes &mes, const ttffont::Metrics &) {
 // the icons between words stay where the game put them. A glyph is never given more than its cell, so
 // a word is never wider than the game's.
 void TtfLayoutRows(ClsMes &mes, std::vector<float> &xs, std::vector<float> &squeeze) {
-    const int count = mes.win_line_num;
+    const int count = std::clamp(mes.win_line_num, 0, MES_WIN_LINE_MAX);
     xs.assign(static_cast<size_t>(count), 0.0f);
     squeeze.assign(static_cast<size_t>(count), 1.0f);
     for (int i = 0; i < count; i++) {
@@ -320,7 +320,8 @@ bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y,
     // The window's origin for this row, as the bitmap characters take it.
     const int row = line.y / mes.char_height;
     float     origin_x, cell_y;
-    if (row >= static_cast<int>(std::size(mes.line_pos)) || mes.line_pos[row].x < 0 || mes.line_pos[row].y < 0) {
+    if (row < 0 || row >= static_cast<int>(std::size(mes.line_pos)) || mes.line_pos[row].x < 0 ||
+        mes.line_pos[row].y < 0) {
         origin_x = static_cast<float>(offset_x + mes.text_x);
         cell_y = static_cast<float>(offset_y + line.y + mes.text_y);
     } else {
@@ -344,7 +345,7 @@ bool QueueTtfGlyph(ClsMes &mes, int index, int dark, int offset_x, int offset_y,
     y = snap(y, mapping.scale_y, mapping.offset_y);
 
     const int wide = ChoiceRowDim(mes, row, line.clut);
-    int r, g, b, alpha;
+    int       r, g, b, alpha;
     GlyphTint(line.clut, dark, wide, r, g, b, alpha);
 
     // The outline and the drop shadow sit at the offsets the bitmaps' use: the shadow is part of the
@@ -430,13 +431,33 @@ gfx::TextureHandle BubbleTarget(CTexture *texture) {
 
 } // namespace
 
+PORT_OVERRIDE void MakeRandTbl(float lo, float hi) {
+    if (GameTextKeepsRandom()) {
+        return;
+    }
+    for (int i = 0; i < 64; ++i) {
+        RandTbl[i] = ((hi - lo) * static_cast<float>(std::rand())) / 2147483648.0f;
+        RandTbl[i] += lo;
+    }
+}
+
+PORT_OVERRIDE void MakeRandTbl2(float lo, float hi) {
+    if (GameTextKeepsRandom()) {
+        return;
+    }
+    for (int i = 0; i < 64; ++i) {
+        RandTbl2[i] = ((hi - lo) * static_cast<float>(std::rand())) / 2147483648.0f;
+        RandTbl2[i] += lo;
+    }
+}
+
 void GetPos_AbsPosSet(int x, int y, int width, int height, int win_width, int win_height, int align,
                       int *out_x, int *out_y);
 void MyMenuHelpWinDraw(int x, int y, int width, int height, int shade, int u, int v, CTexture *texture);
 
 // Named the other way round from set2DSprite: src is where the sprite lands, dst the texels.
 PORT_OVERRIDE void Myset2DSprite(sceVif1Packet *packet, CTexture *texture, const CRect_i_ &src, const CRect_i_ &dst, u8 r,
-                               u8 g, u8 b, u8 a) {
+                                 u8 g, u8 b, u8 a) {
     if (texture == nullptr) {
         return;
     }
@@ -467,7 +488,7 @@ PORT_OVERRIDE void Myset2DSprite(sceVif1Packet *packet, CTexture *texture, const
 }
 
 PORT_OVERRIDE void DrawMaru(sceVif1Packet *packet, int x, int y, int width, int height, int lift, int unused, int rough,
-                          int prim) {
+                            int prim) {
     float across;
     float down;
     float turn;
@@ -503,8 +524,8 @@ PORT_OVERRIDE void DrawMaru(sceVif1Packet *packet, int x, int y, int width, int 
         across /= 2.0f;
         down /= 2.0f;
 
-        px = (int) across;
-        py = (int) down;
+        px = static_cast<int>(across);
+        py = static_cast<int>(down);
         px += x;
         py += y - lift;
 
@@ -534,8 +555,8 @@ PORT_OVERRIDE void DrawMaru(sceVif1Packet *packet, int x, int y, int width, int 
     across /= 2.0f;
     down /= 2.0f;
 
-    px = (int) across;
-    py = (int) down;
+    px = static_cast<int>(across);
+    py = static_cast<int>(down);
     px += x;
     py += y - lift;
 
@@ -601,22 +622,22 @@ PORT_OVERRIDE void ClsMes::MakeFukidashi_sub(sceVif1Packet *packet, int prim) {
     if (this->fukidashi_shape == 0) {
         BeginShape(gfx::Primitive::TriangleFan);
 
-        int base_x = (int) LinerInterpolation(this->grow_x, this->win_x, this->fade);
-        int base_y = (int) LinerInterpolation(this->grow_y, this->win_y, this->fade);
+        int base_x = static_cast<int>(LinerInterpolation(this->grow_x, this->win_x, this->fade));
+        int base_y = static_cast<int>(LinerInterpolation(this->grow_y, this->win_y, this->fade));
 
-        mirror = (int) RandTbl[0];
+        mirror = static_cast<int>(RandTbl[0]);
 
         for (i = 0; i < 15; i++) {
             if (mirror % 2 != 0) {
-                x = (int) (grown_width * (1.0f - shape[i][0]));
+                x = static_cast<int>(grown_width * (1.0f - shape[i][0]));
             } else {
-                x = (int) (grown_width * shape[i][0]);
+                x = static_cast<int>(grown_width * shape[i][0]);
             }
 
             if (mirror > 1) {
-                y = (int) (grown_height * (1.0f - shape[i][1]));
+                y = static_cast<int>(grown_height * (1.0f - shape[i][1]));
             } else {
-                y = (int) (grown_height * shape[i][1]);
+                y = static_cast<int>(grown_height * shape[i][1]);
             }
 
             x += base_x;
@@ -626,36 +647,36 @@ PORT_OVERRIDE void ClsMes::MakeFukidashi_sub(sceVif1Packet *packet, int prim) {
             ShapePoint(x, y);
         }
     } else if (this->fukidashi_shape == 1 || this->fukidashi_shape == 2) {
-        x = (int) LinerInterpolation(this->grow_x, this->win_x, this->fade);
-        y = (int) LinerInterpolation(this->grow_y, this->win_y, this->fade);
+        x = static_cast<int>(LinerInterpolation(this->grow_x, this->win_x, this->fade));
+        y = static_cast<int>(LinerInterpolation(this->grow_y, this->win_y, this->fade));
 
         int bubble_shape = this->fukidashi_shape;
 
         if (bubble_shape == 1) {
-            DrawMaru(packet, x, y, (int) grown_width, (int) grown_height, top, 0x20, bubble_shape, prim);
+            DrawMaru(packet, x, y, static_cast<int>(grown_width), static_cast<int>(grown_height), top, 0x20, bubble_shape, prim);
         } else {
-            int   upper_width = (int) grown_width - this->char_width;
-            int   half_height = (int) grown_height >> 1;
-            float half_height_float = (float) half_height;
+            int   upper_width = static_cast<int>(grown_width) - this->char_width;
+            int   half_height = static_cast<int>(grown_height) >> 1;
+            float half_height_float = static_cast<float>(half_height);
 
-            DrawMaru(packet, x, y, upper_width, (int) (half_height_float + 1.5f * this->char_height), top,
+            DrawMaru(packet, x, y, upper_width, static_cast<int>(half_height_float + 1.5f * this->char_height), top,
                      0x20, 0, prim);
 
             float pad = 1.5f * this->char_height;
             int   indent = this->char_width;
 
-            y = (int) (y + half_height - pad);
-            DrawMaru(packet, x + indent, y, (int) grown_width - indent, (int) (half_height + pad), top, 0x20,
+            y = static_cast<int>(y + half_height - pad);
+            DrawMaru(packet, x + indent, y, static_cast<int>(grown_width) - indent, static_cast<int>(half_height + pad), top, 0x20,
                      0, prim);
         }
     } else {
-        x = (int) LinerInterpolation(this->grow_x, this->win_x, this->fade);
-        y = (int) LinerInterpolation(this->grow_y, this->win_y, this->fade);
+        x = static_cast<int>(LinerInterpolation(this->grow_x, this->win_x, this->fade));
+        y = static_cast<int>(LinerInterpolation(this->grow_y, this->win_y, this->fade));
 
         BeginShape(gfx::Primitive::TriangleFan);
 
-        int oval_width = (int) grown_width;
-        int oval_height = (int) grown_height;
+        int oval_width = static_cast<int>(grown_width);
+        int oval_height = static_cast<int>(grown_height);
         int px;
         int py;
 
@@ -682,8 +703,8 @@ PORT_OVERRIDE void ClsMes::MakeFukidashi_sub(sceVif1Packet *packet, int prim) {
             across = across * oval_width;
             down = down * oval_height;
 
-            px = (int) across;
-            py = (int) down;
+            px = static_cast<int>(across);
+            py = static_cast<int>(down);
 
             px += x;
             py += y - top;
@@ -704,8 +725,8 @@ PORT_OVERRIDE void ClsMes::MakeFukidashi_sub(sceVif1Packet *packet, int prim) {
         across = across * oval_width;
         down = down * oval_height;
 
-        px = (int) across;
-        py = (int) down;
+        px = static_cast<int>(across);
+        py = static_cast<int>(down);
 
         px += x;
         py += y - top;
@@ -715,28 +736,28 @@ PORT_OVERRIDE void ClsMes::MakeFukidashi_sub(sceVif1Packet *packet, int prim) {
 
     if (this->tail_on != 0) {
         if (this->fukidashi_shape == 2) {
-            x = (int) LinerInterpolation(this->grow_x, (this->tail_x + this->tail_tip_x) >> 1, this->fade);
-            y = (int) LinerInterpolation(this->grow_y, (this->tail_y + this->tail_tip_y) >> 1, this->fade);
+            x = static_cast<int>(LinerInterpolation(this->grow_x, (this->tail_x + this->tail_tip_x) >> 1, this->fade));
+            y = static_cast<int>(LinerInterpolation(this->grow_y, (this->tail_y + this->tail_tip_y) >> 1, this->fade));
             DrawMaru(packet, x - 10, y - 10, 20, 20, top, 0x20, 0, prim);
 
-            x = (int) LinerInterpolation(this->grow_x, this->tail_tip_x, this->fade);
-            y = (int) LinerInterpolation(this->grow_y, this->tail_tip_y, this->fade);
+            x = static_cast<int>(LinerInterpolation(this->grow_x, this->tail_tip_x, this->fade));
+            y = static_cast<int>(LinerInterpolation(this->grow_y, this->tail_tip_y, this->fade));
             DrawMaru(packet, x - 5, y - 5, 10, 10, top, 0x20, 0, prim);
         } else {
             BeginShape(gfx::Primitive::Triangles);
 
-            x = (int) LinerInterpolation(this->grow_x, this->tail_tip_x, this->fade);
-            y = (int) LinerInterpolation(this->grow_y, this->tail_tip_y, this->fade);
+            x = static_cast<int>(LinerInterpolation(this->grow_x, this->tail_tip_x, this->fade));
+            y = static_cast<int>(LinerInterpolation(this->grow_y, this->tail_tip_y, this->fade));
             y -= top;
             ShapePoint(x, y);
 
-            x = (int) LinerInterpolation(this->grow_x, this->tail_left_x, this->fade);
-            y = (int) LinerInterpolation(this->grow_y, this->tail_left_y, this->fade);
+            x = static_cast<int>(LinerInterpolation(this->grow_x, this->tail_left_x, this->fade));
+            y = static_cast<int>(LinerInterpolation(this->grow_y, this->tail_left_y, this->fade));
             y -= top;
             ShapePoint(x, y);
 
-            x = (int) LinerInterpolation(this->grow_x, this->tail_right_x, this->fade);
-            y = (int) LinerInterpolation(this->grow_y, this->tail_right_y, this->fade);
+            x = static_cast<int>(LinerInterpolation(this->grow_x, this->tail_right_x, this->fade));
+            y = static_cast<int>(LinerInterpolation(this->grow_y, this->tail_right_y, this->fade));
             y -= top;
             ShapePoint(x, y);
         }
@@ -826,7 +847,7 @@ PORT_OVERRIDE void ClsMes::MakeFukidashi(sceVif1Packet *packet) {
 // Keep the message layout within the fixed character table.
 PORT_OVERRIDE int ClsMes::SetMesWinTbl(int code, int mode, short x, short y) {
     if (code >= -0x200 && code <= -0x101) {
-        if (this->win_line_num > 0) {
+        if (this->win_line_num > 0 && this->win_line_num <= MES_WIN_LINE_MAX) {
             this->win_line[this->win_line_num - 1].space += code + 0x200;
         }
 
@@ -850,7 +871,7 @@ PORT_OVERRIDE int ClsMes::SetMesWinTbl(int code, int mode, short x, short y) {
         return 0;
     }
 
-    if (this->win_line_num >= MES_WIN_LINE_MAX) {
+    if (this->win_line_num < 0 || this->win_line_num >= MES_WIN_LINE_MAX) {
         return 0;
     }
 
@@ -875,31 +896,62 @@ PORT_OVERRIDE int ClsMes::SetMesWinTbl(int code, int mode, short x, short y) {
 // files (platform/glyphs.hpp) when input.glyphs is "new". The symbol keeps the proportions of its
 // art, scaled so a round face button fills the icon's height, and sits in the middle of the icon's
 // slot; a wide one (a key) may reach out of it, up to twice the slot's width.
-static bool DrawPadGlyph(int code, const CRect_i_ &screen, int alpha) {
+namespace {
+
+bool DrawPadGlyph(int code, const CRect_i_ &screen, int alpha) {
     glyphs::Button button;
     switch (code) {
-        case -0x300: button = glyphs::Button::Select; break;
-        case -0x2FF: button = glyphs::Button::Start; break;
-        case -0x2FE: button = glyphs::Button::L1; break;
-        case -0x2FD: button = glyphs::Button::R1; break;
-        case -0x2FC: button = glyphs::Button::L2; break;
-        case -0x2FB: button = glyphs::Button::R2; break;
-        case -0x2FA: button = glyphs::Button::Circle; break;
-        case -0x2F9: button = glyphs::Button::Triangle; break;
-        case -0x2F8: button = glyphs::Button::Cross; break;
-        case -0x2F7: button = glyphs::Button::Square; break;
-        case -0x2F6: button = glyphs::Button::Dpad; break;
-        case -0x2F5: button = glyphs::Button::DpadUpDown; break;
-        case -0x2F4: button = glyphs::Button::DpadSides; break;
-        default: return false;
+        case -0x300:
+            button = glyphs::Button::Select;
+            break;
+        case -0x2FF:
+            button = glyphs::Button::Start;
+            break;
+        case -0x2FE:
+            button = glyphs::Button::L1;
+            break;
+        case -0x2FD:
+            button = glyphs::Button::R1;
+            break;
+        case -0x2FC:
+            button = glyphs::Button::L2;
+            break;
+        case -0x2FB:
+            button = glyphs::Button::R2;
+            break;
+        case -0x2FA:
+            button = glyphs::Button::Circle;
+            break;
+        case -0x2F9:
+            button = glyphs::Button::Triangle;
+            break;
+        case -0x2F8:
+            button = glyphs::Button::Cross;
+            break;
+        case -0x2F7:
+            button = glyphs::Button::Square;
+            break;
+        case -0x2F6:
+            button = glyphs::Button::Dpad;
+            break;
+        case -0x2F5:
+            button = glyphs::Button::DpadUpDown;
+            break;
+        case -0x2F4:
+            button = glyphs::Button::DpadSides;
+            break;
+        default:
+            return false;
     }
     return GlyphDrawSlot(button, screen, alpha);
 }
 
+} // namespace
+
 // Read a colour only for a palette entry FontColorTbl has. Retail looks up the red text's 0xFF too,
 // 240 entries past the table, and then sets that colour itself.
 PORT_OVERRIDE void ClsMes::DrawGaijiFont(CTexture *texture, int index, const CRect_i_ &texel, const CRect_i_ &screen,
-                                       int wide, int dark) {
+                                         int wide, int dark) {
     u8  r;
     u8  g;
     u8  b;
@@ -1176,7 +1228,7 @@ PORT_OVERRIDE void ClsMes::DrawMesWin() {
 
     texture = draw2d::Get().find_texture("fontbase");
 
-    if (this->clut == 0) {
+    if (this->clut == nullptr) {
         return;
     }
 
@@ -1188,7 +1240,7 @@ PORT_OVERRIDE void ClsMes::DrawMesWin() {
         dark = 1;
     }
 
-    SetClut(Vif1Packet, texture, (i *) this->clut);
+    SetClut(Vif1Packet, texture, reinterpret_cast<i *>(this->clut));
     this->blink++;
 
     texture = draw2d::Get().find_texture("gaiji");
@@ -1203,7 +1255,10 @@ PORT_OVERRIDE void ClsMes::DrawMesWin() {
             TtfLayoutRows(*this, ttf_xs, ttf_squeeze);
         }
 
-        for (index = this->text_from; index < this->text_no; index++) {
+        const int line_count = std::clamp(this->win_line_num, 0, MES_WIN_LINE_MAX);
+        const int first_line = std::clamp(this->text_from, 0, line_count);
+        const int end_line = std::clamp(this->text_no, first_line, line_count);
+        for (index = first_line; index < end_line; index++) {
             if (MesAbsDrawOff != 0) {
                 continue;
             }
@@ -1254,7 +1309,7 @@ PORT_OVERRIDE void ClsMes::DrawMesWin() {
 
             int row = this->win_line[index].y / this->char_height;
 
-            if (row >= static_cast<int>(std::size(this->line_pos)) || this->line_pos[row].x < 0 ||
+            if (row < 0 || row >= static_cast<int>(std::size(this->line_pos)) || this->line_pos[row].x < 0 ||
                 this->line_pos[row].y < 0) {
                 int      line_x = this->win_line[index].x + this->text_x;
                 int      line_y = this->win_line[index].y + this->text_y;

@@ -24,6 +24,18 @@ TEST(PlatformConfig, Defaults) {
     ASSERT_TRUE(config.shadow_distance == 0.0f);
 }
 
+TEST(PlatformConfig, RenderThreadModesPersistAndRequireRestart) {
+    EXPECT_EQ(ConfigParse("").render_thread, gfx::RenderThreadMode::Async);
+    for (const auto *name : {"off", "lockstep", "async"}) {
+        const auto mode = gfx::ParseRenderThreadMode(name);
+        const auto config = ConfigParse(std::string("{\"video\":{\"render_thread\":\"") + name + "\"}}");
+        EXPECT_EQ(config.render_thread, *mode);
+        EXPECT_EQ(ConfigParse(ConfigSerialize(config)).render_thread, *mode);
+    }
+    EXPECT_EQ(ConfigParse(R"({"video":{"render_thread":"invalid"}})").render_thread, gfx::RenderThreadMode::Async);
+    EXPECT_TRUE(ConfigAppliesOnRestart("video.render_thread"));
+}
+
 TEST(PlatformConfig, DetailDistance) {
     ASSERT_TRUE(ConfigParse(R"({"video": {"detail_distance": 450}})").detail_distance == 450.0f);
     ASSERT_TRUE(ConfigParse(R"({"video": {"detail_distance": -1}})").detail_distance == 0.0f);

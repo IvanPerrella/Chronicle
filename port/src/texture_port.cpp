@@ -321,8 +321,8 @@ unsigned PortCreateTexture(const PortDecodedTexture &decoded, PortTextureOwner o
     if (decoded.levels.empty()) {
         return 0;
     }
-    unsigned key = AllocateKey(EntryKind::Image, owner);
-    Entry   &entry = Reg().entries[key];
+    unsigned       key = AllocateKey(EntryKind::Image, owner);
+    Entry         &entry = Reg().entries[key];
     const unsigned logical_width = decoded.logical_width != 0 ? decoded.logical_width : decoded.width;
     const unsigned logical_height = decoded.logical_height != 0 ? decoded.logical_height : decoded.height;
     entry.width = logical_width;

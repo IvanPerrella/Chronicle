@@ -21,3 +21,5 @@ CTexture *ItemIcon3DTexture(int item_no);
 void ItemIcons3DDrawSheet();
 
 void ItemIcons3DDumpDebug();
+
+CTexture *ItemIcon3DRetCTex(short item_no, int &u, int &v);

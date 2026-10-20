@@ -1,36 +1,37 @@
 #include "item_icon3d.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <map>
+#include <memory>
+#include <optional>
 #include <set>
 #include <string>
-#include <memory>
+#include <utility>
 #include <vector>
 
-#include <algorithm>
-#include <cmath>
-#include <filesystem>
-
 #include "battlemenu.hpp"
-#include "dngstatusdata.hpp"
 #include "btitem.hpp"
-#include "collision.hpp"
 #include "btmisc.hpp"
+#include "collision.hpp"
 #include "dataread.hpp"
+#include "dngstatusdata.hpp"
 #include "dun/gameloop.hpp"
 #include "frame.hpp"
 #include "framevu1.hpp"
 #include "gfx/gfx.hpp"
 #include "itemdata.hpp"
-#include "memcard.hpp"
 #include "mds.hpp"
+#include "memcard.hpp"
 #include "menu_draw.hpp"
-#include "normal_smoothing.hpp"
 #include "menu_save.hpp"
 #include "menuetc.hpp"
 #include "mglib.hpp"
+#include "normal_smoothing.hpp"
 #include "rect.hpp"
 #include "renderinfo.hpp"
 #include "texture.hpp"
@@ -39,9 +40,9 @@
 namespace {
 
 constexpr int         kIconSize = 32;
-constexpr int         kCrop = 128;  // scratch pixels turned into one icon (4x4 each)
+constexpr int         kCrop = 128;    // scratch pixels turned into one icon (4x4 each)
 constexpr float       kFill = 120.0f; // pixels across the model inside the crop
-constexpr int         kBlock = 0x47; // a texture block nothing else loads into
+constexpr int         kBlock = 0x47;  // a texture block nothing else loads into
 constexpr std::size_t kModelBytes = 8u << 20;
 constexpr std::size_t kImageBytes = 4u << 20;
 constexpr std::size_t kArenaBytes = 8u << 20;
@@ -65,21 +66,22 @@ struct Icon {
 std::map<int, Icon> g_icons;
 
 u_long Tex0(unsigned tbp, int tbw, int psm, int tw, int th) {
-    return (u_long) tbp | ((u_long) tbw << 14) | ((u_long) psm << 20) | ((u_long) tw << 26) | ((u_long) th << 30) |
-           ((u_long) 1 << 34);
+    return static_cast<u_long>(tbp) | (static_cast<u_long>(tbw) << 14) |
+           (static_cast<u_long>(psm) << 20) | (static_cast<u_long>(tw) << 26) |
+           (static_cast<u_long>(th) << 30) | (static_cast<u_long>(1) << 34);
 }
 
 // Buffers the files are read into and the model is built in; kept for every icon, since only one is drawn at a time.
 struct Work {
-    std::vector<uint8_t> storage;
-    uint8_t             *model = nullptr;
-    uint8_t             *image = nullptr;
-    uint8_t             *arena_base = nullptr;
+    std::unique_ptr<uint8_t[]> storage;
+    uint8_t                   *model = nullptr;
+    uint8_t                   *image = nullptr;
+    uint8_t                   *arena_base = nullptr;
 
     Work() {
-        storage.resize(kModelBytes + kImageBytes + kArenaBytes + 192);
+        storage = std::make_unique<uint8_t[]>(kModelBytes + kImageBytes + kArenaBytes + 192);
         auto align = [](uint8_t *p) { return reinterpret_cast<uint8_t *>((reinterpret_cast<uintptr_t>(p) + 63) & ~uintptr_t{63}); };
-        model = align(storage.data());
+        model = align(storage.get());
         image = align(model + kModelBytes);
         arena_base = align(image + kImageBytes);
     }
@@ -90,8 +92,8 @@ Work &GetWork() {
     return work;
 }
 
-CFrame *g_frame = nullptr; // the model
-CFrame *g_root = nullptr;  // the frame the picture is turned, scaled and placed by, with the model its child
+CFrame     *g_frame = nullptr; // the model
+CFrame     *g_root = nullptr;  // the frame the picture is turned, scaled and placed by, with the model its child
 std::string g_last_name;
 
 // The icon's frame is drawn into a target of its own, so the screen-bound test (made against the visible extent) is
@@ -146,50 +148,75 @@ void DrawModel() {
     MGDraw(g_root);
 }
 
-// The model's file names, or false where the item has none of its own (an empty slot of the table falls back to the
-// water bottle in retail, and that is not this item's picture).
-bool ModelPaths(int item_no, char *model_path, char *texture_path) {
+// The model's file names, or no paths where the item has no model of its own.
+std::optional<std::pair<std::string, std::string>> ModelPaths(int item_no) {
     if (item_no < ITEM_ATTACH_START) {
         item_no = TransWepNo(item_no);
     }
     if (item_no < ITEM_ATTACH_START) {
-        return false;
+        return std::nullopt;
     }
+    if (item_no > ITEM_WEAPON_END) {
+        return std::nullopt;
+    }
+    std::string base;
     if (item_no < ITEM_WEAPON_START) {
         const char *name = ITEM_NAME_TBL_NEW[item_no - ITEM_ATTACH_START];
         if (name == nullptr || name[0] == 0) {
-            return false;
+            return std::nullopt;
         }
+        base = "dun/item/main_data/";
+        base += name;
+    } else {
+        constexpr const char *prefixes[] = {"c01w", "c04w", "c06w", "c05w", "c10w", "c18w"};
+        constexpr int         first_weapons[] = {ITEM_WEAPON_DAGGER_BROKEN, ITEM_WEAPON_WOODENSLINGSHOT_BROKEN,
+                                                 ITEM_WEAPON_MALLET_BROKEN, ITEM_WEAPON_GOLD_RING_BROKEN,
+                                                 ITEM_WEAPON_FIGHTING_STICK_BROKEN, ITEM_WEAPON_MACHINE_GUN_BROKEN};
+        int                   chara = 0;
+        while (chara < 5 && item_no >= first_weapons[chara + 1]) {
+            ++chara;
+        }
+        const int   offset = item_no - first_weapons[chara];
+        std::string number = std::to_string(offset);
+        if (offset < 10) {
+            number.insert(0, "0");
+        } else if (offset < 100) {
+            number.insert(0, " ");
+        }
+        base = "dun/item/main_wep/";
+        base += prefixes[chara];
+        base += number;
     }
-    BtGetItemNamePath(model_path, texture_path, item_no);
-    return true;
+    return std::pair{base + ".mds", base + ".img"};
 }
 
 bool Render(int item_no, CTexture &out) {
-    char model_path[64];
-    char texture_path[76];
-    if (!ModelPaths(item_no, model_path, texture_path)) {
+    auto paths = ModelPaths(item_no);
+    if (!paths) {
         if (Debug()) {
             std::fprintf(stderr, "item icon 3d: item %d has no model\n", item_no);
         }
         return false;
     }
+    const auto &[model_path, texture_path] = *paths;
     Work &work = GetWork();
     int   size = 0;
     if (Debug()) {
-        std::fprintf(stderr, "item icon 3d: item %d reads %s and %s\n", item_no, model_path, texture_path);
+        std::fprintf(stderr, "item icon 3d: item %d reads %s and %s\n", item_no, model_path.c_str(),
+                     texture_path.c_str());
     }
-    if (!LoadFile2(model_path, work.model, &size, 0) || size <= 0 || static_cast<std::size_t>(size) + 2048 > kModelBytes) {
+    if (!LoadFile2(paths->first.data(), work.model, &size, 0) || size <= 0 ||
+        static_cast<std::size_t>(size) + 2048 > kModelBytes) {
         return false;
     }
-    if (!LoadFile2(texture_path, work.image, &size, 0) || size <= 0 || static_cast<std::size_t>(size) + 2048 > kImageBytes) {
+    if (!LoadFile2(paths->second.data(), work.image, &size, 0) || size <= 0 ||
+        static_cast<std::size_t>(size) + 2048 > kImageBytes) {
         return false;
     }
 
-    char name[48];
-    std::snprintf(name, sizeof name, "item icon 3d %d", item_no);
-    unsigned key = PortCreatePlaceholder(name, kIconSize, kIconSize, 4, PortTextureOwner::Other, nullptr);
-    gfx::TextureHandle target = gfx::FindNamedRenderTarget(name);
+    const std::string  name = "item icon 3d " + std::to_string(item_no);
+    unsigned           key = PortCreatePlaceholder(name.c_str(), kIconSize, kIconSize, 4, PortTextureOwner::Other, nullptr);
+    gfx::TextureHandle target = gfx::FindNamedRenderTarget(name.c_str());
     gfx::TextureHandle scratch = gfx::NamedRenderTarget(kScratch, 640, 480, true);
     if (key == 0 || target == gfx::kNullTexture || scratch == gfx::kNullTexture) {
         if (Debug()) {
@@ -202,9 +229,12 @@ bool Render(int item_no, CTexture &out) {
     // normal_smoothing.hpp); DC_ITEM_ICONS_3D_SMOOTH is the crease angle in degrees, 0 for retail's flat shading.
     struct SmoothScope {
         float previous;
+
         SmoothScope() : previous(PortSetNormalSmoothing(EnvFloat("DC_ITEM_ICONS_3D_SMOOTH", 60.0f))) {}
+
         ~SmoothScope() { PortSetNormalSmoothing(previous); }
     } smooth_scope;
+
     SetTempTexture(kBlock, reinterpret_cast<char *>(work.image));
     CDataAlloc2<1> arena(-1);
     arena.base = work.arena_base;
@@ -232,7 +262,7 @@ bool Render(int item_no, CTexture &out) {
     // The pose: the one the treasure chest presents the item in, which depends on who the weapon belongs to
     // (BtGetTreasureboxBig_Init); everything else is shown as the chest shows a consumable. PORT_ICON_POSE=shape
     // keeps the older rule that turns the long side onto a diagonal.
-    float rx = 1.5707964f, ry = 0.0f, rz = 1.5707964f;
+    float      rx = 1.5707964f, ry = 0.0f, rz = 1.5707964f;
     const bool shape_pose = EnvOn("DC_ITEM_ICONS_3D_POSE_SHAPE");
     if (shape_pose) {
         rx = 0.35f;
@@ -395,7 +425,7 @@ bool Render(int item_no, CTexture &out) {
         radius = 1.0f;
     }
 
-    RenderInfo saved = mgRenderInfo;
+    RenderInfo               saved = mgRenderInfo;
     const gfx::TextureHandle previous = gfx::CurrentRenderTarget();
     gfx::SetRenderTarget(scratch);
     const uint8_t none[4] = {};
@@ -429,8 +459,17 @@ bool Render(int item_no, CTexture &out) {
         // The outline and shadow: the unlit (black) model drawn shifted about the picture, a pixel of the icon (4 of
         // the scratch's) each way and a little more down and right for the shadow, then the lit model on top.
         const float step = 4.0f / pixels_per_unit;
-        const float shifts[9][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-0.75f, -0.75f}, {0.75f, -0.75f},
-                                    {-0.75f, 0.75f}, {0.75f, 0.75f}, {1.4f, -1.6f}};
+        const float shifts[9][2] = {
+            {-1,     0     },
+            {1,      0     },
+            {0,      -1    },
+            {0,      1     },
+            {-0.75f, -0.75f},
+            {0.75f,  -0.75f},
+            {-0.75f, 0.75f },
+            {0.75f,  0.75f },
+            {1.4f,   -1.6f }
+        };
         g_pass = 1;
         for (const auto &shift : shifts) {
             float moved[4] = {position[0] + shift[0] * step, position[1] + shift[1] * step, position[2], 1.0f};
@@ -446,7 +485,7 @@ bool Render(int item_no, CTexture &out) {
     Get3DPosTo2DPos(g_root, centre);
     // Supersample down in exact halves: kCrop -> kCrop/2 -> the icon.
     gfx::TextureHandle half = gfx::NamedRenderTarget("item icon 3d half", kCrop / 2, kCrop / 2, true);
-    const gfx::Rect from = {320 - kCrop / 2, 240 - kCrop / 2, kCrop, kCrop};
+    const gfx::Rect    from = {320 - kCrop / 2, 240 - kCrop / 2, kCrop, kCrop};
     if (half != gfx::kNullTexture) {
         gfx::SetRenderTarget(previous);
         gfx::BlitTexture(scratch, from, half, {0, 0, kCrop / 2, kCrop / 2}, gfx::Filter::Linear);
@@ -462,7 +501,8 @@ bool Render(int item_no, CTexture &out) {
     g_root = nullptr;
     g_last_name = name;
     if (Debug()) {
-        std::fprintf(stderr, "item icon 3d: item %d %s radius %.2f scale %.3f ppu %.2f centre %d,%d\n", item_no, model_path,
+        std::fprintf(stderr, "item icon 3d: item %d %s radius %.2f scale %.3f ppu %.2f centre %d,%d\n", item_no,
+                     model_path.c_str(),
                      radius, scale, pixels_per_unit, centre[0], centre[1]);
     }
 
@@ -470,7 +510,7 @@ bool Render(int item_no, CTexture &out) {
     out.width = kIconSize;
     out.height = kIconSize;
     out.bpp = 4;
-    std::snprintf(out.name, sizeof out.name, "%s", name);
+    std::snprintf(out.name, sizeof out.name, "%s", name.c_str());
     out.tex0 = Tex0(key, kIconSize / 64 + 1, SCE_GS_PSMCT32, 5, 5);
     return true;
 }
@@ -530,9 +570,8 @@ void ItemIcons3DDrawSheet() {
         if (ItemIcon3DTexture(first + i) == nullptr) {
             continue;
         }
-        char name[48];
-        std::snprintf(name, sizeof name, "item icon 3d %d", first + i);
-        gfx::TextureHandle icon = gfx::FindNamedRenderTarget(name);
+        const std::string  name = "item icon 3d " + std::to_string(first + i);
+        gfx::TextureHandle icon = gfx::FindNamedRenderTarget(name.c_str());
         if (icon != gfx::kNullTexture) {
             gfx::BlitTexture(icon, {0, 0, kIconSize, kIconSize}, sheet,
                              {(i % 20) * kIconSize, (i / 20) * kIconSize, kIconSize, kIconSize}, gfx::Filter::Nearest);
@@ -541,7 +580,7 @@ void ItemIcons3DDrawSheet() {
 }
 
 // Retail's lookup of the sheet cell an item's icon is in, with the model's own icon in front of it.
-PORT_OVERRIDE CTexture *RetCTex(short item_no, int &u, int &v) {
+CTexture *ItemIcon3DRetCTex(short item_no, int &u, int &v) {
     if (Debug()) {
         static bool said = false;
         if (!said) {
@@ -607,9 +646,9 @@ void ItemIcons3DDumpDebug() {
         return;
     }
     auto write = [&](const char *target_name, const char *file) {
-        gfx::TextureHandle texture = gfx::FindNamedRenderTarget(target_name);
+        gfx::TextureHandle   texture = gfx::FindNamedRenderTarget(target_name);
         std::vector<uint8_t> rgba;
-        uint32_t width = 0, height = 0;
+        uint32_t             width = 0, height = 0;
         if (texture != gfx::kNullTexture && gfx::ReadbackTexture(texture, rgba, width, height)) {
             gfx::WritePng(std::filesystem::path(dir) / file, rgba.data(), width, height);
         }

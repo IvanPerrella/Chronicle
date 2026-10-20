@@ -1,3 +1,5 @@
+#include "water.hpp"
+
 #include <cstring>
 #include <optional>
 #include <vector>
@@ -6,8 +8,9 @@
 #include "mglib.hpp"
 #include "renderinfo.hpp"
 #include "screen.hpp"
+#include "stubs/water.hpp"
 #include "texture.hpp"
-#include "water.hpp"
+#include "vu0_ops.hpp"
 
 // VU1 program 15 drew the CPU-built height field with FST texel coordinates into a copy of the
 // frame's field: each vertex samples the copy where the vertex itself lands on the screen, shifted
@@ -231,7 +234,7 @@ PORT_OVERRIDE int CWater::CreateVUData(unsigned int *output, RenderInfo *info) {
 }
 
 PORT_OVERRIDE extern "C" int DrawVu1__6CWaterFP10RenderInfoP13sceVif1PacketP1(CWater *water, RenderInfo *info,
-                                                                            sceVif1Packet *draw_packet, void *parent_info) {
+                                                                              sceVif1Packet *draw_packet, void *parent_info) {
     if (water->CheckClip() != 0) {
         return 0;
     }
@@ -280,4 +283,28 @@ PORT_OVERRIDE extern "C" int DrawVu1__6CWaterFP10RenderInfoP13sceVif1PacketP1(CW
 
     MGPortCurrent().test = mgPixelTest;
     return 0;
+}
+
+namespace {
+
+// pretest parks the cell matrix and step in VU0 registers for the Trans_AddCell calls that follow.
+float g_cell_matrix[4][4];
+float g_cell_step[4];
+
+} // namespace
+
+void pretest(float matrix[4][4], float *translation) {
+    std::memcpy(g_cell_matrix, matrix, sizeof(g_cell_matrix));
+    vu0::Copy(g_cell_step, translation);
+}
+
+void Trans_AddCell(float *output, float *position) {
+    float source[4];
+    float result[4];
+    vu0::Copy(source, position);
+    vu0::Apply(result, g_cell_matrix, source);
+    source[0] = source[0] + g_cell_step[0];
+    source[2] = source[2] + g_cell_step[2];
+    vu0::Copy(output, result);
+    vu0::Copy(position, source);
 }

@@ -1,17 +1,24 @@
+#include "frame.hpp"
+
 #include <libgraph.h>
 #include <libvu0.h>
 
 #include <cmath>
+#include <cstddef>
+#include <cstring>
 
 #include "boxvu0.hpp"
+#include "dataalloc.hpp"
 #include "draw3d.hpp"
-#include "frame.hpp"
 #include "framevu1.hpp"
 #include "mathutil.hpp"
 #include "mglib.hpp"
 #include "renderinfo.hpp"
 #include "stubs/frame.hpp"
 #include "visualvu1.hpp"
+#include "vu0_ops.hpp"
+
+void *PlaceDataAllocObject(std::size_t size, u_long128 *block);
 
 namespace {
 
@@ -91,17 +98,15 @@ void ShadowClipBox(sceVu0FVECTOR *screen, sceVu0FVECTOR *corner, sceVu0FMATRIX m
     ApplyMatrixN(screen, info->view_scaled, world, 8);
 }
 
-unsigned int g_cursor[64];
-
 } // namespace
 
 Draw3DIdentityScope::Draw3DIdentityScope(const void *object, float teleport_distance, bool blend_vertices)
-    : key_(gfx::CurrentInterpKey()), no_interpolation_(gfx::CurrentNoInterpolation()) {
+    : key(gfx::CurrentInterpKey()), no_interpolation(gfx::CurrentNoInterpolation()) {
     gfx::SetInterpKey(reinterpret_cast<uintptr_t>(object), false, teleport_distance, blend_vertices);
 }
 
 Draw3DIdentityScope::~Draw3DIdentityScope() {
-    gfx::SetInterpKey(key_, no_interpolation_);
+    gfx::SetInterpKey(key, no_interpolation);
 }
 
 // Retail's culling, attributes and hierarchy walk, with the GS registers SetGsReg3 sent becoming
@@ -205,13 +210,13 @@ PORT_OVERRIDE int CFrameVu1::DrawVu1(unsigned int *packet, RenderInfo *info) {
         }
         ScreenBound(screen_corner, screen_max, screen_min);
 
-        float near_z = info->near[2];
-        float far_z = info->frame_far_z;
+        float        near_z = info->near[2];
+        float        far_z = info->frame_far_z;
         float        guard = attr.remake_pending ? 2.0f : 1.0f;
         Draw3DExtent extent = Draw3DVisibleExtent();
         float        half_width = guard * extent.half_width * inv_scale;
         float        half_height = guard * extent.half_height * inv_scale;
-        float depth = 0.96f * (2048.0f * inv_scale);
+        float        depth = 0.96f * (2048.0f * inv_scale);
 
         visible = false;
         if (screen_min[0] <= half_width && screen_max[0] >= -half_width && screen_min[1] <= half_height &&
@@ -293,13 +298,13 @@ PORT_OVERRIDE int CFrameVu1::DrawVu1(unsigned int *packet, RenderInfo *info) {
         }
 
         if (attr.remake_pending) {
-            visual->RemakeData(0);
+            visual->RemakeData(nullptr);
         }
         attr.remake_pending = 0;
 
         {
             Draw3DIdentityScope identity(this, kDraw3DTeleportDistance);
-            visual->DrawVu1(packet, matrix, info, VU1_PROGRAM_UNKNOWN6, 0, 0, 0);
+            visual->DrawVu1(packet, matrix, info, VU1_PROGRAM_UNKNOWN6, nullptr, 0, 0);
         }
 
         if (attr.use_color || attr.ambient_boost) {
@@ -324,6 +329,99 @@ PORT_OVERRIDE int CFrameVu1::DrawVu1(unsigned int *packet, RenderInfo *info) {
     return 0;
 }
 
-PORT_OVERRIDE int CFrameVu1::DrawVu1(sceVif1Packet *packet, RenderInfo *info) {
-    return DrawVu1(g_cursor, info);
+PORT_OVERRIDE int CFrameVu1::DrawVu1(sceVif1Packet *, RenderInfo *info) {
+    return DrawVu1(static_cast<unsigned int *>(nullptr), info);
+}
+
+namespace {
+
+// pre_trance_normal parks its matrix in VU0 registers for the trance_normal calls that follow.
+float g_pick_matrix[4][4];
+
+} // namespace
+
+void MulFrameMatrix(sceVu0FMATRIX m0, sceVu0FMATRIX m1, sceVu0FMATRIX m2) {
+    float r[4][4];
+    for (int i = 0; i < 4; i++) {
+        vu0::Apply(r[i], m1, m2[i]);
+    }
+    for (int i = 0; i < 4; i++) {
+        vu0::Copy(m0[i], r[i]);
+    }
+}
+
+void ScaleMatrix(sceVu0FMATRIX m0, sceVu0FMATRIX m1, sceVu0FVECTOR scale) {
+    float s[3] = {scale[0], scale[1], scale[2]};
+    float r[4][4];
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 4; j++) {
+            r[i][j] = m1[i][j] * s[i];
+        }
+    }
+    vu0::Copy(r[3], m1[3]);
+    for (int i = 0; i < 4; i++) {
+        vu0::Copy(m0[i], r[i]);
+    }
+}
+
+void CopyMatrix(sceVu0FMATRIX m0, sceVu0FMATRIX m1) {
+    std::memmove(m0, m1, sizeof(float) * 16);
+}
+
+void ZeroMatrix(sceVu0FMATRIX m0) {
+    std::memset(m0, 0, sizeof(float) * 16);
+}
+
+void ScreenBound(sceVu0FVECTOR *screen, sceVu0FVECTOR max, sceVu0FVECTOR min) {
+    float corner[8][4];
+    for (int i = 0; i < 8; i++) {
+        vu0::Copy(corner[i], screen[i]);
+        float q = vu0::Div(1.0f, std::fabs(corner[i][2]));
+        corner[i][0] = vu0::Mul(corner[i][0], q);
+        corner[i][1] = vu0::Mul(corner[i][1], q);
+    }
+
+    float hi[4];
+    float lo[4];
+    vu0::Max(hi, corner[0], corner[1]);
+    vu0::Min(lo, corner[0], corner[1]);
+    for (int i = 2; i < 8; i++) {
+        vu0::Max(hi, hi, corner[i]);
+        vu0::Min(lo, lo, corner[i]);
+    }
+    vu0::Copy(max, hi);
+    vu0::Copy(min, lo);
+}
+
+void pre_trance_normal(sceVu0FMATRIX matrix) {
+    std::memcpy(g_pick_matrix, matrix, sizeof(g_pick_matrix));
+}
+
+// Retail loads all three corners from p0 onwards (the caller's corners are contiguous) but stores
+// them through p0, p1 and p2. The plane's w is a lane vopmsub never writes; it is zeroed.
+void trance_normal(float *p0, float *p1, float *p2, float *plane) {
+    float a[4];
+    float b[4];
+    float c[4];
+    vu0::Apply(a, g_pick_matrix, p0);
+    vu0::Apply(b, g_pick_matrix, p0 + 4);
+    vu0::Apply(c, g_pick_matrix, p0 + 8);
+
+    float e0[4] = {b[0] - a[0], b[1] - a[1], b[2] - a[2], b[3] - a[3]};
+    float e1[4] = {c[0] - a[0], c[1] - a[1], c[2] - a[2], c[3] - a[3]};
+    float n[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    vu0::Cross(n, e0, e1);
+
+    vu0::Copy(p0, a);
+    vu0::Copy(p1, b);
+    vu0::Copy(p2, c);
+    vu0::Copy(plane, n);
+}
+
+PORT_OVERRIDE void *operator new(size_t size, u_long128 *block) {
+    return PlaceDataAllocObject(size, block);
+}
+
+PORT_OVERRIDE void *operator new[](size_t size, u_long128 *block) {
+    return PlaceDataAllocObject(size, block);
 }

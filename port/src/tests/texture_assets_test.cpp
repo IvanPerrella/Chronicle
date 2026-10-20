@@ -174,7 +174,7 @@ TEST(TextureAssets, AHigherResolutionPictureKeepsItsPixelsAndTheGameKeepsTheOrig
     ASSERT_EQ(texture.levels.size(), 2u);
     EXPECT_EQ(texture.levels[0].size(), 4u * 2 * 4);
     EXPECT_EQ(texture.levels[1].size(), 2u * 1 * 4);
-    EXPECT_EQ(texture.levels[0][0], 255);                  // (0,0) red
+    EXPECT_EQ(texture.levels[0][0], 255);                   // (0,0) red
     EXPECT_EQ(texture.levels[0][(0 * 4 + 2) * 4 + 2], 255); // (2,0) blue
     // A picture is not applied twice.
     EXPECT_FALSE(TextureAssetApply("card", texture));

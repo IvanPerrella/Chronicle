@@ -2,16 +2,24 @@
 #include <signal.h>
 #include <stdlib.h>
 
+#include <cstdint>
 #include <cstring>
+#include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "platform/paths.hpp"
+#include "audio/hdbank.hpp"
+#include "audio/sq.hpp"
 #include "data_fixture.hpp"
 #include "dataread.hpp"
 #include "dataread_port.hpp"
+#include "dataset.hpp"
 #include "exitcodes.hpp"
+#include "platform/audio.hpp"
+#include "platform/paths.hpp"
 #include "platform_fixture.hpp"
+#include "sound.hpp"
 
 using namespace datafix;
 
@@ -19,7 +27,13 @@ namespace {
 
 constexpr unsigned char kUntouched = 0xEE;
 
-alignas(64) unsigned char buffer[16384];
+struct alignas(64) BufferBlock {
+    unsigned char bytes[64];
+};
+
+constexpr std::size_t          kBufferSize = 16384;
+std::unique_ptr<BufferBlock[]> buffer_storage = std::make_unique<BufferBlock[]>(kBufferSize / 64);
+unsigned char *const           buffer = reinterpret_cast<unsigned char *>(buffer_storage.get());
 
 struct Mutable {
     std::string text;
@@ -49,7 +63,7 @@ u_long128 *Quads(void *data) {
 }
 
 void Clear() {
-    std::memset(buffer, kUntouched, sizeof buffer);
+    std::memset(buffer, kUntouched, kBufferSize);
 }
 
 bool Equals(const void *data, const Bytes &expected) {
@@ -165,7 +179,8 @@ TEST(DataRead, LoadfilebgCompletesSynchronously) {
     ASSERT_TRUE(GetReadBGFile(0) == nullptr);
 
     Clear();
-    alignas(64) static unsigned char second[4096];
+    auto  second_storage = std::make_unique<BufferBlock[]>(4096 / 64);
+    auto *second = reinterpret_cast<unsigned char *>(second_storage.get());
     ASSERT_TRUE(LoadFileBG(Mutable("DUN/PACK/MAINDAT.PAC"), Quads(buffer), &size) == 1);
     ASSERT_TRUE(size == 5000);
     ASSERT_TRUE(LoadFileBG(Mutable("nope.bin"), Quads(second), &size) == 0);
@@ -224,15 +239,75 @@ TEST(DataRead, PackLookupOnHost) {
     ASSERT_TRUE(tex && std::strcmp(name, "tex.img") == 0 && size == 64 && Equals(tex, Pattern(64, 3)));
     ASSERT_TRUE(GetPackFile(pack_data, 4, &name, &size) == nullptr);
 
-    u_int *files[8];
-    int    sizes[8];
-    char  *names[8];
-    ASSERT_TRUE(GetPackFileExt(pack_data, Mutable("img"), files, 8, sizes, names) == 2);
+    constexpr int max_files = 8;
+    auto          files = std::make_unique<u_int *[]>(max_files);
+    auto          sizes = std::make_unique<int[]>(max_files);
+    auto          names = std::make_unique<char *[]>(max_files);
+    ASSERT_TRUE(GetPackFileExt(pack_data, Mutable("img"), files.get(), max_files, sizes.get(), names.get()) == 2);
     ASSERT_TRUE(files[0] == tex && sizes[1] == 5 && std::strcmp(names[1], "face.IMG") == 0);
-    ASSERT_TRUE(GetPackFileExt(pack_data, Mutable("IMG"), files, 1, nullptr, nullptr) == 1);
+    ASSERT_TRUE(GetPackFileExt(pack_data, Mutable("IMG"), files.get(), 1, nullptr, nullptr) == 1);
+
+    // The table is inside the sector-padded read, but the member's own range must still fit it.
+    auto               *raw_pack = reinterpret_cast<unsigned char *>(pack_data);
+    const std::uint32_t valid_offset = static_cast<std::uint32_t>(raw_pack[76 + 64]) |
+                                       (static_cast<std::uint32_t>(raw_pack[76 + 65]) << 8) |
+                                       (static_cast<std::uint32_t>(raw_pack[76 + 66]) << 16) |
+                                       (static_cast<std::uint32_t>(raw_pack[76 + 67]) << 24);
+    raw_pack[76 + 64] = 0xFF;
+    raw_pack[76 + 65] = 0xFF;
+    raw_pack[76 + 66] = 0xFF;
+    raw_pack[76 + 67] = 0x7F;
+    ASSERT_EQ(GetPackFile(pack_data, Mutable("model.mds"), &size), nullptr);
+    ASSERT_EQ(size, 0);
+    for (int byte = 0; byte < 4; byte++) {
+        raw_pack[76 + 64 + byte] = static_cast<unsigned char>(valid_offset >> (byte * 8));
+    }
 
     ASSERT_TRUE(LoadPackFile(Mutable("rmdat/none.pak"), pack_data, &size) == 0);
     ASSERT_TRUE(GetPackFile(Mutable("info.cfg"), &size) == nullptr);
+    InitializeDataBuffer();
+    ASSERT_EQ(GetPackFile(pack_data, Mutable("info.cfg"), &size), nullptr);
+    ASSERT_EQ(size, 0);
+    fs::remove_all(dir);
+}
+
+TEST(DataRead, SoundLoadsPackMembersAboveFourGiBWithoutPointerNarrowing) {
+    fs::path   dir = InstallStandardData("sound_pointer_width");
+    Bytes      listing = {'s', 'e', 'q', '0', '0', 'a', '.', 's', 'q', '\n'};
+    Bytes      sequence(0x1a);
+    const auto put = [&](std::size_t at, std::uint32_t value, std::size_t bytes) {
+        for (std::size_t i = 0; i < bytes; ++i) {
+            sequence[at + i] = static_cast<unsigned char>(value >> (8 * i));
+        }
+    };
+    put(0, audio::kChunkCreator, 4);
+    put(4, audio::kChunkMidi, 4);
+    put(8, 0x24, 4);
+    put(0x10, 0x14, 4);
+    put(0x14, 6, 4);
+    put(0x18, 480, 2);
+    sequence.insert(sequence.end(), {0, 0x90, 60, 0x64, 0x80, 60, 0, 0xFF, 0x2F, 0});
+    Bytes pack = MakePack({
+        {"sound.txt", listing },
+        {"seq00a.sq", sequence}
+    });
+    WriteBytes(dir / "data/sound/test.pak", pack);
+    InitCDFile();
+
+    std::vector<u_long128> buffer((dcdata::SectorsFor(pack.size()) * dcdata::kSector) / sizeof(u_long128));
+    int                    size = 0;
+    ASSERT_EQ(LoadFile2(Mutable("sound/test.pak"), buffer.data(), &size, 0), 1);
+    auto *member = GetPackFile(reinterpret_cast<u_int *>(buffer.data()), Mutable("seq00a.sq"), &size);
+    ASSERT_NE(member, nullptr);
+    ASSERT_GT(reinterpret_cast<std::uintptr_t>(member), std::numeric_limits<std::uint32_t>::max());
+    CSnd.Init(0, 0, 0, 0);
+
+    struct StopAudio {
+        ~StopAudio() { AudioOutputStop(); }
+    } stop_audio;
+
+    ASSERT_EQ(CSnd.LoadSoundFileFromPack(Mutable("sound.txt"), reinterpret_cast<u_int *>(buffer.data())), 0);
+    ASSERT_NE(CSnd.GetMidiState()->port[0].sequence_address[0], nullptr);
     fs::remove_all(dir);
 }
 

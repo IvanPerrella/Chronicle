@@ -9,7 +9,7 @@ struct VILLAGER_INFO;
 class CEditGround;
 class CRunScript;
 
-// The port's EdRunEvent (port/src/runscript.cpp) starts this unit's static event interpreter,
+// The port's EdRunEvent (port/src/editloop3.cpp) starts this unit's static event interpreter,
 // declared extern here first so it has a global name the port can reach.
 extern CRunScript EdEventScript asm("EditLoop3_EdEventScript");
 

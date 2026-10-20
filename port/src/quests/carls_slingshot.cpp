@@ -1,6 +1,5 @@
-#include "quests/quests.hpp"
-
 #include "itemdata.hpp"
+#include "quests/quests.hpp"
 
 // Carl's Slingshot: a sidequest between two of Norune's children, and the port's example quest
 // (docs/QUEST_FRAMEWORK.md). Gina borrowed Carl's slingshot and never gave it back. She makes up a

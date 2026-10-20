@@ -3,9 +3,12 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "clsmes.hpp"
@@ -68,12 +71,14 @@ struct LangDir {
 
 // A buffer as LoadFile2 leaves one: the file, then zeros to whole sectors.
 struct Loaded {
-    alignas(64) unsigned char bytes[4096] = {};
-    int size = 0;
+    std::unique_ptr<unsigned char[]> bytes;
+    int                              size = 0;
 
     explicit Loaded(const std::vector<s16> &file) {
         size = static_cast<int>(file.size() * 2);
-        std::memcpy(bytes, file.data(), static_cast<size_t>(size));
+        const std::size_t sectors = std::max<std::size_t>(1, (static_cast<std::size_t>(size) + 2047) / 2048);
+        bytes = std::make_unique<unsigned char[]>(sectors * 2048);
+        std::memcpy(bytes.get(), file.data(), static_cast<size_t>(size));
     }
 };
 
@@ -257,21 +262,21 @@ TEST(Localize, LoadedFileComesFromTheLanguageJson) {
 
     Loaded loaded(retail);
     int    size = loaded.size;
-    EXPECT_TRUE(LocalizeFile("cdrom0:\\DUN\\SCRIPT\\D01\\D01_3.MES", loaded.bytes, 2048, &size));
-    std::vector<s16> got(reinterpret_cast<s16 *>(loaded.bytes), reinterpret_cast<s16 *>(loaded.bytes) + size / 2);
+    EXPECT_TRUE(LocalizeFile("cdrom0:\\DUN\\SCRIPT\\D01\\D01_3.MES", loaded.bytes.get(), 2048, &size));
+    std::vector<s16> got(reinterpret_cast<s16 *>(loaded.bytes.get()), reinterpret_cast<s16 *>(loaded.bytes.get()) + size / 2);
     EXPECT_EQ(Text(got, 1), "one");
     EXPECT_EQ(Text(got, 2), "deux");
 
     // Another file, and a name that is no message file, stay as they were.
     Loaded other(retail);
     size = other.size;
-    EXPECT_FALSE(LocalizeFile("dun/script/d02/d02_3.mes", other.bytes, 2048, &size));
-    EXPECT_FALSE(LocalizeFile("dun/script/d01/d01_3.bin", other.bytes, 2048, &size));
+    EXPECT_FALSE(LocalizeFile("dun/script/d02/d02_3.mes", other.bytes.get(), 2048, &size));
+    EXPECT_FALSE(LocalizeFile("dun/script/d01/d01_3.bin", other.bytes.get(), 2048, &size));
     EXPECT_EQ(size, other.size);
 
     // A language with no file of its own has nothing to say.
     LanguageCode = 4;
-    EXPECT_FALSE(LocalizeFile("dun/script/d01/d01_4.mes", other.bytes, 2048, &size));
+    EXPECT_FALSE(LocalizeFile("dun/script/d01/d01_4.mes", other.bytes.get(), 2048, &size));
     EXPECT_EQ(size, other.size);
 }
 
@@ -289,8 +294,8 @@ TEST(Localize, TheSaveFoldersFileLaysOverTheExecutables) {
 
     Loaded loaded(retail);
     int    size = loaded.size;
-    ASSERT_TRUE(LocalizeFile("a_3.mes", loaded.bytes, 2048, &size));
-    std::vector<s16> got(reinterpret_cast<s16 *>(loaded.bytes), reinterpret_cast<s16 *>(loaded.bytes) + size / 2);
+    ASSERT_TRUE(LocalizeFile("a_3.mes", loaded.bytes.get(), 2048, &size));
+    std::vector<s16> got(reinterpret_cast<s16 *>(loaded.bytes.get()), reinterpret_cast<s16 *>(loaded.bytes.get()) + size / 2);
     EXPECT_EQ(Text(got, 1), "exe");
     EXPECT_EQ(Text(got, 2), "save");
     EXPECT_EQ(Text(got, 3), "three");
@@ -306,8 +311,8 @@ TEST(Localize, BadJsonFallsBackToRetail) {
     Loaded loaded(retail);
     int    size = loaded.size;
     testing::internal::CaptureStderr();
-    EXPECT_FALSE(LocalizeFile("a.mes", loaded.bytes, 2048, &size));
-    EXPECT_FALSE(LocalizeFile("a.mes", loaded.bytes, 2048, &size));
+    EXPECT_FALSE(LocalizeFile("a.mes", loaded.bytes.get(), 2048, &size));
+    EXPECT_FALSE(LocalizeFile("a.mes", loaded.bytes.get(), 2048, &size));
     std::string log = testing::internal::GetCapturedStderr();
     EXPECT_NE(log.find("fr_fr.json"), std::string::npos);
     // Told once, not on every load.
@@ -325,10 +330,10 @@ TEST(Localize, AFileThatWouldNotFitStaysRetail) {
     Loaded loaded(retail);
     int    size = loaded.size;
     testing::internal::CaptureStderr();
-    EXPECT_FALSE(LocalizeFile("a.mes", loaded.bytes, static_cast<size_t>(size) + 4, &size));
+    EXPECT_FALSE(LocalizeFile("a.mes", loaded.bytes.get(), static_cast<size_t>(size) + 4, &size));
     EXPECT_NE(testing::internal::GetCapturedStderr().find("retail text kept"), std::string::npos);
     EXPECT_EQ(size, loaded.size);
-    EXPECT_TRUE(LocalizeFile("a.mes", loaded.bytes, 2048, &size));
+    EXPECT_TRUE(LocalizeFile("a.mes", loaded.bytes.get(), 2048, &size));
     EXPECT_GT(size, loaded.size);
 }
 
@@ -340,7 +345,9 @@ TEST(Localize, PackEntryComesFromTheJson) {
     });
     Write(lang.dir / "fr_fr.json", R"({"commenu.emenu.pak.allmenu.1": "un"})");
 
-    alignas(64) static unsigned char pack[4096];
+    const std::size_t pack_size = std::max<std::size_t>(2048, (retail.size() * 2 + 2047) & ~std::size_t{2047});
+    auto              pack_storage = std::make_unique<unsigned char[]>(pack_size);
+    auto             *pack = pack_storage.get();
     std::memcpy(pack, retail.data(), retail.size() * 2);
     int         size = static_cast<int>(retail.size() * 2);
     const auto *data = reinterpret_cast<const u_int *>(pack);
@@ -381,10 +388,10 @@ std::vector<s16> Patched(LangDir &lang, const std::vector<s16> &retail, const st
     }
     Loaded loaded(retail);
     int    size = loaded.size;
-    if (!LocalizeFile("a.mes", loaded.bytes, 2048, &size)) {
+    if (!LocalizeFile("a.mes", loaded.bytes.get(), 2048, &size)) {
         return {};
     }
-    return std::vector<s16>(reinterpret_cast<s16 *>(loaded.bytes), reinterpret_cast<s16 *>(loaded.bytes) + size / 2);
+    return std::vector<s16>(reinterpret_cast<s16 *>(loaded.bytes.get()), reinterpret_cast<s16 *>(loaded.bytes.get()) + size / 2);
 }
 
 } // namespace
@@ -568,9 +575,15 @@ TEST(LocalizeLanguages, ExportWritesOneFlatFilePerLanguageWithTheSameKeys) {
 // holds only English.
 TEST(LocalizeLanguages, JapaneseTextGoesToTheJapaneseFileWhereverItIsKept) {
     fs::path root = datafix::TempDir("langjp");
-    WriteMes(root / "data/commenu/a_usa/pack.pak.mes", File({{1, "{11}{41}{82}"}}));
-    WriteMes(root / "data/commenu/a_usa/other.pak.mes", File({{1, "English"}}));
-    WriteMes(root / "data/commenu/a_jpn/pack.pak.mes", File({{1, "{11}{41}{82}"}}));
+    WriteMes(root / "data/commenu/a_usa/pack.pak.mes", File({
+                                                           {1, "{11}{41}{82}"}
+    }));
+    WriteMes(root / "data/commenu/a_usa/other.pak.mes", File({
+                                                            {1, "English"}
+    }));
+    WriteMes(root / "data/commenu/a_jpn/pack.pak.mes", File({
+                                                           {1, "{11}{41}{82}"}
+    }));
     PathsSetDataRoot(root / "data");
 
     testing::internal::CaptureStderr();
@@ -641,7 +654,7 @@ TEST(LocalizeLanguages, ChangingTheLanguageSettingWaitsForTheGameToSwitch) {
 
 #include "menu_option.hpp"
 
-// port/lang/ ships the Options screen's strings in each language: the same keys as the code has, nothing
+// port/lang/ ships the port's registered strings in each language: the same keys as the code has, nothing
 // else, and the same placeholders and pad glyph codes as the English.
 TEST(LocalizeOptions, ShippedTranslationsHaveExactlyTheCodesKeys) {
     const fs::path lang = fs::path(__FILE__).parent_path().parent_path().parent_path() / "lang";
@@ -650,6 +663,54 @@ TEST(LocalizeOptions, ShippedTranslationsHaveExactlyTheCodesKeys) {
     std::map<std::string, std::string> english;
     for (const auto &[key, text] : OptionStrings()) {
         EXPECT_TRUE(english.emplace(key, text).second) << "two strings called " << key;
+    }
+    // These are the Dialog::kEnglish entries and Quest::Text constants used by the production code.
+    const std::pair<const char *, const char *> supplemental[] = {
+        {"dialog.common.talk",                 "Talk"                                                                                           },
+        {"dialog.common.leave",                "Never mind"                                                                                     },
+        {"dialog.common.back",                 "Back"                                                                                           },
+        {"dialog.common.yes",                  "Yes"                                                                                            },
+        {"dialog.common.no",                   "No"                                                                                             },
+        {"dialog.common.accept",               "Accept"                                                                                         },
+        {"dialog.common.decline",              "Decline"                                                                                        },
+        {"dialog.common.next_page",            "{cross} Next"                                                                                   },
+        {"dialog.hub.default_prompt",          "Is there something you need?"                                                                   },
+        {"dialog.hub.anything_else",           "Was there anything else?"                                                                       },
+        {"quest.mayor_supplies.ask",           "Do you have any supplies?"                                                                      },
+        {"quest.mayor_supplies.here",          "Here, take these with you."                                                                     },
+        {"quest.mayor_supplies.buggy",         "Gaffer's Buggy has all you need now."                                                           },
+        {"quest.mayor_supplies.stocked",       "You seem to have everything you need. Come back if you run short."                              },
+        {"quest.mayor_supplies.no_room",       "You've no room to carry any more. Make some space and come back."                               },
+        {"quest.carls_slingshot.carl.ask",     "You look upset."                                                                                },
+        {"quest.carls_slingshot.carl.about",   "Your slingshot"                                                                                 },
+        {"quest.carls_slingshot.carl.story",   "{name1}, bro... Gina borrowed my slingshot.{page}"
+                                             "She said she'd give it back the next day. That was ages ago!{page}"
+                                             "Every time I ask her, she runs off. It's not fair.{page}"
+                                             "Can you get it back for me bro? Please?"              },
+        {"quest.carls_slingshot.carl.waiting", "Did Gina give it back yet? Go ask her!"                                                         },
+        {"quest.carls_slingshot.carl.bird",    "A bird?! Birds don't take slingshots!{page}"
+                                            "She's fibbing. She always makes stuff up.{page}"
+                                            "Go talk to her again. I know she's lying!"              },
+        {"quest.carls_slingshot.carl.again",   "Go ask Gina again. And no birds this time!"                                                     },
+        {"quest.carls_slingshot.carl.junk",    "She broke it?{page}"
+                                            "And she made this...? It's all crooked. It's junk.{page}"
+                                            "...You keep it. I don't want it.{page}"
+                                            "Give it to Xiao.."                                      },
+        {"quest.carls_slingshot.carl.no_room", "Xiao's got too many weapons to carry it. Make some room first."                                 },
+        {"quest.carls_slingshot.received",     "Received the Bone Slingshot for Xiao."                                                          },
+        {"quest.carls_slingshot.gina.about",   "Carl's slingshot"                                                                               },
+        {"quest.carls_slingshot.gina.excuse",  "Carl's slingshot?{page}"
+                                              "Umm... a, a big bird took it! It was *THIS* big!{page}"
+                                              "It went whoosh, and flew away with it!"             },
+        {"quest.carls_slingshot.gina.bird",    "The bird took it! Honest!"                                                                      },
+        {"quest.carls_slingshot.gina.confess", "...Carl doesn't believe the bird?{page}"
+                                               "...Okay. I was shooting at bottles, and it went SNAP.{page}"
+                                               "I didn't mean to! So I made him a new one!.{page}"
+                                               "Can you give it to him? I'm scared he'll be mad.."},
+        {"quest.carls_slingshot.gina.waiting", "Did you give Carl the new slingshot? Is he mad?"                                                },
+    };
+    for (const auto &[key, text] : supplemental) {
+        EXPECT_TRUE(english.emplace(key, text).second) << "duplicate registered string " << key;
     }
     EXPECT_GT(english.size(), 100U);
 
@@ -679,10 +740,18 @@ TEST(LocalizeOptions, ShippedTranslationsHaveExactlyTheCodesKeys) {
             }
             const std::string translated = shipped[key];
             EXPECT_FALSE(translated.empty()) << name << " " << key;
-            EXPECT_EQ(tokens(translated), tokens(text)) << name << " " << key << ": placeholders and pad glyphs differ";
+            std::string expected_tokens = tokens(text);
+            // These translations name Xiao with the runtime party-name token instead of the English fallback.
+            if (key == "quest.carls_slingshot.carl.junk" || key == "quest.carls_slingshot.carl.no_room" ||
+                key == "quest.carls_slingshot.received") {
+                expected_tokens += "{name2}";
+            }
+            EXPECT_EQ(tokens(translated), expected_tokens)
+                << name << " " << key << ": placeholders and pad glyphs differ";
         }
         for (const auto &item : shipped.items()) {
-            EXPECT_TRUE(english.count(item.key()) != 0) << name << " has " << item.key() << " that the code does not";
+            EXPECT_TRUE(english.count(item.key()) != 0)
+                << name << " has " << item.key() << " that the code does not";
         }
     }
     EXPECT_EQ(files, 4);
