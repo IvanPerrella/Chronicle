@@ -584,6 +584,14 @@ std::string ResolveKey(std::string_view key_or_raw) {
     return LocalizeText(key_or_raw, english);
 }
 
+std::vector<std::pair<std::string, std::string>> Strings() {
+    std::vector<std::pair<std::string, std::string>> out;
+    for (const auto& [key, text] : kEnglish) {
+        out.emplace_back(key, text);
+    }
+    return out;
+}
+
 std::string SubstituteTokens(std::string_view text,
                              std::span<const std::string> positional_args,
                              const TokenContext* token_ctx) {

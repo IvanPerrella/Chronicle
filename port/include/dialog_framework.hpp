@@ -188,6 +188,9 @@ void SetTokenContext(const TokenContext& token_ctx);
 const TokenContext& GetTokenContext() noexcept;
 
 std::string ResolveKey(std::string_view key_or_raw);
+// The framework's own keys and their English, for the language files (port/lang/) and
+// --export-text (OptionStrings, menu_option.hpp).
+std::vector<std::pair<std::string, std::string>> Strings();
 std::string SubstituteTokens(std::string_view text,
                              std::span<const std::string> positional_args = {},
                              const TokenContext* token_ctx = nullptr);
