@@ -271,6 +271,63 @@ TEST(DataRead, PackLookupOnHost) {
     fs::remove_all(dir);
 }
 
+TEST(DataRead, NestedPackLookupUsesEachMembersExactCapacity) {
+    fs::path dir = InstallStandardData("read_nested_pack");
+    Bytes    info = Pattern(37, 21);
+    Bytes    model = Pattern(300, 22);
+    Bytes    leaf = MakePack({{"info.cfg", info}, {"trap01.mds", model}});
+    Bytes    middle = MakePack({{"trap01.chr", leaf}, {"sibling.bin", Pattern(1024, 23)}});
+    Bytes    outer = MakePack({{"maindat.pac", middle}});
+    WriteBytes(dir / "data/nested.pac", outer);
+    InitCDFile();
+
+    Clear();
+    int size = 0;
+    auto *outer_pack = reinterpret_cast<u_int *>(buffer);
+    ASSERT_EQ(LoadFile2(Mutable("nested.pac"), buffer, &size, 0), 1);
+    ASSERT_EQ(size, static_cast<int>(outer.size()));
+
+    auto files = std::make_unique<u_int *[]>(1);
+    auto sizes = std::make_unique<int[]>(1);
+    auto names = std::make_unique<char *[]>(1);
+    ASSERT_EQ(GetPackFileExt(outer_pack, Mutable("pac"), files.get(), 1, sizes.get(), names.get()), 1);
+    auto *middle_pack = files[0];
+    ASSERT_EQ(std::strcmp(names[0], "maindat.pac"), 0);
+    ASSERT_EQ(sizes[0], static_cast<int>(middle.size()));
+
+    auto *leaf_pack = GetPackFile(middle_pack, Mutable("trap01.chr"), &size);
+    ASSERT_NE(leaf_pack, nullptr);
+    const int leaf_size = size;
+    ASSERT_EQ(leaf_size, static_cast<int>(leaf.size()));
+    auto *info_file = GetPackFile(leaf_pack, Mutable("info.cfg"), &size);
+    ASSERT_NE(info_file, nullptr);
+    ASSERT_EQ(size, static_cast<int>(info.size()));
+    ASSERT_TRUE(Equals(info_file, info));
+
+    char  *name = nullptr;
+    auto  *model_file = GetPackFile(leaf_pack, 1, &name, &size);
+    ASSERT_NE(model_file, nullptr);
+    ASSERT_EQ(std::strcmp(name, "trap01.mds"), 0);
+    ASSERT_EQ(size, static_cast<int>(model.size()));
+    ASSERT_TRUE(Equals(model_file, model));
+
+    // A malformed child entry may fit in its parent's remaining bytes, but cannot extend beyond
+    // the exact size of the child archive returned above.
+    auto *leaf_bytes = reinterpret_cast<unsigned char *>(leaf_pack);
+    const std::uint32_t too_far = static_cast<std::uint32_t>(leaf_size + 16);
+    for (int byte = 0; byte < 4; ++byte) {
+        leaf_bytes[72 + byte] = static_cast<unsigned char>(too_far >> (byte * 8));
+    }
+    ASSERT_EQ(GetPackFile(leaf_pack, Mutable("info.cfg"), &size), nullptr);
+    ASSERT_EQ(size, 0);
+
+    // Reusing the root buffer invalidates every nested view obtained from its previous contents.
+    ASSERT_EQ(LoadFile2(Mutable("img/title.img"), buffer, &size, 0), 1);
+    ASSERT_EQ(GetPackFile(middle_pack, Mutable("trap01.chr"), &size), nullptr);
+    ASSERT_EQ(size, 0);
+    fs::remove_all(dir);
+}
+
 TEST(DataRead, SoundLoadsPackMembersAboveFourGiBWithoutPointerNarrowing) {
     fs::path   dir = InstallStandardData("sound_pointer_width");
     Bytes      listing = {'s', 'e', 'q', '0', '0', 'a', '.', 's', 'q', '\n'};

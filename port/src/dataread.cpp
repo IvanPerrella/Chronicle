@@ -24,10 +24,32 @@ namespace fs = std::filesystem;
 
 namespace {
 
-std::unordered_map<std::string, fs::path>     data_index;
-std::unordered_map<const void *, std::size_t> loaded_capacities;
+std::unordered_map<std::string, fs::path> data_index;
+
+struct PackCapacity {
+    std::size_t capacity;
+    const void *owner;
+};
+
+std::unordered_map<const void *, PackCapacity> loaded_capacities;
 bool                                          data_indexed;
 BG_READ_INFO                                  bg_read_info[32];
+
+void ForgetPackCapacities(const void *owner) {
+    for (auto at = loaded_capacities.begin(); at != loaded_capacities.end();) {
+        if (at->second.owner == owner) {
+            at = loaded_capacities.erase(at);
+        } else {
+            ++at;
+        }
+    }
+}
+
+void TrackPackCapacity(const void *pack, std::size_t capacity, const void *owner) {
+    if (pack != nullptr) {
+        loaded_capacities[pack] = {capacity, owner};
+    }
+}
 
 // Everything up to the first colon is a device, as retail's LoadFile2 has it; sim: and host:
 // were development devices that reached the same tree, so they are dropped like cdrom0:.
@@ -206,9 +228,10 @@ PORT_OVERRIDE int LoadFile2(char *path, void *buffer, int *out_size, int mode) {
     if (!file) {
         return 0;
     }
+    ForgetPackCapacities(buffer);
     std::size_t capacity = 0;
     int         size = ReadWhole(*file, buffer, &capacity);
-    loaded_capacities[buffer] = capacity;
+    TrackPackCapacity(buffer, capacity, buffer);
     Localized(path, buffer, &size);
     if (out_size) {
         *out_size = size;
@@ -300,9 +323,10 @@ PORT_OVERRIDE int LoadFileBG(char *name, u_long128 *buffer, int *out_size) {
     if (!file) {
         return 0;
     }
+    ForgetPackCapacities(buffer);
     std::size_t capacity = 0;
     int         size = ReadWhole(*file, buffer, &capacity);
-    loaded_capacities[buffer] = capacity;
+    TrackPackCapacity(buffer, capacity, buffer);
     Localized(name, buffer, &size);
     std::snprintf(info->name, sizeof info->name, "%s", name);
     info->busy = true;
@@ -379,17 +403,18 @@ PORT_OVERRIDE u_int *GetPackFile(u_int *pack, char *name, int *out_size) {
         basename = basename.substr(slash + 1);
     }
     for (int index = 0;; index++) {
-        PackEntry *entry = PackEntryAt(pack, capacity->second, index);
+        PackEntry *entry = PackEntryAt(pack, capacity->second.capacity, index);
         if (entry == nullptr) {
             return nullptr;
         }
         if (SameName(entry->name, basename)) {
-            u_int *data = PackEntryData(pack, capacity->second, entry);
+            u_int *data = PackEntryData(pack, capacity->second.capacity, entry);
             if (data == nullptr) {
                 return nullptr;
             }
             int size = entry->size;
             data = const_cast<u_int *>(LocalizePack(pack, basename, data, &size));
+            TrackPackCapacity(data, static_cast<std::size_t>(size), capacity->second.owner);
             if (out_size) {
                 *out_size = size;
             }
@@ -406,16 +431,17 @@ PORT_OVERRIDE u_int *GetPackFile(u_int *pack, int index, char **out_name, int *o
     if (capacity == loaded_capacities.end()) {
         return nullptr;
     }
-    PackEntry *entry = PackEntryAt(pack, capacity->second, index);
+    PackEntry *entry = PackEntryAt(pack, capacity->second.capacity, index);
     if (entry == nullptr) {
         return nullptr;
     }
-    u_int *data = PackEntryData(pack, capacity->second, entry);
+    u_int *data = PackEntryData(pack, capacity->second.capacity, entry);
     if (data == nullptr) {
         return nullptr;
     }
     int size = entry->size;
     data = const_cast<u_int *>(LocalizePack(pack, entry->name, data, &size));
+    TrackPackCapacity(data, static_cast<std::size_t>(size), capacity->second.owner);
     if (out_name != nullptr) {
         *out_name = entry->name;
     }
