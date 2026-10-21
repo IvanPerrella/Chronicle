@@ -10,11 +10,13 @@
 #include <string>
 #include <tuple>
 
+#include "credits_text.hpp"
 #include "draw2d_port.hpp"
 #include "glyph_draw.hpp"
 #include "mglib_port.hpp"
 #include "rect.hpp"
 #include "texture.hpp"
+#include "ui_framework/buttons.hpp"
 
 extern unsigned int *snd_read_buf;
 
@@ -69,7 +71,8 @@ void RectSprite(CTexture *texture, const CRect_i_ &screen, const CRect_i_ &texel
         }
     }
 
-    if (GlyphReplaceSprite(texture->name, screen, texel, colour.a)) {
+    if (GlyphReplaceSprite(texture->name, screen, texel, colour.a) || credits::DrawBand(texture->name, screen, texel, colour.a) ||
+        UI::DrawPaintedPlate(texture->name, screen, texel, colour.r, colour.a)) {
         return;
     }
     std::array<gfx::Vertex2D, 4> quad = RectQuad(screen, texel, colour);

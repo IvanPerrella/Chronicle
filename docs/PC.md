@@ -151,7 +151,6 @@ key is optional; these are the defaults:
         "interpolation": true,      // false: present each tick's image once, as rendered
         "render_thread": "async",   // off, lockstep or async; takes effect after restarting
         "max_fps": 0,               // display frames per second at most; 0: as the present mode allows
-        "text_font": "sharp",       // sharp: message text from lang/font.ttf; original: the game's bitmaps
         "width": 0,                 // window size in pixels; 0: the monitor's resolution. Both 0: fullscreen on the
         "height": 0,                //   monitor, so "aspect": "auto" takes the monitor's shape; headless: 1280x960
         "fullscreen": false,        // fullscreen at a given width and height

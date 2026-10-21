@@ -38,8 +38,8 @@ set(DC_TEST_TIMEOUT 30 CACHE STRING "Seconds a test case may run before it is cu
 gtest_discover_tests(darkcloud_tests
     DISCOVERY_MODE PRE_TEST
     TEST_FILTER -PlatformClock.*
-    PROPERTIES TIMEOUT ${DC_TEST_TIMEOUT} ENVIRONMENT "DC_TEST_FONT=${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf")
+    PROPERTIES TIMEOUT ${DC_TEST_TIMEOUT} ENVIRONMENT "DC_TEST_FONT=${CMAKE_SOURCE_DIR}/tools/font/ChronicleSharp-Bold.ttf")
 gtest_discover_tests(darkcloud_tests
     DISCOVERY_MODE PRE_TEST
     TEST_FILTER PlatformClock.*
-    PROPERTIES TIMEOUT ${DC_TEST_TIMEOUT} ENVIRONMENT "DC_TEST_FONT=${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf" RUN_SERIAL TRUE)
+    PROPERTIES TIMEOUT ${DC_TEST_TIMEOUT} ENVIRONMENT "DC_TEST_FONT=${CMAKE_SOURCE_DIR}/tools/font/ChronicleSharp-Bold.ttf" RUN_SERIAL TRUE)

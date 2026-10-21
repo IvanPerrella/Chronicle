@@ -16,6 +16,13 @@ UI::Cursor move_cursor;
 int last_move_state = -1;
 
 /**
+ * Frames since the answer was chosen. It is lit for as long as the weapon menu's EQUIP is once a weapon is equipped:
+ * the weapon's hop, WepFrameRate rising to pi by pi/9 a frame.
+ */
+int           chosen_frames = 0;
+constexpr int kChosenLitFrames = 9;
+
+/**
  * Extracts the title and description lines for the active move confirmation prompt.
  */
 void ExtractMovePromptText(std::string &out_title, std::string &out_desc) {
@@ -77,12 +84,14 @@ void PortDrawMenuMove() {
         }
 
         if (last_move_state != MenuMove.state && MenuMove.state == MENU_MOVE_STATE_OPEN) {
-            constexpr int btn_x = (640 - 100) / 2;
+            constexpr int btn_x = (640 - 0x60) / 2;
             constexpr int btn_y0 = 164 + 58 + 10;
-            const int     sel_y = (MenuMove.cursor == 0) ? btn_y0 : (btn_y0 + 26 + 6);
+            const int     sel_y = (MenuMove.cursor == 0) ? btn_y0 : (btn_y0 + 0x1C);
             move_cursor.SnapTo(static_cast<float>(btn_x - 34), static_cast<float>(sel_y + 3));
         }
         last_move_state = MenuMove.state;
+        const bool chosen = MenuMove.state == MENU_MOVE_STATE_CONFIRM || MenuMove.state == MENU_MOVE_STATE_CLOSE;
+        chosen_frames = chosen ? chosen_frames + 1 : 0;
 
         std::string prompt_title;
         std::string prompt_desc;
@@ -95,7 +104,10 @@ void PortDrawMenuMove() {
             LocalizeText("battlemenu.quit.no", "NO"),
             MenuMove.cursor,
             move_cursor,
-            alpha);
+            alpha,
+            UI::WindowPreset::DarkTranslucent,
+            chosen ? MenuMove.cursor : -1,
+            chosen_frames <= kChosenLitFrames);
 
         if (MenuMove.state == MENU_MOVE_STATE_INTERIOR_FADE && GetInteriorOutFlag() != 0) {
             AllFadeForMenu(std::min(0x80, static_cast<int>(MenuMove.counter * 3)));
