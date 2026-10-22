@@ -37,6 +37,7 @@ jobs:
 
       - name: Install the toolchain and libraries
         run: |
+          sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' /etc/apt/apt-mirrors.txt
           sudo apt-get update
           sudo apt-get install -y clang-22 lld-22 llvm-22 libclang1-22 python3-clang-22 cmake ninja-build glslang-tools \
             mesa-vulkan-drivers vulkan-validationlayers libsdl3-dev libvulkan-dev libgtest-dev nlohmann-json3-dev
