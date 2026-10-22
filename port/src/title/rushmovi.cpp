@@ -736,7 +736,7 @@ void SoundProcess() {
 
     static int bat = 0;
 
-    if (CScript.scene == RUSH_SCENE_A && Cam[SceneNp].motion_type.state.time > 10.0f) {
+    if (SceneNp >= 0 && CScript.scene == RUSH_SCENE_A && Cam[SceneNp].motion_type.state.time > 10.0f) {
         if (!bat) {
             CFrame *frame = Cam[SceneNp].frame->SearchFrame("e04a5");
 
@@ -763,7 +763,7 @@ void SoundProcess() {
         bat = 0;
     }
 
-    if ((CScript.scene == RUSH_SCENE_A && Cam[SceneNp].motion_type.state.time > 10.0f) || (CScript.scene == RUSH_SCENE_H && Cam[SceneNp].motion_type.state.time > 10.0f)) {
+    if (SceneNp >= 0 && ((CScript.scene == RUSH_SCENE_A && Cam[SceneNp].motion_type.state.time > 10.0f) || (CScript.scene == RUSH_SCENE_H && Cam[SceneNp].motion_type.state.time > 10.0f))) {
         static int wait = 0;
 
         if (CScript.scene == RUSH_SCENE_A) {
@@ -819,7 +819,7 @@ void SoundProcess() {
 
     static int wait = 0;
 
-    if (wait == 0) {
+    if (wait == 0 && SceneNp >= 0) {
         int cam_frame = static_cast<int>(Cam[SceneNp].motion_type.state.time);
 
         switch (CScript.camera_start) {
@@ -1077,7 +1077,7 @@ void SoundProcess() {
 
                 break;
         }
-    } else {
+    } else if (wait > 0) {
         wait--;
     }
 }

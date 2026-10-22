@@ -9,8 +9,7 @@
 # The Flatpak job (docs/FLATPAK.md) packages the Linux build in Flathub's
 # freedesktop 26.08 image. Its manifest uses the commit under test as a git
 # source, and its smoke run checks that the packaged binary reaches its data
-# check. The PC builds belong to the same workflow run. The large Switch
-# toolchain is built on manual dispatch so it can be checked without slowing each PC change.
+# check. All three downloadable builds belong to the same workflow run.
 name: PC builds
 
 on:
@@ -31,6 +30,11 @@ jobs:
         with:
           submodules: true
 
+      # The Flatpak configures without network, so its manifest has to stage every file Kazarov's CMake
+      # downloads; this fails on the pull request that pins a Kazarov with one the manifest lacks.
+      - name: Check the Flatpak stages Kazarov's downloads
+        run: python3 scripts/port/flatpak_sources.py
+
       - name: Install the toolchain and libraries
         run: |
           sudo apt-get update
@@ -39,10 +43,11 @@ jobs:
           # ld.lld and llvm-readobj under their plain names.
           echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
 
+      # lavapipe takes seconds to start each renderer, and some of Kazarov's GfxGpu cases start several.
       - name: Configure
         run: |
           cmake -S . -B port/build/pc -G Ninja -DPLATFORM=PC -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_CXX_COMPILER=clang++-22 -DDC_TEST_TIMEOUT=60
+            -DCMAKE_CXX_COMPILER=clang++-22 -DDC_TEST_TIMEOUT=60 -DDC_GPU_TEST_TIMEOUT=300
 
       - name: Build
         run: cmake --build port/build/pc
@@ -53,7 +58,7 @@ jobs:
         working-directory: port/build/pc
         run: |
           llvm-readobj --file-headers darkcloud | grep -q 'Type: SharedObject'
-          env -u DC_DATA ctest --output-on-failure -j2
+          env -u DC_DATA ctest --output-on-failure -j4
 
       - name: Audit pointer truncations
         run: /usr/bin/python3 scripts/port/truncations.py --build port/build/pc --check
@@ -92,7 +97,7 @@ jobs:
       # The runner's Apple Paravirtual GPU draws black for two of Kazarov's prog0 cases that pass on
       # Apple silicon.
       - name: Test
-        run: ctest --preset macos-arm64 -E '^GfxGpuMeshDc2\.(RefSphere|Prog0CullModeFollowsFlagAndMirror)$'
+        run: ctest --preset macos-arm64 -E '^GfxGpuMeshDc2[.](RefSphere|Prog0CullModeFollowsFlagAndMirror)$'
 
       # No game data: one stand-in file gets darkcloud through renderer start-up and pipeline compilation to the
       # game's first asset load, which fails with status 4 naming the file.
@@ -170,10 +175,10 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Copy-Item $env:VULKAN_RUNTIME/vulkan-1.dll port/build/windows
 
-      # The renderer's cases run on Linux and macOS: this runner's Vulkan loader has no surface extension, so the cases
-      # GPU cases cannot start here. The named GfxGpu tests create the same surface even when they render offscreen.
+      # The renderer's cases run on Linux and macOS: this runner has a Vulkan loader but no driver, so the cases that
+      # need a device, labeled gpu (port/src/tests/CMakeLists.txt), cannot start here.
       - name: Test
-        run: ctest --test-dir port/build/windows --output-on-failure -j4 -E '(^|/)GfxGpu|^(GfxMisc|GfxMeshDc2|GfxTim2|TexDecode|AreaCard|CaptionLine|TextureBuffer)\.|^ChroniclePresentation\.(FullSizePictureFillsWidescreenWithoutSamplingPastArtwork|ClothTurnsWithItsAttachmentWithoutBlendingAcrossTheBody|AsyncPublishesAndStopsTheWorker|AdjacentMatchingStripsBatchWithoutReorderingMaterials|AnimatedBodyMatchesAcrossDisplayBuffersAndStationaryPoses)$'
+        run: ctest --test-dir port/build/windows --output-on-failure -j4 -LE gpu
 
       - name: Package the Windows build
         run: |

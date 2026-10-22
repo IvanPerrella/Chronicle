@@ -763,7 +763,7 @@ int WeaponActionRows(int *cursors) {
         cursors[count++] = i;
     }
     // The game's NowWeaponStatusValue: bit 1 is Level up, bit 2 Break down, bit 3 Build up.
-    WEAPON_HAVE *weapon = &DngWepHavePt[WepMenu.weapon_slot];
+    WEAPON_HAVE *weapon = &DngWepHavePt[static_cast<int>(WepMenu.weapon_slot)];
     int          options = 0;
     if (weapon->experience >= GetWeaponMaxExp(weapon) || GetNowItemNum(ITEM_POWERUP_POWDER, MenuItemPackPt) > 0) {
         options |= 2;
@@ -928,7 +928,7 @@ bool WeaponMouse(const MenuPointerTake &take) {
                 return true;
             }
             PERSONAL_BOARD &board = WepMenu.board;
-            int             holes = GetWeaponHoleNum(DngWepHavePt[WepMenu.weapon_slot].item_no);
+            int             holes = GetWeaponHoleNum(DngWepHavePt[static_cast<int>(WepMenu.weapon_slot)].item_no);
             int             mode = -1;
             int             cursor = board.cursor;
             int             area = board.cursor_area;

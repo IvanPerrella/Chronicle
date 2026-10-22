@@ -15,6 +15,7 @@ enum class ButtonPreset {
     Terracotta,
     AmberGold,
     StoneGreen,
+    SlateBlue,
 };
 
 /**
@@ -25,6 +26,8 @@ struct ButtonStyle {
     u32          text_color = ColorWhite;           /**< Fallback palette text color. */
     bool         drop_shadow = false;               /**< Whether to draw a standard text drop shadow. */
     bool         recessed_text = true;              /**< Whether to engrave the label into the button surface. */
+    bool         painted_text = false;              /**< Whether to letter the label as the painted buttons are. */
+    bool         pressed = false;                   /**< Lit from below (the plate turned round), its painted lettering glowing light. */
     Alignment    align = Alignment::Center;         /**< Horizontal label alignment inside the button. */
     float        text_scale = 1.01f;                /**< Uniform label font scale factor. */
     float        text_xscale = 1.20f;               /**< Horizontal glyph stretch factor. */
@@ -60,13 +63,16 @@ struct ButtonStyle {
             .preset = p,
             .text_color = ColorWhite,
             .drop_shadow = false,
-            .recessed_text = true,
+            .recessed_text = false,
+            .painted_text = true,
             .align = Alignment::Center,
-            .text_scale = 1.06f,
-            .text_xscale = 1.02f,
+            .text_scale = 1.10f,
+            .text_xscale = 1.32f,
             .text_weight = FontWeight::Thin,
             .rounded = true,
             .brightness = bright,
+            .text_dx = 1,
+            .text_dy = 1,
         };
     }
 };
@@ -92,6 +98,13 @@ public:
                      bool         drop_shadow = false,
                      FontWeight   weight = FontWeight::Normal);
 };
+
+/**
+ * Draws a painted plate the game takes whole from a texture (btstatus2's YES, NO and DUMP, the fishing points exchange's
+ * YES and NO) as the weapon menu's buttons
+ * are drawn instead, the plate procedural and its word from the font. False for any other sprite.
+ */
+bool DrawPaintedPlate(const char *texture, const CRect_i_ &screen, const CRect_i_ &texel, int bright, int alpha);
 
 /**
  * Sprite-backed button renderer with optional TrueType text overlay.

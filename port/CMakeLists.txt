@@ -31,14 +31,11 @@ if(NOT EXISTS ${KZ_ROOT}/include/kazarov/port.h)
     message(FATAL_ERROR "${KZ_ROOT} is empty: run git submodule update --init tools/kazarov")
 endif()
 
-# Flatpak stages pinned FetchContent sources before its network-restricted CMake build.
-foreach(dependency IN ITEMS simdjson fastgltf)
-    if(EXISTS "${CMAKE_SOURCE_DIR}/${dependency}/CMakeLists.txt")
-        string(TOUPPER "${dependency}" dependency_upper)
-        set(FETCHCONTENT_SOURCE_DIR_${dependency_upper} "${CMAKE_SOURCE_DIR}/${dependency}" CACHE PATH "" FORCE)
-    endif()
-endforeach()
-
+# Archives Kazarov's FetchContent_Declare downloads take their extraction time, so a changed URL
+# rebuilds what they hold. Set before the include: its functions keep the policies they were defined under.
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
 include(${KZ_ROOT}/cmake/KazarovPort.cmake)
 
 if(NINTENDO_SWITCH)
@@ -49,6 +46,17 @@ endif()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 # Flatpak builds have no network: their single-file libraries are staged in audio_decoders/ and stb_truetype/; others fetch them.
 set(KZ_PORT_VENDOR_DIRS ${CMAKE_SOURCE_DIR}/audio_decoders ${CMAKE_SOURCE_DIR}/stb_truetype)
+# The Flatpak also stages each library Kazarov's FetchContent_Declare downloads, in flatpak-deps/<name>
+# (scripts/port/flatpak_sources.py checks the manifest), and FetchContent takes it from there. Other
+# builds have no flatpak-deps/ and download them as declared.
+file(GLOB staged_dependencies LIST_DIRECTORIES true "${CMAKE_SOURCE_DIR}/flatpak-deps/*")
+foreach(staged IN LISTS staged_dependencies)
+    if(IS_DIRECTORY "${staged}")
+        get_filename_component(dependency "${staged}" NAME)
+        string(TOUPPER "${dependency}" dependency_upper)
+        set(FETCHCONTENT_SOURCE_DIR_${dependency_upper} "${staged}")
+    endif()
+endforeach()
 kz_port_host_library(dc_host)
 if(NINTENDO_SWITCH)
     dc_switch_host(dc_host)
@@ -143,8 +151,7 @@ target_include_directories(dc_options INTERFACE
     ${CMAKE_SOURCE_DIR}/port/include ${KZ_ROOT}/include ${CMAKE_SOURCE_DIR}/ps2/include ${CMAKE_SOURCE_DIR}/ps2/include/sce)
 target_compile_options(dc_options INTERFACE
     "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/include/port.h\""
-    -fms-extensions -ffunction-sections -fdata-sections
-    -Wno-register)
+    -fms-extensions -ffunction-sections -fdata-sections -Wno-register)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(dc_options INTERFACE -fpermissive -Wno-narrowing -fno-aggressive-loop-optimizations)
 else()
@@ -231,10 +238,11 @@ if(NINTENDO_SWITCH)
 endif()
 target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json kz_port_headers)
 target_include_directories(dc_port PRIVATE ${PORT_DIR} ${SHADER_HEADER_DIR})
-# captionfont.cpp rasterizes with stb_truetype, which Kazarov stages (or fetches) for dc_host.
+# captionfont.cpp rasterizes with stb_truetype and platform/png_image.cpp decodes with stb_image, which
+# Kazarov stages (or fetches) for dc_host.
 get_target_property(dc_host_includes dc_host INCLUDE_DIRECTORIES)
 foreach(include_dir IN LISTS dc_host_includes)
-    if(EXISTS ${include_dir}/stb_truetype.h)
+    if(EXISTS ${include_dir}/stb_truetype.h OR EXISTS ${include_dir}/stb_image.h)
         target_include_directories(dc_port PRIVATE ${include_dir})
     endif()
 endforeach()
@@ -312,20 +320,20 @@ if(ANDROID)
     set(ANDROID_ASSETS ${CMAKE_SOURCE_DIR}/port/android/app/src/main/assets)
     file(MAKE_DIRECTORY ${ANDROID_ASSETS}/lang ${ANDROID_ASSETS}/glyphs)
     file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/lang/ DESTINATION ${ANDROID_ASSETS}/lang)
-    configure_file(${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf ${ANDROID_ASSETS}/lang/font.ttf COPYONLY)
-    configure_file(${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendiumThin.ttf ${ANDROID_ASSETS}/lang/font_thin.ttf COPYONLY)
+    configure_file(${CMAKE_SOURCE_DIR}/tools/font/ChronicleSharp-Bold.ttf ${ANDROID_ASSETS}/lang/font.ttf COPYONLY)
+    configure_file(${CMAKE_SOURCE_DIR}/tools/font/ChronicleSharp-Regular.ttf ${ANDROID_ASSETS}/lang/font_thin.ttf COPYONLY)
 else()
     add_custom_target(dc_lang
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/lang $<TARGET_FILE_DIR:darkcloud>/lang
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/tools/font/ChronicleSharp-Bold.ttf
                 $<TARGET_FILE_DIR:darkcloud>/lang/font.ttf
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendiumThin.ttf
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/tools/font/ChronicleSharp-Regular.ttf
                 $<TARGET_FILE_DIR:darkcloud>/lang/font_thin.ttf
-        COMMENT "Copying the port's translated strings and message font")
+        COMMENT "Copying the port's translated strings and text fonts")
     add_dependencies(${darkcloud_target} dc_lang)
     install(DIRECTORY lang/ DESTINATION ${CMAKE_INSTALL_BINDIR}/lang)
-    install(FILES ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendium.ttf DESTINATION ${CMAKE_INSTALL_BINDIR}/lang RENAME font.ttf)
-    install(FILES ${CMAKE_SOURCE_DIR}/tools/font/DarkCloudCompendiumThin.ttf DESTINATION ${CMAKE_INSTALL_BINDIR}/lang RENAME font_thin.ttf)
+    install(FILES ${CMAKE_SOURCE_DIR}/tools/font/ChronicleSharp-Bold.ttf DESTINATION ${CMAKE_INSTALL_BINDIR}/lang RENAME font.ttf)
+    install(FILES ${CMAKE_SOURCE_DIR}/tools/font/ChronicleSharp-Regular.ttf DESTINATION ${CMAKE_INSTALL_BINDIR}/lang RENAME font_thin.ttf)
 endif()
 
 # The button symbols (docs/GLYPHS.md): glyphs/ beside the executable. Rebuilt from art by tools/glyphs/build_glyphs.py.

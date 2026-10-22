@@ -49,10 +49,7 @@ void PortDrawBattleMenuMain();
 void PortDrawBattleMenu();
 int  PortBattleMenuSelect();
 void PortDrawMenuMove();
-void PortDrawWepDamageDraw(RECT rect, WEAPON_HAVE *weapon, int alpha);
-void PortDrawWepVolumeDisplay(int x, int y, WEAPON_HAVE *weapon, int alpha);
 void PortDrawWeaponSelectDialog(int x, int y, int alpha);
-void PortRepairAndLevelUpDraw(int x, int y, int alpha);
 void PortDrawBuildUpWeaponSelect(int x, int y, int cursor);
 void PortDrawAallWeapon(int x, int y, float depth, CCharacter *model, WEAPON_HAVE *weapon,
                         int equipped, int selected, int alpha);

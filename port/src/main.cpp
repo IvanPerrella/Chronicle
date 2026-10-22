@@ -463,7 +463,7 @@ int Run(int argc, const char **argv) {
     window.height = 0;
     window.fullscreen = true;
 #endif
-    bool offscreen = options.offscreen || (options.headless && !gfx::HeadlessSurfaceAvailable());
+    bool         offscreen = options.offscreen || (options.headless && !gfx::HeadlessSurfaceAvailable());
     window.vulkan = !offscreen;
     WindowInit(window);
     DC_ANDROID_TRACE("Run: window initialized");

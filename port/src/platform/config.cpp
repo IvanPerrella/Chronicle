@@ -361,11 +361,7 @@ bool Apply(Config &config, std::string_view name, const Json &value) {
         return true;
     }
     if (name == "video.text_font") {
-        if (!value.is_string() || (value.get<std::string>() != "sharp" && value.get<std::string>() != "original")) {
-            return false;
-        }
-        config.font_sharp = value.get<std::string>() == "sharp";
-        return true;
+        return true; // a setting the port no longer has: the text is always Chronicle Sharp
     }
     if (name == "input.glyphs") {
         if (!value.is_string() || (value.get<std::string>() != "new" && value.get<std::string>() != "original")) {
@@ -671,7 +667,6 @@ std::string ConfigSerialize(const Config &config) {
     root["game"]["player_damage"] = options.player_damage;
     root["game"]["enemy_hp"] = options.enemy_hp;
     root["game"]["names"] = options.names;
-    root["video"]["text_font"] = config.font_sharp ? "sharp" : "original";
     root["video"]["text_shadow"] = config.text_shadow;
     root["video"]["glyph_shadow"] = config.glyph_shadow;
     root["video"]["name_shadow"] = config.name_shadow;
