@@ -33,10 +33,21 @@ else
 fi
 interactive=()
 [ -t 0 ] && interactive=(-it)
-run=("$builder" run --rm "${interactive[@]}" "${user[@]}" -e HOME=/tmp -e "PRESET=$preset" -v "$root:/work:z" -w /work "$image")
+run=("$builder" run --rm "${interactive[@]}" "${user[@]}" -e HOME=/tmp -e "PRESET=$preset" -e "CLEAN=${CLEAN:-}" -e "JOBS=${JOBS:-}" -v "$root:/work:z" -w /work "$image")
 
 if [ "${1:-}" = shell ]; then
     shift
     exec "${run[@]}" bash "$@"
 fi
-exec "${run[@]}" bash -c 'cmake --preset "$PRESET" > /dev/null && cmake --build --preset "$PRESET" "$@"' build "$@"
+exec "${run[@]}" bash -c '
+set -euo pipefail
+if [ -n "$CLEAN" ] && [ "$CLEAN" != 0 ]; then
+    rm -rf port/build/switch
+fi
+cmake --preset "$PRESET" > /dev/null
+build_args=()
+if [ -n "$JOBS" ]; then
+    build_args+=(--parallel "$JOBS")
+fi
+exec cmake --build --preset "$PRESET" "${build_args[@]}" "$@"
+' build "$@"
