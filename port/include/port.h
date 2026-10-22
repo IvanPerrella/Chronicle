@@ -19,6 +19,10 @@
 #ifdef __APPLE__
 #define section(name)
 #endif
+#ifdef __PSP__
+// newlib's static libc defines __assert beside __assert_func, which the host code's assert() links in.
+#define __assert dc_assert
+#endif
 
 #define PORT_STRINGIFY2(x) #x
 #define PORT_STRINGIFY(x) PORT_STRINGIFY2(x)
@@ -29,7 +33,7 @@
 /**
  * The Metrowerks runtime's assertion failure.
  */
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__PSP__)
 extern "C" [[noreturn]] void __assert(const char *file, int line, const char *expression);
 #else
 [[noreturn]] void __assert(const char *file, int line, const char *expression);

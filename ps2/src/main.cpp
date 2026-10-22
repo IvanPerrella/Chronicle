@@ -403,6 +403,7 @@ int PlayTimeCount(int unused) {
     if (play_time_count) {
         SaveData->AddPlayTime(1);
     }
+    PORT_RETURN(0);
 }
 
 void LoadSystemMessage() {

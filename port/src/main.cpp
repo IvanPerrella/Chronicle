@@ -50,6 +50,7 @@ void TouchOverlayPoll();
 #include "platform/input.hpp"
 #include "platform/input_script.hpp"
 #include "platform/paths.hpp"
+#include "platform/psp.hpp"
 #include "platform/settings.hpp"
 #include "platform/window.hpp"
 #include "screen.hpp"
@@ -430,7 +431,7 @@ int Run(int argc, const char **argv) {
     if (options.font != nullptr) {
         LocalizeSetFontPath(PathsFromUtf8(options.font));
     }
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__PSP__)
     if (options.export_text == nullptr) {
         // Once per save folder: the extracted data's text as JSON for translators (docs/LOCALIZATION.md).
         std::filesystem::path seed = PathsSaveRoot() / "lang-export";
@@ -709,6 +710,10 @@ int func_01DD2220() {
 
 #ifndef DC_NO_ENTRYPOINT
 PORT_OVERRIDE int main(int argc, const char **argv, const char **envp) {
+#if defined(__PSP__)
+    // The HOME menu's "quit" stops the game as closing the window does.
+    PspInstallExitCallback(GameRequestStop);
+#endif
     return Run(argc, argv);
 }
 

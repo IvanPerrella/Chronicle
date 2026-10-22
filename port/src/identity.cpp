@@ -32,6 +32,10 @@ void GameSetIdentity() {
 }
 
 void GameSetDataIcon() {
+#if defined(__PSP__)
+    // The XMB shows EBOOT.PBP's icon; there is no desktop icon or shortcut to write.
+    return;
+#endif
     // The save menu's pack in each language folder (menu_draw.cpp's ComMenuContryName) carries the memory
     // card icon; a disc holds only its own languages, so every folder is tried, English first.
     GameIconSource source = RetailIconSource(PathsDataRoot());

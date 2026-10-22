@@ -629,6 +629,11 @@ void FirstRunIfNoData(bool headless) {
     if (!FirstRunDataMissing(root) || (headless && !chooser)) {
         return;
     }
+#if defined(__PSP__)
+    // ponytail: no disc chooser on the PSP; main's data check says to extract on a PC with dcdata and
+    // copy data/ beside EBOOT.PBP. Extracting an ISO from the memory stick is the upgrade.
+    return;
+#endif
 #if defined(__ANDROID__)
     // SDL's desktop file dialog is not supported by Android. Ask through SAF,
     // copy the selected document into app cache, and run the same extractor.

@@ -18,8 +18,16 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-# darkcloud is position-independent (DC_LINK_OPTIONS below).
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if(PSP)
+    # A plain ELF packed into EBOOT.PBP. -G0: the game's data is far past the 64 KiB a $gp
+    # small-data section reaches. newlib declares strnlen and O_CLOEXEC only under _GNU_SOURCE.
+    set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
+    add_compile_options(-G0)
+    add_compile_definitions(_GNU_SOURCE)
+else()
+    # darkcloud is position-independent (DC_LINK_OPTIONS below).
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 set(KZ_ROOT "${KAZAROV_SOURCE_DIR}")
 if(NOT EXISTS ${KZ_ROOT}/include/kazarov/port.h)
@@ -136,8 +144,12 @@ target_include_directories(dc_options INTERFACE
     ${CMAKE_SOURCE_DIR}/port/include ${KZ_ROOT}/include ${CMAKE_SOURCE_DIR}/ps2/include ${CMAKE_SOURCE_DIR}/ps2/include/sce)
 target_compile_options(dc_options INTERFACE
     "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/include/port.h\""
-    -fms-extensions -ffunction-sections -fdata-sections
-    -Wno-register -Wno-c++11-narrowing -Wno-return-mismatch)
+    -fms-extensions -ffunction-sections -fdata-sections -Wno-register)
+if(PSP)
+    target_compile_options(dc_options INTERFACE -Wno-narrowing)
+else()
+    target_compile_options(dc_options INTERFACE -Wno-c++11-narrowing -Wno-return-mismatch)
+endif()
 # arm64 clang fuses a*b+c into one rounding by default; x86-64 has no FMA in its
 # baseline. Off everywhere so the game's arithmetic rounds the same on both.
 target_compile_options(dc_options INTERFACE -ffp-contract=off)
@@ -156,26 +168,40 @@ target_link_libraries(dc_ps2 PRIVATE dc_options)
 # that return a value, and ps2/src keeps both because the match depends on
 # them. MWCC gave each a defined if arbitrary result; these flags give the port
 # a defined one too, along with the type punning and wraparound the code assumes.
-target_compile_options(dc_ps2 PRIVATE -ftrivial-auto-var-init=zero -fno-strict-return
-    -fno-strict-aliasing -fwrapv)
+target_compile_options(dc_ps2 PRIVATE -ftrivial-auto-var-init=zero -fno-strict-aliasing -fwrapv)
+if(PSP)
+    # GCC has no -fno-strict-return; port/include/stubs answers for the functions that need one.
+    # -fpermissive and -w stand for clang's MWCC leniency and the warnings turned off below.
+    target_compile_options(dc_ps2 PRIVATE -fpermissive -w)
+else()
+    target_compile_options(dc_ps2 PRIVATE -fno-strict-return)
+endif()
 # What is left on warns about behaviour the port may still need to answer for:
 # uninitialised reads, missing returns, format strings, overlapping copies and
 # the like. What is turned off describes how MWCC-era source is spelled -- string
 # literals as char *, MWCC's pragmas, 32-bit pointer casts, the unused names
 # and expressions matching leaves behind -- which ps2/src cannot change without
-# changing what MWCC compiles.
-target_compile_options(dc_ps2 PRIVATE -Wall -Wno-writable-strings -Wno-unknown-pragmas
-    -Wno-mismatched-tags -Wno-missing-braces -Wno-char-subscripts -Wno-overloaded-virtual
-    -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -Wno-int-to-void-pointer-cast
-    -Wno-void-pointer-to-int-cast -Wno-unused-variable -Wno-unused-but-set-variable
-    -Wno-unused-local-typedef -Wno-unused-label -Wno-unused-function -Wno-unused-value
-    -Wno-unused-const-variable -Wno-undefined-internal -Wno-self-assign -Wno-deprecated-volatile)
+# changing what MWCC compiles. The PSP build is quiet instead (-w above).
+if(NOT PSP)
+    target_compile_options(dc_ps2 PRIVATE -Wall -Wno-writable-strings -Wno-unknown-pragmas
+        -Wno-mismatched-tags -Wno-missing-braces -Wno-char-subscripts -Wno-overloaded-virtual
+        -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -Wno-int-to-void-pointer-cast
+        -Wno-void-pointer-to-int-cast -Wno-unused-variable -Wno-unused-but-set-variable
+        -Wno-unused-local-typedef -Wno-unused-label -Wno-unused-function -Wno-unused-value
+        -Wno-unused-const-variable -Wno-undefined-internal -Wno-self-assign -Wno-deprecated-volatile)
+endif()
 if(ANDROID)
     target_compile_options(dc_ps2 PRIVATE -Wno-format-security -Wno-return-type)
 endif()
 
 set(PORT_LIB_SOURCES ${PORT_SOURCES})
 list(FILTER PORT_LIB_SOURCES EXCLUDE REGEX "/tests/|/main\\.cpp$")
+if(PSP)
+    # Discord's IPC pipe has no PSP equivalent; port/src/platform/discord_psp.cpp does nothing instead.
+    list(FILTER PORT_LIB_SOURCES EXCLUDE REGEX "/platform/discord\\.cpp$")
+else()
+    list(FILTER PORT_LIB_SOURCES EXCLUDE REGEX "/platform/discord_psp\\.cpp$")
+endif()
 
 set(SHADER_HEADER_DIR ${CMAKE_BINARY_DIR}/generated)
 
@@ -210,7 +236,10 @@ file(CONFIGURE OUTPUT ${SHADER_HEADER_DIR}/options/credits.hpp
 
 kz_port_sce_sources(DC_SCE_SOURCES LIBS libvu0 libpad libmc sifdev sifrpc eekernel libcdvd libgraph libdma libpkt)
 add_library(dc_port OBJECT ${PORT_LIB_SOURCES} ${DC_SCE_SOURCES})
-target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json kz_port_headers)
+target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 nlohmann_json::nlohmann_json kz_port_headers)
+if(NOT PSP)
+    target_link_libraries(dc_port PRIVATE Vulkan::Vulkan)
+endif()
 target_include_directories(dc_port PRIVATE ${PORT_DIR} ${SHADER_HEADER_DIR})
 # captionfont.cpp rasterizes with stb_truetype and platform/png_image.cpp decodes with stb_image, which
 # Kazarov stages (or fetches) for dc_host.
@@ -236,7 +265,11 @@ target_compile_options(dc_port PRIVATE -Wall -Wno-mismatched-tags -Wno-unused-la
 # the names that are not aliases, EditGaijiTbl among them. ItemPutListTbl12_bytes
 # is not one: port/include/stubs/dngstatusdata.hpp turns GetItem's read through
 # it into a WeaponList lookup.
-if(WIN32)
+if(PSP)
+    # No --gc-sections: it drops the import stubs psp-fixup-imports looks for.
+    set(DC_LINK_OPTIONS -Wl,--defsym=draw_rect=draw_rect_store
+        -Wl,--defsym=WorkBuffer__2=WorkBuffer)
+elseif(WIN32)
     # The two aliases are /alternatename directives in port/src/linknames.cpp.
     set(DC_LINK_OPTIONS -fuse-ld=lld -Wl,--gc-sections -Wl,--error-limit=0)
 elseif(APPLE)
@@ -254,7 +287,13 @@ endif()
 
 function(dc_link_game target)
     target_sources(${target} PRIVATE $<TARGET_OBJECTS:dc_port> $<TARGET_OBJECTS:dc_ps2>)
-    target_link_libraries(${target} PRIVATE dc_options dc_host kz_port_headers SDL3::SDL3 Vulkan::Vulkan fastgltf::fastgltf)
+    target_link_libraries(${target} PRIVATE dc_options dc_host kz_port_headers SDL3::SDL3)
+    if(PSP)
+        # 32-bit MIPS has no 64-bit atomics, which the present statistics use.
+        target_link_libraries(${target} PRIVATE atomic)
+    else()
+        target_link_libraries(${target} PRIVATE Vulkan::Vulkan fastgltf::fastgltf)
+    endif()
     target_include_directories(${target} PRIVATE ${PORT_DIR})
     target_compile_options(${target} PRIVATE -Wall -Wno-mismatched-tags -Wno-unused-label
         -Wno-overloaded-virtual -Wno-unused-function)
@@ -276,6 +315,10 @@ if(WIN32)
     target_link_options(darkcloud PRIVATE -municode)
     enable_language(RC)
     target_sources(darkcloud PRIVATE ${CMAKE_SOURCE_DIR}/port/icon/chronicle.rc)
+endif()
+if(PSP)
+    # MEMSIZE 1: the PSP-2000's whole 64 MB, which the game's 27 MB arena needs.
+    create_pbp_file(TARGET darkcloud TITLE "Chronicle: Dark Cloud" MEMSIZE 1)
 endif()
 
 include(GNUInstallDirs)
@@ -318,10 +361,10 @@ endif()
 
 # The tests use an installed GoogleTest, or fetch one at configure time; a build with neither turns them off.
 option(DC_BUILD_TESTS "Build darkcloud_tests" ON)
-if(DC_BUILD_TESTS AND NOT ANDROID)
+if(DC_BUILD_TESTS AND NOT ANDROID AND NOT PSP)
     enable_testing()
     add_subdirectory(src/tests)
 endif()
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT PSP)
     add_subdirectory(${CMAKE_SOURCE_DIR}/tools/dcdata ${CMAKE_BINARY_DIR}/tools/dcdata)
 endif()

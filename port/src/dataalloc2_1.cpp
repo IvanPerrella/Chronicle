@@ -14,7 +14,12 @@ constexpr int kGlobalQuads = 1690000;
 // GlobalDataBuffer's own block stays where the PS2 build put it; what it hands
 // out comes from a host block with the same headroom as every other arena.
 unsigned char *GlobalBlock() {
+#ifdef __PSP__
+    // Its own storage, which every arena is carved from (dataset.cpp).
+    return reinterpret_cast<unsigned char *>(GlobalDataBuffer.block);
+#else
     return ArenaBlock(&GlobalDataBuffer, static_cast<std::size_t>(kGlobalQuads) * 16 * kArenaHeadroom);
+#endif
 }
 
 int AlignedUsed(const unsigned char *start, int used) {

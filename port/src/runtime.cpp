@@ -10,7 +10,7 @@
 // Retail halted on a failed assertion. The game prints its own context on stdout first (LoadFile
 // names the file), so stdout is flushed ahead of the message. _Exit, not exit: static destructors
 // would tear down the renderer under a frame the game may have open.
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__PSP__)
 extern "C" [[noreturn]] void __assert(const char *file, int line, const char *expression) {
 #else
 [[noreturn]] void __assert(const char *file, int line, const char *expression) {

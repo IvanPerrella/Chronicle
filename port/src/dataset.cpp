@@ -1,5 +1,6 @@
 #include "dataset.hpp"
 
+#include <cstring>
 #include <limits>
 
 #include "dataalloc.hpp"
@@ -14,11 +15,32 @@ namespace {
 // before read_buffer, in what retail's carving leaves of the preceding arena.
 constexpr std::size_t kReadBufferLead = 0x180000;
 
+#ifdef __PSP__
+// The PSP has no virtual memory to give each arena a block of its own: they are carved from
+// GlobalDataBuffer's storage in retail's order, which also leaves read_buffer's lead in the arena
+// before it, as retail does.
+unsigned char *HostBlock(const void *, std::size_t bytes, std::size_t = 0) {
+    return GlobalDataBuffer.Alloc64(static_cast<int>(bytes / 16));
+}
+
+void ClearArenas() {
+    std::memset(GlobalDataBuffer.block, 0, sizeof(GlobalDataBuffer.block));
+}
+#else
+unsigned char *HostBlock(const void *owner, std::size_t bytes, std::size_t lead = 0) {
+    return ArenaBlock(owner, bytes, lead);
+}
+
+void ClearArenas() {
+    ArenaClearAll();
+}
+#endif
+
 void Carve(CDataAlloc2<1> *arena, int quads) {
     if (arena == nullptr || quads <= 0 || quads > std::numeric_limits<int>::max() / kArenaHeadroom) {
         ArenaOverflow(arena, quads, std::numeric_limits<int>::max() / kArenaHeadroom);
     }
-    arena->base = ArenaBlock(arena, static_cast<std::size_t>(quads) * 16 * kArenaHeadroom);
+    arena->base = HostBlock(arena, static_cast<std::size_t>(quads) * 16 * kArenaHeadroom);
     arena->limit = quads * kArenaHeadroom;
     arena->used = 0;
 }
@@ -33,20 +55,20 @@ u_long128 *CarvePackets(int quads, int which) {
     if (which < 0 || which >= 2 || quads <= 0 || quads > std::numeric_limits<int>::max() / kArenaHeadroom) {
         ArenaOverflow("VIF packet buffer", quads, std::numeric_limits<int>::max() / kArenaHeadroom);
     }
-    return reinterpret_cast<u_long128 *>(ArenaBlock(&keys[which], static_cast<std::size_t>(quads) * 16 * kArenaHeadroom));
+    return reinterpret_cast<u_long128 *>(HostBlock(&keys[which], static_cast<std::size_t>(quads) * 16 * kArenaHeadroom));
 }
 
 void CarveReadBuffer(int quads) {
     if (quads <= 0 || quads > std::numeric_limits<int>::max() / kArenaHeadroom) {
         ArenaOverflow("file read buffer", quads, std::numeric_limits<int>::max() / kArenaHeadroom);
     }
-    read_buffer = reinterpret_cast<u_int *>(ArenaBlock(&read_buffer, static_cast<std::size_t>(quads) * 16 * kArenaHeadroom, kReadBufferLead));
+    read_buffer = reinterpret_cast<u_int *>(HostBlock(&read_buffer, static_cast<std::size_t>(quads) * 16 * kArenaHeadroom, kReadBufferLead));
 }
 
 } // namespace
 
 void InitializeDataBuffer() {
-    ArenaClearAll();
+    ClearArenas();
     DataReadClearPackCapacities();
     GlobalDataBuffer.used = 0;
     Carve(&WaterData, 10);
@@ -67,7 +89,7 @@ PORT_OVERRIDE void SetPacketReadBuffer(int packet_quads, int read_quads) {
 }
 
 void BufferAllClear() {
-    ArenaClearAll();
+    ClearArenas();
     DataReadClearPackCapacities();
     GlobalDataBuffer.used = 0;
     Carve(&VisualData, 600000);
