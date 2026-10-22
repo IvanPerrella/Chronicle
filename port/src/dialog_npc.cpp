@@ -125,7 +125,7 @@ std::string WindowText(const Dialog::ActiveView &view, int &first_row, int &curs
         return text;
     }
     const int total = static_cast<int>(view.choices.size());
-    const int end = std::min(total, view.choice_scroll_offset + view.layout.visible_choice_count);
+    const int end = std::min<int>(total, view.choice_scroll_offset + view.layout.visible_choice_count);
     for (int i = view.choice_scroll_offset; i < end; ++i) {
         const std::string_view tag = ColourTag(view.choices[static_cast<size_t>(i)]);
         const std::string     &label = view.formatted_choice_labels[static_cast<size_t>(i)];
@@ -157,9 +157,9 @@ void ShowWindow() {
     EditMes1.cursor_row = cursor_row;
     g_window.first_row = first_row;
     const int choice_count = static_cast<int>(view->choices.size());
-    const int visible_start = std::clamp(view->choice_scroll_offset, 0, choice_count);
+    const int visible_start = std::clamp<int>(view->choice_scroll_offset, 0, choice_count);
     g_window.choice_rows = cursor_row >= 0
-                               ? std::min(choice_count - visible_start, std::max(0, view->layout.visible_choice_count))
+                               ? std::min(choice_count - visible_start, std::max<int>(0, view->layout.visible_choice_count))
                                : 0;
     ClsMesSetChoiceRows(cursor_row >= 0 ? &EditMes1 : nullptr, first_row);
     const int total = static_cast<int>(view->choices.size());

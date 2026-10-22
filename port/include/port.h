@@ -52,20 +52,42 @@ T &Ps2Lvalue(T &&value) {
 // the host's stay in force, and #pragma once keeps the game from including it again.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmacro-redefined"
+#ifdef __PSP__
+// newlib's BSD u_long must be declared before the rename below.
+#include <sys/types.h>
+#endif
 #pragma push_macro("NULL")
 #define size_t ps2_size_t
-#ifdef _WIN32
-// Windows uses LLP64; the GS register bitfields require the PS2's 64-bit u_long.
+#if defined(_WIN32) || defined(__PSP__)
+// Windows uses LLP64 and the PSP's EABI a 32-bit long; the GS register bitfields require the PS2's 64-bit u_long.
 #define u_long ps2_native_u_long
 #endif
+#ifdef __PSP__
+// 32-bit MIPS has no __int128; u_long128 is the 16-byte block defined below.
+#define u_long128 ps2_native_u_long128
+#define __int128 int
+#endif
 #include "types.h"
-#ifdef _WIN32
+#ifdef __PSP__
+#undef __int128
+#undef u_long128
+#endif
+#if defined(_WIN32) || defined(__PSP__)
 #undef u_long
 #define u_long u64
 #endif
 #undef size_t
 #pragma pop_macro("NULL")
 #pragma clang diagnostic pop
+
+#ifdef __PSP__
+// The game only stores, copies and points at quadwords; it does no 128-bit arithmetic.
+struct alignas(16) u_long128 {
+    u64 lo, hi;
+    u_long128() = default;
+    constexpr u_long128(u64 value) : lo(value), hi(0) {}
+};
+#endif
 
 // The layouts STATIC_ASSERT checks are the PS2's: 32-bit pointers and longs as
 // MWCC lays them out. Once common.h is in, it checks nothing.

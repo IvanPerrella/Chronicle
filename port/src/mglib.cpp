@@ -347,8 +347,8 @@ void Draw3DEyeToClip(const RenderInfo &info, float clip[4][4]) {
     gfx::TextureHandle  target = gfx::CurrentRenderTarget();
     gfx::LogicalMapping mapping = gfx::GetLogicalMapping(target);
     float               rows = MGPortTargetRowScale(target);
-    float               width = static_cast<float>(std::max(mapping.pixel_width, 1u));
-    float               height = static_cast<float>(std::max(mapping.pixel_height, 1u));
+    float               width = static_cast<float>(std::max<uint32_t>(mapping.pixel_width, 1));
+    float               height = static_cast<float>(std::max<uint32_t>(mapping.pixel_height, 1));
     float               kx = 2.0f * mapping.scale_x / width;
     float               ox = 2.0f * mapping.offset_x / width - 1.0f;
     float               ky = 2.0f * mapping.scale_y * rows / height;

@@ -209,7 +209,7 @@ void ClampChoiceScroll(FrameNode &node, int32_t max_visible) noexcept {
         node.choice_scroll_offset = node.selected_choice - max_visible + 1;
     }
     const int32_t max_offset = total - max_visible;
-    node.choice_scroll_offset = std::clamp(node.choice_scroll_offset, 0, max_offset);
+    node.choice_scroll_offset = std::clamp<int32_t>(node.choice_scroll_offset, 0, max_offset);
 }
 
 void EndSession(SessionEnd how) noexcept {
@@ -236,7 +236,7 @@ void RebuildActiveView(bool frame_changed = false) {
     if (top.slices.empty()) {
         top.slices.push_back(BuildWrappedSlice("", g_state.layout_cfg.max_inner_width));
     }
-    top.current_slice_idx = std::clamp(
+    top.current_slice_idx = std::clamp<int32_t>(
         top.current_slice_idx, 0, static_cast<int32_t>(top.slices.size()) - 1);
 
     const bool is_final_slice =
@@ -886,7 +886,7 @@ ComputedLayout ComputeExpandedLayout(const PageSlice             &slice,
     }
 
     const int32_t total_choices = static_cast<int32_t>(formatted_choice_labels.size());
-    const int32_t visible_choices = std::min(total_choices, std::max(1, cfg.max_visible_choices));
+    const int32_t visible_choices = std::min(total_choices, std::max<int32_t>(1, cfg.max_visible_choices));
     const bool    needs_scroll = total_choices > cfg.max_visible_choices;
 
     float choice_block_w = 0.0f;
