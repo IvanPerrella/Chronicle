@@ -455,10 +455,7 @@ int Run(int argc, const char **argv) {
 
     DisplaySetOverrides(options.width, options.height, options.headless);
     WindowConfig window = DisplayWindowConfig(config);
-#if defined(__ANDROID__)
-    window.fixed_display = true;
-#endif
-    bool offscreen = options.offscreen || (options.headless && !gfx::HeadlessSurfaceAvailable());
+    bool         offscreen = options.offscreen || (options.headless && !gfx::HeadlessSurfaceAvailable());
     window.vulkan = !offscreen;
     WindowInit(window);
     DC_ANDROID_TRACE("Run: window initialized");

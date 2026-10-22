@@ -25,6 +25,9 @@ namespace caption {
 namespace {
 
 #if defined(__has_embed)
+// #embed is C23's; clang offers it to C++ as an extension, which __has_embed has already checked for.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc23-extensions"
 #if __has_embed("../../tools/font/SourceSansProSemibold.ttf")
 #define CHRONICLE_HAS_EMBEDDED_STATUS_FONT 1
 alignas(16) constexpr unsigned char kEmbeddedStatusFont[] = {
@@ -36,6 +39,7 @@ alignas(16) constexpr unsigned char kEmbeddedStatusFont[] = {
 #embed "../tools/font/SourceSansProSemibold.ttf"
 };
 #endif
+#pragma clang diagnostic pop
 #endif
 
 struct Entry {

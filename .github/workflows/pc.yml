@@ -30,6 +30,11 @@ jobs:
         with:
           submodules: true
 
+      # The Flatpak configures without network, so its manifest has to stage every file Kazarov's CMake
+      # downloads; this fails on the pull request that pins a Kazarov with one the manifest lacks.
+      - name: Check the Flatpak stages Kazarov's downloads
+        run: python3 scripts/port/flatpak_sources.py
+
       - name: Install the toolchain and libraries
         run: |
           sudo apt-get update
@@ -38,10 +43,11 @@ jobs:
           # ld.lld and llvm-readobj under their plain names.
           echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
 
+      # lavapipe takes seconds to start each renderer, and some of Kazarov's GfxGpu cases start several.
       - name: Configure
         run: |
           cmake -S . -B port/build/pc -G Ninja -DPLATFORM=PC -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_CXX_COMPILER=clang++-22 -DDC_TEST_TIMEOUT=60
+            -DCMAKE_CXX_COMPILER=clang++-22 -DDC_TEST_TIMEOUT=60 -DDC_GPU_TEST_TIMEOUT=300
 
       - name: Build
         run: cmake --build port/build/pc
@@ -91,7 +97,7 @@ jobs:
       # The runner's Apple Paravirtual GPU draws black for two of Kazarov's prog0 cases that pass on
       # Apple silicon.
       - name: Test
-        run: ctest --preset macos-arm64 -E '^GfxMeshDc2\.(RefSphere|Prog0CullModeFollowsFlagAndMirror)$'
+        run: ctest --preset macos-arm64 -E '^GfxGpuMeshDc2\.(RefSphere|Prog0CullModeFollowsFlagAndMirror)$'
 
       # No game data: one stand-in file gets darkcloud through renderer start-up and pipeline compilation to the
       # game's first asset load, which fails with status 4 naming the file.
@@ -169,10 +175,10 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Copy-Item $env:VULKAN_RUNTIME/vulkan-1.dll port/build/windows
 
-      # The renderer's cases run on Linux and macOS: this runner's Vulkan loader has no surface extension, so the cases
-      # that open a window (GfxMeshDc2, GfxTim2's upload) cannot start here.
+      # The renderer's cases run on Linux and macOS: this runner has a Vulkan loader but no driver, so the cases that
+      # need a device, labeled gpu (port/src/tests/CMakeLists.txt), cannot start here.
       - name: Test
-        run: ctest --test-dir port/build/windows --output-on-failure -j4 -E '^(GfxMisc|GfxMeshDc2|GfxTim2|TexDecode|AreaCard|CaptionLine)\.'
+        run: ctest --test-dir port/build/windows --output-on-failure -j4 -LE gpu
 
       - name: Package the Windows build
         run: |

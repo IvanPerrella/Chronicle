@@ -26,12 +26,28 @@ if(NOT EXISTS ${KZ_ROOT}/include/kazarov/port.h)
     message(FATAL_ERROR "${KZ_ROOT} is empty: run git submodule update --init tools/kazarov")
 endif()
 
+# Archives Kazarov's FetchContent_Declare downloads take their extraction time, so a changed URL
+# rebuilds what they hold. Set before the include: its functions keep the policies they were defined under.
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
 include(${KZ_ROOT}/cmake/KazarovPort.cmake)
 
 # Python runs the port override script from the Kazarov submodule.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 # Flatpak builds have no network: their single-file libraries are staged in audio_decoders/ and stb_truetype/; others fetch them.
 set(KZ_PORT_VENDOR_DIRS ${CMAKE_SOURCE_DIR}/audio_decoders ${CMAKE_SOURCE_DIR}/stb_truetype)
+# The Flatpak also stages each library Kazarov's FetchContent_Declare downloads, in flatpak-deps/<name>
+# (scripts/port/flatpak_sources.py checks the manifest), and FetchContent takes it from there. Other
+# builds have no flatpak-deps/ and download them as declared.
+file(GLOB staged_dependencies LIST_DIRECTORIES true "${CMAKE_SOURCE_DIR}/flatpak-deps/*")
+foreach(staged IN LISTS staged_dependencies)
+    if(IS_DIRECTORY "${staged}")
+        get_filename_component(dependency "${staged}" NAME)
+        string(TOUPPER "${dependency}" dependency_upper)
+        set(FETCHCONTENT_SOURCE_DIR_${dependency_upper} "${staged}")
+    endif()
+endforeach()
 kz_port_host_library(dc_host)
 # Chronicle still loads retail HD/BD/SQ audio. These compatibility declarations extend the shared
 # semantic audio API; every host and game unit must see the same class definitions.
@@ -196,10 +212,11 @@ kz_port_sce_sources(DC_SCE_SOURCES LIBS libvu0 libpad libmc sifdev sifrpc eekern
 add_library(dc_port OBJECT ${PORT_LIB_SOURCES} ${DC_SCE_SOURCES})
 target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json kz_port_headers)
 target_include_directories(dc_port PRIVATE ${PORT_DIR} ${SHADER_HEADER_DIR})
-# captionfont.cpp rasterizes with stb_truetype, which Kazarov stages (or fetches) for dc_host.
+# captionfont.cpp rasterizes with stb_truetype and platform/png_image.cpp decodes with stb_image, which
+# Kazarov stages (or fetches) for dc_host.
 get_target_property(dc_host_includes dc_host INCLUDE_DIRECTORIES)
 foreach(include_dir IN LISTS dc_host_includes)
-    if(EXISTS ${include_dir}/stb_truetype.h)
+    if(EXISTS ${include_dir}/stb_truetype.h OR EXISTS ${include_dir}/stb_image.h)
         target_include_directories(dc_port PRIVATE ${include_dir})
     endif()
 endforeach()
