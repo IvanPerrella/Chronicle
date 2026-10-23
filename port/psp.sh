@@ -16,7 +16,7 @@ IMAGE=${PSPDEV_IMAGE:-pspdev/pspdev:latest}
 # MSYS_NO_PATHCONV keeps Git Bash on Windows from rewriting the container paths.
 MSYS_NO_PATHCONV=1 exec docker run --rm -v "$PWD:/work" -w /work -e "JOBS=${JOBS:-}" "$IMAGE" sh -euc '
     command -v python3 >/dev/null || apk add --no-cache python3 >/dev/null
-    cmake -S . -B port/build/psp -G "Unix Makefiles" -DPLATFORM=PSP -DCMAKE_BUILD_TYPE=Release \
+    cmake -S . -B port/build/psp -G "Unix Makefiles" -DPLATFORM=PSP -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_TOOLCHAIN_FILE="$PSPDEV/psp/share/pspdev.cmake"
     cmake --build port/build/psp -j"${JOBS:-$(nproc)}"
 '

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SDL3/SDL.h>
+#include "platform/window.hpp"
 
 #include <algorithm>
 #include <cmath>

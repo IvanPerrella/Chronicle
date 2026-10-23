@@ -22,6 +22,9 @@
 #ifdef __PSP__
 // newlib's static libc defines __assert beside __assert_func, which the host code's assert() links in.
 #define __assert dc_assert
+// No 27 MB GlobalDataBuffer in the image, which a PSP-1000 cannot load: the name declares and
+// defines a pointer no unit follows, and the arenas come from ArenaPoolCarve (port/src/dataset.cpp).
+#define GlobalDataBuffer (*GlobalDataBufferUnused)
 #endif
 
 #define PORT_STRINGIFY2(x) #x

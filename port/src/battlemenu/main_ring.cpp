@@ -603,9 +603,7 @@ int PortBattleMenuSelect() {
         } else if (GamePad.Down(PAD_CROSS)) {
             if (quit_confirm_choice == static_cast<int>(QuitChoice::Yes)) {
                 ComMenuSePlay(MENU_SOUND_CONFIRM);
-                SDL_Event event{};
-                event.type = SDL_EVENT_QUIT;
-                SDL_PushEvent(&event);
+                WindowRequestQuit();
             } else {
                 ComMenuSePlay(MENU_SOUND_REFUSE);
                 quit_confirm_active = false;

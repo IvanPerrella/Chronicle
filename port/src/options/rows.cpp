@@ -95,9 +95,7 @@ Row SettingRow(const char *key, const char *label, const char *help, int (*count
 }
 
 void QuitGame() {
-    SDL_Event event{};
-    event.type = SDL_EVENT_QUIT;
-    SDL_PushEvent(&event);
+    WindowRequestQuit();
 }
 
 std::string ChoiceName(const char *names, int choice) {

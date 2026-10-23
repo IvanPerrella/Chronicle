@@ -1,7 +1,5 @@
 #include "menu_manual.hpp"
 
-#include <SDL3/SDL.h>
-
 #include <algorithm>
 #include <array>
 #include <cmath>

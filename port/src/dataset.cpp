@@ -1,7 +1,9 @@
 #include "dataset.hpp"
 
-#include <cstring>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
+#include <vector>
 
 #include "dataalloc.hpp"
 #include "dataread.hpp"
@@ -15,16 +17,34 @@ namespace {
 // before read_buffer, in what retail's carving leaves of the preceding arena.
 constexpr std::size_t kReadBufferLead = 0x180000;
 
+// The arenas carved since the last clear, for the report of how much of each the game filled:
+// what a PSP-1000's pool has to hold. Always on the PSP, with DC_ARENA_REPORT elsewhere.
+std::vector<CDataAlloc2<1> *> g_carved;
+
+void ReportArenas() {
+#ifndef __PSP__
+    static const bool report = std::getenv("DC_ARENA_REPORT") != nullptr;
+    if (!report) {
+        g_carved.clear();
+        return;
+    }
+#endif
+    for (const CDataAlloc2<1> *arena : g_carved) {
+        std::fprintf(stderr, "arena %p: %d of %d quadwords\n", static_cast<const void *>(arena), arena->used, arena->limit);
+    }
+    g_carved.clear();
+}
+
 #ifdef __PSP__
-// The PSP has no virtual memory to give each arena a block of its own: they are carved from
-// GlobalDataBuffer's storage in retail's order, which also leaves read_buffer's lead in the arena
-// before it, as retail does.
-unsigned char *HostBlock(const void *, std::size_t bytes, std::size_t = 0) {
-    return GlobalDataBuffer.Alloc64(static_cast<int>(bytes / 16));
+// The PSP has no virtual memory to give each arena a block of its own: they are carved in
+// retail's order from a pool, which also leaves read_buffer's lead in the arena before it.
+unsigned char *HostBlock(const void *, std::size_t bytes, std::size_t lead = 0) {
+    return ArenaPoolCarve(bytes, lead);
 }
 
 void ClearArenas() {
-    std::memset(GlobalDataBuffer.block, 0, sizeof(GlobalDataBuffer.block));
+    ReportArenas();
+    ArenaPoolReset();
 }
 #else
 unsigned char *HostBlock(const void *owner, std::size_t bytes, std::size_t lead = 0) {
@@ -32,7 +52,9 @@ unsigned char *HostBlock(const void *owner, std::size_t bytes, std::size_t lead 
 }
 
 void ClearArenas() {
+    ReportArenas();
     ArenaClearAll();
+    GlobalDataBuffer.used = 0;
 }
 #endif
 
@@ -43,6 +65,7 @@ void Carve(CDataAlloc2<1> *arena, int quads) {
     arena->base = HostBlock(arena, static_cast<std::size_t>(quads) * 16 * kArenaHeadroom);
     arena->limit = quads * kArenaHeadroom;
     arena->used = 0;
+    g_carved.push_back(arena);
 }
 
 void CarveWorkBuffer(int quads) {
@@ -70,7 +93,6 @@ void CarveReadBuffer(int quads) {
 void InitializeDataBuffer() {
     ClearArenas();
     DataReadClearPackCapacities();
-    GlobalDataBuffer.used = 0;
     Carve(&WaterData, 10);
     Carve(&ActiveData0, 25000);
     Carve(&ActiveData1, 25000);
@@ -91,7 +113,6 @@ PORT_OVERRIDE void SetPacketReadBuffer(int packet_quads, int read_quads) {
 void BufferAllClear() {
     ClearArenas();
     DataReadClearPackCapacities();
-    GlobalDataBuffer.used = 0;
     Carve(&VisualData, 600000);
     Carve(&MotionData, 200000);
     Carve(&TextureData, 300000);

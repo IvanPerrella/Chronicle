@@ -1,4 +1,6 @@
+#ifndef __PSP__
 #include <SDL3/SDL_stdinc.h>
+#endif
 
 #include <cstddef>
 #include <cstdint>
@@ -483,7 +485,9 @@ int Run(int argc, const char **argv) {
     if (options.headless || options.screenshot != nullptr) {
         renderer.render_thread = gfx::RenderThreadMode::Off;
         // The renderer also reads this override; deterministic runs take precedence over it.
+#ifndef __PSP__
         SDL_setenv_unsafe("KZ_RENDER_THREAD", "off", 1);
+#endif
     }
     renderer.layout = Layout(config);
 #if defined(__ANDROID__)

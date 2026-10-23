@@ -170,9 +170,10 @@ target_link_libraries(dc_ps2 PRIVATE dc_options)
 # a defined one too, along with the type punning and wraparound the code assumes.
 target_compile_options(dc_ps2 PRIVATE -ftrivial-auto-var-init=zero -fno-strict-aliasing -fwrapv)
 if(PSP)
-    # GCC has no -fno-strict-return; port/include/stubs answers for the functions that need one.
-    # -fpermissive and -w stand for clang's MWCC leniency and the warnings turned off below.
-    target_compile_options(dc_ps2 PRIVATE -fpermissive -w)
+    # GCC has no -fno-strict-return; the functions that need one end in PORT_RETURN (docs/PSP.md).
+    # -fpermissive and -w stand for clang's MWCC leniency and the warnings turned off below. The
+    # build is MinSizeRel for the memory; the game's own code keeps -O2 for its speed.
+    target_compile_options(dc_ps2 PRIVATE -fpermissive -w -O2)
 else()
     target_compile_options(dc_ps2 PRIVATE -fno-strict-return)
 endif()
@@ -266,9 +267,19 @@ target_compile_options(dc_port PRIVATE -Wall -Wno-mismatched-tags -Wno-unused-la
 # is not one: port/include/stubs/dngstatusdata.hpp turns GetItem's read through
 # it into a WeaponList lookup.
 if(PSP)
-    # No --gc-sections: it drops the import stubs psp-fixup-imports looks for.
-    set(DC_LINK_OPTIONS -Wl,--defsym=draw_rect=draw_rect_store
-        -Wl,--defsym=WorkBuffer__2=WorkBuffer)
+    # The default script gives --gc-sections no reason to keep the module's import and export
+    # tables, which only the loader reads; psp-fixup-imports then finds none. This copy keeps them.
+    find_program(PSP_LD psp-ld HINTS $ENV{PSPDEV}/bin REQUIRED)
+    execute_process(COMMAND ${PSP_LD} --verbose OUTPUT_VARIABLE ld_verbose)
+    string(REGEX REPLACE ".*\n=+\n(.*)\n=+\n.*" "\\1" ld_script "${ld_verbose}")
+    foreach(section .lib.ent.top .lib.ent .lib.ent.btm .lib.stub.top .lib.stub .lib.stub.btm
+                    .rodata.sceModuleInfo .rodata.sceResident .rodata.sceNid .rodata.sceVstub .sceStub.text)
+        string(REPLACE "*(${section})" "KEEP(*(${section}))" ld_script "${ld_script}")
+        string(REPLACE "*(SORT(${section}.*))" "KEEP(*(SORT(${section}.*)))" ld_script "${ld_script}")
+    endforeach()
+    file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/psp.ld CONTENT "${ld_script}" @ONLY)
+    set(DC_LINK_OPTIONS -T ${CMAKE_BINARY_DIR}/psp.ld -Wl,--gc-sections -Wl,-Map=darkcloud.map
+        -Wl,--defsym=draw_rect=draw_rect_store -Wl,--defsym=WorkBuffer__2=WorkBuffer)
 elseif(WIN32)
     # The two aliases are /alternatename directives in port/src/linknames.cpp.
     set(DC_LINK_OPTIONS -fuse-ld=lld -Wl,--gc-sections -Wl,--error-limit=0)

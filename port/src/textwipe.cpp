@@ -37,10 +37,15 @@ std::chrono::steady_clock::time_point g_started;
 float                                 g_divider = 0.0f;
 
 bool DevKeyHeld(std::string_view name) {
+#ifdef __PSP__
+    // No keyboard.
+    return false;
+#else
     const int   scancode = InputScancodeFromName(name);
     int         count = 0;
     const bool *keys = SDL_GetKeyboardState(&count);
     return keys != nullptr && scancode >= 0 && scancode < count && keys[scancode];
+#endif
 }
 
 bool DevKeyPressed(std::string_view name) {

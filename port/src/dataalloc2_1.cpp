@@ -15,8 +15,8 @@ constexpr int kGlobalQuads = 1690000;
 // out comes from a host block with the same headroom as every other arena.
 unsigned char *GlobalBlock() {
 #ifdef __PSP__
-    // Its own storage, which every arena is carved from (dataset.cpp).
-    return reinterpret_cast<unsigned char *>(GlobalDataBuffer.block);
+    // It has no storage there (port.h); the arenas come from the pool (dataset.cpp).
+    ArenaOverflow("GlobalDataBuffer", 0, 0);
 #else
     return ArenaBlock(&GlobalDataBuffer, static_cast<std::size_t>(kGlobalQuads) * 16 * kArenaHeadroom);
 #endif
