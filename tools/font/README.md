@@ -55,8 +55,10 @@ corners rounded as its are (the ends of built diagonals nearly through, as the A
 and O; F, L and H from the E and I; G from the C; J from the U; K, X and Y from the diagonals; V from the A; Q from the O
 and the R's leg). The accents are drawn with the painting's one accent, the acute over Spanish OPCIÓN: the grave is its
 mirror, the circumflex and caron the two together, the dots, ring, tilde, macron, breve and double acute drawn with its
-stroke and standing as high above the capitals; the cedilla, ogonek and comma below are the earlier Albert Sans marks.
-Every accented capital, and Æ, Œ, Ø, Ð, Ł and Þ, is built from these.
+stroke and standing as high above the capitals; the cedilla, ogonek and comma below are the earlier Albert Sans marks,
+joined to the new letters (an ogonek hangs from the letter's last stroke on the baseline). Every accented capital, and
+Æ, Œ, Ø, Ð, Ł, Ŀ, Þ and the German capital sharp s ẞ (a stem, the E's top arm, a diagonal to the waist and the B's lower
+bowl), is built from these. Only Ŋ, Ə, Δ and Ω, which none of the game's languages use, are still Albert Sans's.
 
 The capitals are spaced by the usual method for capitals (Walter Tracy's): each side of a letter gets a share of the
 space a straight stem gets, by its shape (straight sides all of it, round ones 0.6, open sides and arms less, diagonals
@@ -64,8 +66,8 @@ almost none), the stem's space set so the painting's S and T stand as far apart 
 spacing is uneven (its I and N sit closer than its U and E), so it isn't copied. Its T and A, where the A tucks under
 the T's arm, is made a rule: any pair whose letters can come as close as those two did comes that close, which gives
 AT, AV, AY, LT, LV, LY, TA, TJ, VA, YA and YJ. The renderer sets letters by their ink, so the spacing is all kerning:
-every pair of capitals kerns by its gap beyond 1.3 pixels, accented capitals as their letter, through GPOS class
-kerning.
+every pair of capitals kerns by its gap beyond 1.3 pixels, through GPOS class kerning: accented capitals as their
+letter, and a letter made of two as the one on that side (Æ as an A on its left and an E on its right).
 
 The lower case, digits and punctuation are still Albert Sans 1.025, copyright 2021 The Albert Sans Project Authors
 (https://github.com/usted/Albert-Sans), under the SIL Open Font License 1.1 (no reserved font name), at weight 650,
