@@ -1090,6 +1090,28 @@ bool GetGlyphBounds(char32_t ch, float (&bounds)[4], int slot) {
     return bounds[0] < bounds[2] && bounds[1] < bounds[3];
 }
 
+bool GetInkExtent(char32_t ch, int em_px, float &left, float &right) {
+    const Font &font = g_fonts[g_variant];
+    const int   index = font.loaded ? DrawnGlyph(ch) : 0;
+    if (index == 0) {
+        return false;
+    }
+    float x0 = 1e9f, x1 = -1e9f;
+    for (const auto &c : Contours(font.info, index)) {
+        for (const Point &p : c) {
+            x0 = std::min(x0, p.x);
+            x1 = std::max(x1, p.x);
+        }
+    }
+    if (x0 >= x1) {
+        return false;
+    }
+    const float scale = stbtt_ScaleForMappingEmToPixels(&font.info, static_cast<float>(em_px));
+    left = x0 * scale;
+    right = x1 * scale;
+    return true;
+}
+
 unsigned Generation() {
     return g_generation;
 }

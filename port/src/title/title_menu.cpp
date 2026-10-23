@@ -42,10 +42,10 @@ constexpr int   kRowStride = 28;
 constexpr float kCapHeight = 16.7f;
 
 // The capitals are the painting's own, fitted to it in the font; their spacing is the font's kerning, each
-// pair's gap beyond 1.3 (tools/font/README.md). The renderer leaves 1.2 plus
-// the gap below, and its letters' bitmaps carry about 0.7 of edge beyond their ink.
+// pair's gap beyond 1.3 (tools/font/README.md). The letters are set by their outlines, so the spacing is the
+// same at any window size, with the 1.25 the renderer leaves between them made 1.3 by the gap below.
 constexpr float kStretch = 1.0f;
-constexpr float kLetterGap = -0.6f;
+constexpr float kLetterGap = 0.05f;
 constexpr float kKernStrength = 1.0f;
 
 // capfont's slot for the title font (UI::FontWeight::Title).
@@ -148,6 +148,7 @@ void Draw(int selected, int selected_alpha, int other_alpha) {
     style.xscale = kStretch;
     style.letter = kLetterGap;
     style.kern = kKernStrength;
+    style.ink_spacing = true;
     style.use_custom_rgb = true;
     style.see_through = true;
     // Label puts the capitals' top 3 below its y, less half what the scale adds to their height.

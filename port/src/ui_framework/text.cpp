@@ -58,6 +58,7 @@ struct ScaledDrawParams {
     float      halo = 0.0f;                 /**< Reach of the soft dark halo in logical pixels. */
     float      halo_strength = 0.5f;        /**< Darkness of the halo next to the letters. */
     float      kern = 0.0f;                 /**< Strength of the font's kerning. */
+    bool       ink_spacing = false;         /**< Whether letters are spaced by their outlines. */
 };
 
 /**
@@ -110,7 +111,7 @@ bool UseScaledRenderer(std::string_view text, float scale, float xscale, float y
  * Measures the horizontal advance width of a string in logical pixels.
  */
 int MeasureScaledText(std::string_view text, float scale, float xscale, FontWeight weight, float letter = 0.0f,
-                      float kern = 0.0f) {
+                      float kern = 0.0f, bool ink_spacing = false) {
     if (text.empty()) {
         return 0;
     }
@@ -160,7 +161,10 @@ int MeasureScaledText(std::string_view text, float scale, float xscale, FontWeig
             if (kern != 0.0f && previous != 0) {
                 natural += capfont::KernPixels(previous, ch, em_px) / mapping.scale_x * xscale * kern;
             }
-            natural += (glyph.width / mapping.scale_x * xscale) + gap;
+            // Spaced as caption::DrawLine spaces them.
+            float ink0, ink1;
+            const bool by_ink = ink_spacing && capfont::GetInkExtent(ch, em_px, ink0, ink1);
+            natural += (by_ink ? ink1 - ink0 : glyph.width) / mapping.scale_x * xscale + gap;
             drawn++;
             previous = ch;
         }
@@ -247,6 +251,7 @@ void DrawScaledText(std::string_view text, float center_x, float cap_top, float 
     style.status_font = (is_status && caption::StatusReady());
     style.title_font = (params.weight == FontWeight::Title && caption::TitleReady());
     style.kern = params.kern;
+    style.ink_spacing = params.ink_spacing;
     style.weight = (params.weight == FontWeight::Bold) ? 1.1f : 0.0f;
     style.xscale = xscale;
     style.yscale = yscale;
@@ -489,7 +494,8 @@ Label::Label(std::string_view text, const TextStyle &style)
       m_see_through(style.see_through),
       m_halo(style.halo),
       m_halo_strength(style.halo_strength),
-      m_kern(style.kern) {
+      m_kern(style.kern),
+      m_ink_spacing(style.ink_spacing) {
     m_text.Set(m_raw_text.c_str());
 }
 
@@ -586,12 +592,13 @@ void Label::SetStyle(const TextStyle &style) {
     m_halo = style.halo;
     m_halo_strength = style.halo_strength;
     m_kern = style.kern;
+    m_ink_spacing = style.ink_spacing;
     m_dirty = true;
 }
 
 int Label::GetWidth() {
     if (UseScaledRenderer(m_raw_text, m_scale, m_xscale, m_yscale, m_weight, m_use_custom_rgb, m_outline_width)) {
-        m_cached_width = MeasureScaledText(m_raw_text, m_scale, m_xscale, m_weight, m_letter, m_kern);
+        m_cached_width = MeasureScaledText(m_raw_text, m_scale, m_xscale, m_weight, m_letter, m_kern, m_ink_spacing);
         m_dirty = false;
         return m_cached_width;
     }
@@ -646,6 +653,7 @@ void Label::Draw(int x, int y, int alpha) {
             .halo = m_halo,
             .halo_strength = m_halo_strength,
             .kern = m_kern,
+            .ink_spacing = m_ink_spacing,
         };
         DrawScaledText(m_raw_text, center_x, cap_top, m_scale, m_xscale, m_yscale, params, alpha);
         return;
@@ -705,6 +713,7 @@ void Label::DrawInRect(const Rect &box, int alpha) {
             .halo = m_halo,
             .halo_strength = m_halo_strength,
             .kern = m_kern,
+            .ink_spacing = m_ink_spacing,
         };
         DrawScaledText(m_raw_text, center_x + static_cast<float>(m_dx), cap_top + static_cast<float>(m_dy),
                        m_scale, m_xscale, m_yscale, params, alpha);

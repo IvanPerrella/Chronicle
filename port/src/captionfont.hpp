@@ -70,6 +70,10 @@ bool GetPaintedWord(const std::vector<PlacedLetter> &letters, const Paint &paint
 // top.
 bool GetGlyphBounds(char32_t ch, float (&bounds)[4], int slot = 0);
 
+// The left and right of ch's outline in the current slot's font at em_px pixels to the em, in pixels from its origin
+// (as Glyph::x_offset is). A glyph's picture is wider than this by the soft edge round its outline.
+bool GetInkExtent(char32_t ch, int em_px, float &left, float &right);
+
 // Slot 1: Optional thin variant font
 bool LoadVariant(const std::filesystem::path &file);
 bool VariantLoaded();

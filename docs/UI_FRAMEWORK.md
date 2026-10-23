@@ -166,7 +166,9 @@ TrueType path doesn't read yet. So:
    draws), outside the framework.
 
 **Two things the lettering does that a screen must know.** It sets letters ink to ink, each letter's
-drawn width plus a gap, which is how it fits retail's painted slots; a line drawn as typeset text
+drawn width plus a gap, which is how it fits retail's painted slots. A letter's drawn picture carries a soft edge a
+window pixel wide, whose share of a logical pixel shrinks as the window grows, so this spacing tightens on larger
+windows; `ink_spacing` sets letters by their outlines instead, the same at any size; a line drawn as typeset text
 (the title rows) is placed by its first letter's side bearing, so a flat E stands a little right of a
 round C or O as a typesetter sets them. It kerns when a style asks (`kern`, the strength of the font's
 own kerning, from its kerning table or GPOS pair kerning), measuring and drawing alike, so a kerned
@@ -190,6 +192,9 @@ alpha transparency instead, as retail's sprites fade (section 7).
   (`caption::DrawButtonWord`) and any other word gets the same lettering fitted to the plate: one
   look, whatever the word or language.
 - **Kerning** (`kern`): the font's kerning, at the given strength (0, the default, for none).
+- **Ink spacing** (`ink_spacing`): letters set by their outlines rather than their pictures, measuring and drawing
+  alike, so the spacing is the same at any window size. Off by default; the title rows use it, their spacing being
+  exact kerning.
 - **Halo** (`halo`, `halo_strength`): the soft black stroke retail's painted lettering sits in, darkest
   against the letters and fading as it reaches out; four dark outlines, each wider and fainter, under
   the letters. Strength 1 is all but black next to the letters.

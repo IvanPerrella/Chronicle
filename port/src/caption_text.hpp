@@ -153,6 +153,9 @@ struct LineStyle {
     bool status_font = false;
     bool title_font = false;
     float kern = 0.0f; // the font's kerning between letters, at this strength (0 for none)
+    // Letters set by their outlines rather than their pictures. A picture's soft edge is a pixel of the window, so its
+    // share of a logical pixel, and with it the spacing, would change with the window's size.
+    bool ink_spacing = false;
 
     const FillField *field = nullptr;
     float            field_x = 0.0f, field_y = 0.0f, field_w = 1.0f, field_h = 1.0f;

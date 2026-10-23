@@ -109,3 +109,19 @@ TEST(CaptionFont, KernsThePairsTheFontKerns) {
     EXPECT_GT(capfont::KernPixels(U'H', U'H', 40), 0.0f);
     EXPECT_EQ(capfont::KernPixels(U'n', U'n', 40), 0.0f);
 }
+
+TEST(CaptionFont, InkExtentIsTheOutlineAtAnySize) {
+    const auto title = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path() / "tools" /
+                       "font" / "ChronicleTitle-Bold.ttf";
+    if (!capfont::Load(title)) {
+        GTEST_SKIP() << "no " << title.string();
+    }
+    // The outline doubles with the em exactly, as a glyph's picture, whose soft edge stays a pixel, doesn't.
+    float left40, right40, left80, right80;
+    ASSERT_TRUE(capfont::GetInkExtent(U'H', 40, left40, right40));
+    ASSERT_TRUE(capfont::GetInkExtent(U'H', 80, left80, right80));
+    EXPECT_LT(left40, right40);
+    EXPECT_NEAR((right80 - left80) / (right40 - left40), 2.0f, 1e-4f);
+    EXPECT_NEAR(left80 / left40, 2.0f, 1e-4f);
+    EXPECT_FALSE(capfont::GetInkExtent(U' ', 40, left40, right40));
+}

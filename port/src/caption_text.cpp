@@ -1511,6 +1511,8 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         char32_t       ch;
         bool           blank;
         float          kern; // added before the letter, from the font's kerning with the one before
+        float          ink_left;  // with ink_spacing: where its outline starts right of its picture, logical pixels
+        float          width;     // what it takes along the line before the gap, logical pixels
     };
 
     std::vector<Letter> letters;
@@ -1528,7 +1530,13 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
                 letter.kern = capfont::KernPixels(previous, ch, em_px) / mapping.scale_x * style.xscale * style.kern;
                 natural += letter.kern;
             }
-            natural += letter.fill.width / mapping.scale_x * style.xscale + gap;
+            letter.width = letter.fill.width / mapping.scale_x * style.xscale;
+            float ink0, ink1;
+            if (style.ink_spacing && capfont::GetInkExtent(ch, em_px, ink0, ink1)) {
+                letter.ink_left = (ink0 - letter.fill.x_offset) / mapping.scale_x * style.xscale;
+                letter.width = (ink1 - ink0) / mapping.scale_x * style.xscale;
+            }
+            natural += letter.width + gap;
             previous = ch;
         } else {
             continue;
@@ -1654,38 +1662,41 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
             continue;
         }
         pen += letter.kern * squeeze;
+        // where the letter's picture goes so its outline starts at the pen
+        float at = pen - letter.ink_left * squeeze;
         if (use_slots) {
             const std::array<float, 2> &place = style.slots[slot++];
             const float                 ink = letter.fill.width / mapping.scale_x * style.xscale;
             const float                 slot_width = place[1] - place[0];
             squeeze = slot_width / std::max(ink, 0.01f);
             pen = place[0];
+            at = pen;
         }
         capfont::Glyph extra;
         if (glow_px > 0 && capfont::GetOutlinedGlyph(letter.ch, em_px, glow_px, extra)) {
-            quad(glows, extra, letter.fill, pen, style.glow, static_cast<int>(0x80 * std::min(1.0f, style.glow_amount) * 0.55f));
+            quad(glows, extra, letter.fill, at, style.glow, static_cast<int>(0x80 * std::min(1.0f, style.glow_amount) * 0.55f));
         }
         if (edge_px > 0 && capfont::GetOutlinedGlyph(letter.ch, em_px, edge_px, extra)) {
-            quad(edges, extra, letter.fill, pen, style.edge, 0x80);
+            quad(edges, extra, letter.fill, at, style.edge, 0x80);
         }
         if (style.weight > 0.0f) {
             const float half = style.weight / 2;
-            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, -half, 0.0f);
-            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, half, 0.0f);
-            quad(fills, letter.fill, letter.fill, pen, style.fill, 0.0f, -half);
-            quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80, 0.0f, half);
+            quad(fills, letter.fill, letter.fill, at, style.fill, 0x80, -half, 0.0f);
+            quad(fills, letter.fill, letter.fill, at, style.fill, 0x80, half, 0.0f);
+            quad(fills, letter.fill, letter.fill, at, style.fill, 0.0f, -half);
+            quad(fills, letter.fill, letter.fill, at, style.fill, 0x80, 0.0f, half);
         }
         {
             static const unsigned char white[3] = {255, 255, 255};
             capfont::Glyph             coloured;
-            if (textured_letter(letter, letter_index, pen, coloured)) {
-                quad(fills, coloured, letter.fill, pen, white, 0x80);
+            if (textured_letter(letter, letter_index, at, coloured)) {
+                quad(fills, coloured, letter.fill, at, white, 0x80);
             } else {
-                quad(fills, letter.fill, letter.fill, pen, style.fill, 0x80);
+                quad(fills, letter.fill, letter.fill, at, style.fill, 0x80);
             }
         }
         letter_index++;
-        pen += (letter.fill.width / mapping.scale_x * style.xscale + gap) * squeeze;
+        pen += (letter.width + gap) * squeeze;
     }
     const gfx::TextureBinding binding = capfont::Binding();
     for (std::vector<gfx::Vertex2D> *layer : {&glows, &edges, &fills}) {
