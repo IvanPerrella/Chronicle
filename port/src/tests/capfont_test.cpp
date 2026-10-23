@@ -104,6 +104,8 @@ TEST(CaptionFont, KernsThePairsTheFontKerns) {
     if (!capfont::Load(title)) {
         GTEST_SKIP() << "no " << title.string();
     }
+    // Every pair of its capitals kerns, since their spacing is the painting's; its lower case never does.
     EXPECT_LT(capfont::KernPixels(U'T', U'A', 40), -1.0f);
-    EXPECT_EQ(capfont::KernPixels(U'H', U'H', 40), 0.0f);
+    EXPECT_GT(capfont::KernPixels(U'H', U'H', 40), 0.0f);
+    EXPECT_EQ(capfont::KernPixels(U'n', U'n', 40), 0.0f);
 }

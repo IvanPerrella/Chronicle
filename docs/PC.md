@@ -1478,8 +1478,8 @@ the pad, so no function of `ps2/src` is replaced for it.
 The title's menu has a fourth row, Exit, which asks "Return to desktop?" and closes the game on Yes.
 Retail's three rows are painted pictures (`start.img` and its French, German, Italian and Spanish
 copies) with no Exit among them, so all four are drawn through the UI framework
-(`port/src/title/title_menu.cpp`) in Chronicle Title, Albert Sans (the free geometric sans closest
-to the painted rows) refitted letter by letter to them, with retail's words as the `title.menu.*` keys, and coloured as the GS drew the painting:
+(`port/src/title/title_menu.cpp`) in Chronicle Title, whose capitals are the painted rows' own letters
+fitted into the font, with retail's words as the `title.menu.*` keys, and coloured as the GS drew the painting:
 the selected row the painting's cream, the rest that cream at half opacity (see "Matching retail's
 2D look" in `docs/UI_FRAMEWORK.md`). The rows stand 28
 pixels apart from 284, so the fourth clears the trademark lines; they keep retail's hand, blink and

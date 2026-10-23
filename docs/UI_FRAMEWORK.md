@@ -141,7 +141,7 @@ slots, switched with `capfont::UseFontSlot`:
 | 0 | `ChronicleSharp-Bold.ttf` (`lang/font.ttf`) | `Normal`, `Bold` | the text the port draws from a font, menu captions, the name alphabet |
 | 1 | `ChronicleSharp-Regular.ttf` (`lang/font_thin.ttf`) | `Thin` | the weapon menu's buttons, area cards, the floor select's boss names |
 | 2 | `SourceSansProSemibold.ttf` (embedded, or `lang/`) | `Status` | the weapon status abbreviations and numbers the port draws |
-| 3 | `ChronicleTitle-Bold.ttf` (embedded) | `Title` | the title menu's rows, in Chronicle Title Bold (Regular, to come, is PUSH START BUTTON's): Albert Sans, the free geometric sans closest to retail's painted rows, refitted letter by letter to them with rounded corners (`tools/font/README.md`) |
+| 3 | `ChronicleTitle-Bold.ttf` (embedded) | `Title` | the title menu's rows, in Chronicle Title Bold (Regular, to come, is PUSH START BUTTON's): retail's painted capitals fitted into the font, the letters the painting lacks built by its rules, spaced by the usual method for capitals (`tools/font/README.md`) |
 
 `tools/font/README.md` has each font's origin and licence.
 
@@ -228,10 +228,9 @@ copies (the renderer's `Bold` thickening stacks five) is more opaque than its al
 
 **Worked example: the title menu.** Retail's rows (`start3`) are cream letters, (226, 253, 210), at
 texel alpha 0xFF, drawn at 128 when selected and 32 when not. The selected row shows the cream itself;
-the others are the cream at half opacity, see-through, with no shadow. The font's rows do the same, in Chronicle Title, whose letters carry the painting's weight and widths: every row in a
+the others are the cream at half opacity, see-through, with no shadow. The font's rows do the same, in Chronicle Title, whose capitals are the painting's letters: every row in a
 3.75-pixel halo at strength 0.55, the selected one the cream at full strength, the rest cream and
-see-through, each row placed by its first letter's side bearing and kerned at 1.9 times the font's kerning,
-which is how tightly the painting kerns its T and A. The unselected rows are drawn at three quarters of the half
+see-through, each row placed by its first letter's side bearing, capitals 16.7 tall as the English rows' are. The unselected rows are drawn at three quarters of the half
 the arithmetic gives: the painting's strokes are softer than the font's, so less of each letter is at
 full strength, and on a real GPU half reads too bright. That last figure is judged, not computed.
 

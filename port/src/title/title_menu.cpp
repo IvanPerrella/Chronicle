@@ -39,17 +39,14 @@ constexpr Row kRows[kRowCount] = {
 constexpr int   kTextLeft = 263;
 constexpr int   kFirstTextTop = 284;
 constexpr int   kRowStride = 28;
-constexpr float kCapHeight = 16.0f;
+constexpr float kCapHeight = 16.7f;
 
-// Each letter's weight and width are the painting's, made in the font (tools/font/README.md),
-// so it is drawn as it is. The renderer sets letters 1.2 apart plus this; the English rows' words come out
-// as long as the painting's.
+// The capitals are the painting's own, fitted to it in the font; their spacing is the font's kerning, each
+// pair's gap beyond 1.3 (tools/font/README.md). The renderer leaves 1.2 plus
+// the gap below, and its letters' bitmaps carry about 0.7 of edge beyond their ink.
 constexpr float kStretch = 1.0f;
-constexpr float kLetterGap = -0.1f;
-
-// The font's kerning, made as strong as the painting's: its START tucks the A under the T by about 3 pixels,
-// where the font kerns them by 1.6.
-constexpr float kKernStrength = 1.9f;
+constexpr float kLetterGap = -0.6f;
+constexpr float kKernStrength = 1.0f;
 
 // capfont's slot for the title font (UI::FontWeight::Title).
 constexpr int kTitleFontSlot = 3;
