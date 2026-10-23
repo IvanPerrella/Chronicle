@@ -1,13 +1,16 @@
 #include "dataset.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <new>
 #include <vector>
 
 #include "dataalloc.hpp"
 #include "dataread.hpp"
 #include "dataread_port.hpp"
+#include "editloop.hpp"
 #include "mglib.hpp"
 #include "platform/arena.hpp"
 
@@ -45,6 +48,11 @@ unsigned char *HostBlock(const void *, std::size_t bytes, std::size_t lead = 0) 
 void ClearArenas() {
     ReportArenas();
     ArenaPoolReset();
+    // Out of memory, how full the arenas were says what the pool could have spared.
+    std::set_new_handler([] {
+        std::set_new_handler(nullptr);
+        ReportArenas();
+    });
 }
 #else
 unsigned char *HostBlock(const void *owner, std::size_t bytes, std::size_t lead = 0) {
@@ -78,6 +86,10 @@ u_long128 *CarvePackets(int quads, int which) {
     if (which < 0 || which >= 2 || quads <= 0 || quads > std::numeric_limits<int>::max() / kArenaHeadroom) {
         ArenaOverflow("VIF packet buffer", quads, std::numeric_limits<int>::max() / kArenaHeadroom);
     }
+#ifdef __PSP__
+    // The renderer builds no VIF packets (MGInitVif1Packet keeps nothing): up to 1.6 MB saved.
+    quads = 16;
+#endif
     return reinterpret_cast<u_long128 *>(HostBlock(&keys[which], static_cast<std::size_t>(quads) * 16 * kArenaHeadroom));
 }
 
@@ -100,6 +112,14 @@ void InitializeDataBuffer() {
 
 PORT_OVERRIDE void SetDataBuffer(CDataAlloc2<1> *arena, int quads) {
     DataReadClearPackCapacities();
+#ifdef __PSP__
+    // The town's DataBuffer__2 holds its map, then its villagers in half of what is left. Retail's
+    // 1216000 quadwords outgrow a PSP-2000's heap; Norune fills 294000 with its map and 201000 with
+    // its villagers, which a million still leaves room to grow.
+    if (arena == &DataBuffer__2) {
+        quads = std::min(quads, 1000000);
+    }
+#endif
     Carve(arena, quads);
 }
 

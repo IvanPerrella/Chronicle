@@ -458,6 +458,7 @@ void Draw3DFinishVisual(Draw3DVisual &visual) {
     visual.mesh = gfx::CreateMesh(visual.vertices, visual.indices);
     visual.indices.clear();
     visual.indices.shrink_to_fit();
+    visual.vertices.shrink_to_fit();
 }
 
 void Draw3DStripToList(std::vector<uint32_t> &indices, uint32_t first_vertex, uint32_t count) {
@@ -690,6 +691,13 @@ PORT_OVERRIDE int CVisualVu1::CreateVUdataFromMDT(u_int *block, u_int *data, int
         }
     }
     Draw3DFinishVisual(visual);
+#ifdef __PSP__
+    // Only a CVisualMDTVu1 is remade from its vertices: every other model's live in its mesh alone.
+    if (visual.mesh != gfx::kNullMesh && dynamic_cast<CVisualMDTVu1 *>(this) == nullptr) {
+        visual.vertices.clear();
+        visual.vertices.shrink_to_fit();
+    }
+#endif
     return vu_size;
 }
 

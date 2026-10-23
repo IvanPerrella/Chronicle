@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -718,6 +719,19 @@ PORT_OVERRIDE int main(int argc, const char **argv, const char **envp) {
 #if defined(__PSP__)
     // The HOME menu's "quit" stops the game as closing the window does.
     PspInstallExitCallback(GameRequestStop);
+    // The XMB starts EBOOT.PBP with no arguments: args.txt beside it can hold them (--jump edit:0
+    // and the other test hooks).
+    std::vector<std::string>  words;
+    std::vector<const char *> args(argv, argv + argc);
+    std::ifstream             file("args.txt");
+    for (std::string word; file >> word;) {
+        words.push_back(word);
+    }
+    for (const std::string &word : words) {
+        args.push_back(word.c_str());
+    }
+    args.push_back(nullptr);
+    return Run(static_cast<int>(args.size()) - 1, args.data());
 #endif
     return Run(argc, argv);
 }
