@@ -44,6 +44,7 @@
 #include "platform/input.hpp"
 #include "platform/overlay.hpp"
 #include "platform/paths.hpp"
+#include "platform/psp.hpp"
 #include "presence.hpp"
 #include "quest_host.hpp"
 #include "save_slots.hpp"
@@ -1028,6 +1029,12 @@ int RunGame(int argc, char **argv) {
         // A save loaded since the last mode brought its own options.
         GameOptionsApply(ConfigGet().options);
         bool event_start = StartEventNo >= 0;
+#ifdef __PSP__
+        // There is no debugger on the console: the log says where the game went.
+        std::fprintf(stderr, "game: mode %d, map %d, frame %lld, last tick %llu draws, heap %u KiB\n", mode, MapNo,
+                     static_cast<long long>(g_frames), static_cast<unsigned long long>(g_stats.last_draws),
+                     static_cast<unsigned>(PspHeapUsed() >> 10));
+#endif
         ModeInit(title_ran, exist_data, skip_title);
 
         NextMapNo = -1;

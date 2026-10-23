@@ -29,22 +29,43 @@ VagSample DecodeVag(std::span<const std::uint8_t> data) {
     VagSample         result;
     VagDecoder        decoder;
     const std::size_t blocks = data.size() / kVagBlockBytes;
+#ifdef __PSP__
+    std::int16_t scratch[kVagBlockSamples];
+    std::size_t  length = 0;
+    for (std::size_t b = 0; b < blocks; b++) {
+        length = b + 1;
+        const std::uint8_t flags = data[b * kVagBlockBytes + 1];
+        if (flags & kVagLoopEnd) {
+            break;
+        }
+    }
+    result.adpcm.assign(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(length * kVagBlockBytes));
+    result.history.reserve(length * 2);
+#else
     result.pcm.reserve(blocks * kVagBlockSamples);
+#endif
     for (std::size_t b = 0; b < blocks; b++) {
         const std::uint8_t *block = data.data() + b * kVagBlockBytes;
         const std::uint8_t  flags = block[1];
-        const std::size_t   start = result.pcm.size();
+        const std::size_t   start = result.Frames();
         if (flags & kVagLoopStart) {
             result.loop_start = static_cast<int>(start);
         }
+#ifdef __PSP__
+        result.history.push_back(static_cast<std::int16_t>(decoder.history[0]));
+        result.history.push_back(static_cast<std::int16_t>(decoder.history[1]));
+        decoder.DecodeBlock(block, scratch);
+        result.frames = start + kVagBlockSamples;
+#else
         result.pcm.resize(start + kVagBlockSamples);
         decoder.DecodeBlock(block, result.pcm.data() + start);
+#endif
         if (flags & kVagLoopEnd) {
             result.loops = (flags & kVagLoopRepeat) != 0;
             break;
         }
     }
-    if (result.loop_start >= static_cast<int>(result.pcm.size())) {
+    if (result.loop_start >= static_cast<int>(result.Frames())) {
         result.loops = false;
     }
     return result;

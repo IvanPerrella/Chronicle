@@ -160,6 +160,15 @@ void AppendStrip(std::vector<gfx::Vertex2D> &triangles, const std::vector<gfx::V
 // foreground rather than starting at a line partway up the view. The two outermost columns do not
 // wander past the edges of the image.
 PORT_OVERRIDE void DepthOfField(float *focus, int level, int alpha, int blur) {
+#ifdef __PSP__
+    // Its three screen-sized targets do not fit beside the framebuffers in the PSP's 2 MB of VRAM,
+    // and in RAM the GE cannot draw into them: the frame is left as drawn, without the blur.
+    (void)focus;
+    (void)level;
+    (void)alpha;
+    (void)blur;
+    return;
+#endif
     int phase;
     int i;
     int j;

@@ -48,6 +48,7 @@ void TouchOverlayPoll();
 #include "platform/config.hpp"
 #include "platform/discord.hpp"
 #include "platform/display.hpp"
+#include "platform/files.hpp"
 #include "platform/firstrun.hpp"
 #include "platform/input.hpp"
 #include "platform/input_script.hpp"
@@ -192,7 +193,7 @@ void RequireData() {
         why = "is empty";
         auto options = fs::directory_options::follow_directory_symlink |
                        fs::directory_options::skip_permission_denied;
-        for (fs::recursive_directory_iterator it(root, options, error), end; !error && it != end;
+        for (RecursiveDirectoryIterator it(root, options, error), end; !error && it != end;
              it.increment(error)) {
             std::error_code entry_error;
             if (it->is_regular_file(entry_error)) {

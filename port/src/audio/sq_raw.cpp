@@ -1,5 +1,3 @@
-#include <nlohmann/json.hpp>
-
 #include <algorithm>
 
 #include "audio/hdbank.hpp"
@@ -259,47 +257,48 @@ std::shared_ptr<SqFile> SqFile::Create(std::span<const std::uint8_t> bytes) {
     if (!raw) {
         return nullptr;
     }
-    nlohmann::json root = {
-        {"schema_version", 1                      },
-        {"kind",           "sequence"             },
-        {"songs",          nlohmann::json::array()}
-    };
+    // The events go straight into the file, as CreateFromJson would read them from their JSON: a
+    // round trip through JSON, an object an event, took the PSP tens of seconds a song.
+    auto file = std::make_shared<SqFile>();
     for (const auto &song : raw->Songs()) {
-        nlohmann::json converted = {
-            {"division", song.division          },
-            {"events",   nlohmann::json::array()}
-        };
+        if (song.division <= 0) {
+            return nullptr;
+        }
+        SqSong &converted = file->songs_.emplace_back();
+        converted.begin = file->events_.size();
+        converted.division = song.division;
         legacy_sq::SqReader reader(raw->Events(song));
         while (true) {
-            const auto     event = reader.Next();
-            nlohmann::json e = {
-                {"delta", event.delta}
-            };
+            const auto event = reader.Next();
+            SqEvent   &out = file->events_.emplace_back();
+            out.delta = event.delta;
             switch (event.kind) {
                 case legacy_sq::SqEventKind::Channel:
-                    e["kind"] = "channel";
-                    e["status"] = event.status;
-                    e["data"] = {event.data[0], event.data[1]};
+                    out.kind = SqEventKind::Channel;
+                    out.status = event.status;
+                    out.data[0] = event.data[0];
+                    out.data[1] = event.data[1];
                     break;
                 case legacy_sq::SqEventKind::Meta:
-                    e["kind"] = "meta";
-                    e["meta"] = event.meta;
+                    out.kind = SqEventKind::Meta;
+                    out.meta = event.meta;
                     break;
                 case legacy_sq::SqEventKind::SysEx:
-                    e["kind"] = "sysex";
+                    out.kind = SqEventKind::SysEx;
                     break;
                 default:
-                    e["kind"] = "end";
+                    out.kind = SqEventKind::End;
                     break;
             }
-            e["payload"] = std::vector<std::uint8_t>(event.payload.begin(), event.payload.end());
-            converted["events"].push_back(std::move(e));
+            if (out.kind != SqEventKind::Channel) {
+                out.payload = file->payloads_.emplace_back(event.payload.begin(), event.payload.end());
+            }
             if (event.kind == legacy_sq::SqEventKind::End) {
                 break;
             }
         }
-        root["songs"].push_back(std::move(converted));
+        converted.end = file->events_.size();
     }
-    return CreateFromJson(root.dump());
+    return file;
 }
 } // namespace audio

@@ -22,6 +22,7 @@
 #include "mainselect.hpp"
 #include "menu_option.hpp"
 #include "platform/config.hpp"
+#include "platform/files.hpp"
 #include "platform/paths.hpp"
 
 namespace fs = std::filesystem;
@@ -837,7 +838,7 @@ int LocalizeExport(const fs::path &out, bool verify) {
     };
 
     auto options = fs::directory_options::follow_directory_symlink | fs::directory_options::skip_permission_denied;
-    for (fs::recursive_directory_iterator it(root, options, error), end; !error && it != end; it.increment(error)) {
+    for (RecursiveDirectoryIterator it(root, options, error), end; !error && it != end; it.increment(error)) {
         std::error_code entry_error;
         if (!it->is_regular_file(entry_error)) {
             continue;

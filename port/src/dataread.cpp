@@ -18,6 +18,7 @@
 #include "../../tools/dcdata/dcdata.hpp"
 #include "dataread_port.hpp"
 #include "localize.hpp"
+#include "platform/files.hpp"
 #include "platform/paths.hpp"
 
 namespace fs = std::filesystem;
@@ -184,7 +185,7 @@ PORT_OVERRIDE void InitCDFile() {
     }
     auto options = fs::directory_options::follow_directory_symlink |
                    fs::directory_options::skip_permission_denied;
-    for (fs::recursive_directory_iterator it(root, options, error), end; !error && it != end;
+    for (RecursiveDirectoryIterator it(root, options, error), end; !error && it != end;
          it.increment(error)) {
         std::error_code entry_error;
         if (it->is_regular_file(entry_error)) {
@@ -194,7 +195,7 @@ PORT_OVERRIDE void InitCDFile() {
     }
     fs::path normalized = root / "normalized";
     if (fs::is_directory(normalized)) {
-        for (const fs::directory_entry &entry : fs::recursive_directory_iterator(normalized)) {
+        for (const fs::directory_entry &entry : RecursiveDirectoryIterator(normalized)) {
             if (entry.is_regular_file()) {
                 std::string path = entry.path().lexically_relative(normalized).generic_string();
                 data_index[dcdata::FoldPath(path)] = entry.path();

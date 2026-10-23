@@ -29,7 +29,12 @@ struct ConfigGameOptions {
     bool player_damage = true;
     bool enemy_hp = true;
     bool names = true;
+#ifdef __PSP__
+    // Its depth of field draws into three more screen-sized targets than the PSP's VRAM holds.
+    bool soft_focus = false;
+#else
     bool soft_focus = true;
+#endif
 
     bool operator==(const ConfigGameOptions &) const = default;
 };
