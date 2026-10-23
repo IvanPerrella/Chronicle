@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -94,4 +95,15 @@ TEST(CaptionFont, WhatItCannotBuildIsLeftToTheBitmap) {
     Rendered out;
     EXPECT_FALSE(capfont::RenderGlyph(U'ß', 40, out.alpha, out.w, out.h, out.x0, out.y0));
     EXPECT_FALSE(capfont::RenderGlyph(U'~' + 0x1000, 40, out.alpha, out.w, out.h, out.x0, out.y0));
+}
+
+TEST(CaptionFont, KernsThePairsTheFontKerns) {
+    // The title's font, which kerns through GPOS pair kerning, as most fonts made today do.
+    const auto title = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path() / "tools" /
+                       "font" / "ChronicleTitle-Bold.ttf";
+    if (!capfont::Load(title)) {
+        GTEST_SKIP() << "no " << title.string();
+    }
+    EXPECT_LT(capfont::KernPixels(U'T', U'A', 40), -1.0f);
+    EXPECT_EQ(capfont::KernPixels(U'H', U'H', 40), 0.0f);
 }

@@ -34,3 +34,16 @@ used only by `tools/textpack/build.py`, to letter the bosses' names (a Trajan-st
 Copyright 2010, 2012 Adobe Systems Incorporated﻿
 ﻿license: SIL Open Font License (OFL)
 link: https://www.fontspace.com/source-sans-pro-font-f15035
+
+## ChronicleTitle-Bold.ttf
+
+Chronicle Title Bold, the title menu's font (`port/src/title/title_menu.cpp`), embedded in the executable as the status
+font is. Chronicle Title is the family of the title screen's painted lettering: Bold is the menu rows', and Regular is to
+be the thinner PUSH START BUTTON's. The title screen's painted menu rows are lettered in a bold geometric sans that exists only as those pictures, 16
+pixels tall; of the free geometric sans faces at every weight, Albert Sans at weight 650 differs least from them, drawn
+into each painted letter's box at the game's size and compared pixel by pixel. Chronicle Title is Albert Sans 1.025,
+copyright 2021 The Albert Sans Project Authors (https://github.com/usted/Albert-Sans), under the SIL Open Font License 1.1
+(no reserved font name), at weight 650, with each capital refitted to the painted letter's width (the capitals the
+painting lacks following their nearest kin) and every corner rounded, as the painted letters' are. Its licence fields
+carry the OFL. It was made from Google Fonts' `ofl/albertsans/AlbertSans[wght].ttf` with fontTools and skia-pathops,
+by a script kept outside the repository; the font is the only output that ships.

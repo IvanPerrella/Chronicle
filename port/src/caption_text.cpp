@@ -39,6 +39,19 @@ alignas(16) constexpr unsigned char kEmbeddedStatusFont[] = {
 #embed "../tools/font/SourceSansProSemibold.ttf"
 };
 #endif
+// The title menu's font: Chronicle Title Bold, Albert Sans (the free geometric sans closest to the title's painted rows)
+// refitted letter by letter to them, its corners rounded (tools/font/README.md).
+#if __has_embed("../../tools/font/ChronicleTitle-Bold.ttf")
+#define CHRONICLE_HAS_EMBEDDED_TITLE_FONT 1
+alignas(16) constexpr unsigned char kEmbeddedTitleFont[] = {
+#embed "../../tools/font/ChronicleTitle-Bold.ttf"
+};
+#elif __has_embed("../tools/font/ChronicleTitle-Bold.ttf")
+#define CHRONICLE_HAS_EMBEDDED_TITLE_FONT 1
+alignas(16) constexpr unsigned char kEmbeddedTitleFont[] = {
+#embed "../tools/font/ChronicleTitle-Bold.ttf"
+};
+#endif
 #pragma clang diagnostic pop
 #endif
 
@@ -1185,6 +1198,19 @@ bool StatusReady() {
     return FontReady() && capfont::StatusFontLoaded();
 }
 
+bool TitleReady() {
+#if defined(CHRONICLE_HAS_EMBEDDED_TITLE_FONT)
+    if (FontReady() && !capfont::TitleFontLoaded()) {
+        static bool tried = false;
+        if (!tried) {
+            tried = true;
+            capfont::LoadTitleFontMemory(kEmbeddedTitleFont, sizeof(kEmbeddedTitleFont));
+        }
+    }
+#endif
+    return FontReady() && capfont::TitleFontLoaded();
+}
+
 void PreparePainted(const char *name, const PortDecodedTexture &texture) {
     if (name == nullptr || std::string_view(name) != "stayframe") {
         return;
@@ -1446,7 +1472,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         explicit Variant(int slot) { capfont::UseFontSlot(slot); }
 
         ~Variant() { capfont::UseFontSlot(0); }
-    } variant(style.status_font ? 2 : (style.thin ? 1 : 0));
+    } variant(style.title_font ? 3 : (style.status_font ? 2 : (style.thin ? 1 : 0)));
 
     const gfx::LogicalMapping mapping = gfx::GetUiMapping(gfx::CurrentRenderTarget());
     const capfont::Metrics    metrics = capfont::GetMetrics();
@@ -1484,18 +1510,26 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
         capfont::Glyph fill;
         char32_t       ch;
         bool           blank;
+        float          kern; // added before the letter, from the font's kerning with the one before
     };
 
     std::vector<Letter> letters;
     float               natural = 0.0f;
+    char32_t            previous = 0;
     for (char32_t ch : text) {
         Letter letter = {};
         letter.ch = ch;
         if (ch == U' ') {
             letter.blank = true;
             natural += cap_height * 0.32f + style.word;
+            previous = 0;
         } else if (capfont::GetGlyph(ch, em_px, letter.fill) && letter.fill.width > 0) {
+            if (style.kern != 0.0f && previous != 0) {
+                letter.kern = capfont::KernPixels(previous, ch, em_px) / mapping.scale_x * style.xscale * style.kern;
+                natural += letter.kern;
+            }
             natural += letter.fill.width / mapping.scale_x * style.xscale + gap;
+            previous = ch;
         } else {
             continue;
         }
@@ -1619,6 +1653,7 @@ bool DrawLine(std::string_view utf8, float center_x, float cap_top, float cap_he
             pen += (cap_height * 0.32f + style.word) * squeeze;
             continue;
         }
+        pen += letter.kern * squeeze;
         if (use_slots) {
             const std::array<float, 2> &place = style.slots[slot++];
             const float                 ink = letter.fill.width / mapping.scale_x * style.xscale;
