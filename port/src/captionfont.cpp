@@ -20,7 +20,12 @@ namespace capfont {
 
 namespace {
 
+#ifdef __PSP__
+// Glyphs drawn for a 480x272 screen are small, and the GE addresses no image past 512 texels.
+constexpr int kAtlasSize = 512;
+#else
 constexpr int kAtlasSize = 2048;
+#endif
 // Transparent atlas padding prevents neighboring glyphs bleeding under linear sampling.
 constexpr int kPad = 1;
 
