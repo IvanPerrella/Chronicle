@@ -209,10 +209,10 @@ Two rules of the GS decide most of it:
   GS units, where 0x80 is full. The GS multiplies texel by vertex and divides by 0x80. Many of
   retail's painted pictures carry texel alpha 0xFF, twice full, so the alpha the game passes is
   doubled: a sprite drawn at "32" over 0xFF texels is half opaque, not a quarter.
-- **Past full, the GS overshoots.** A result above 0x80 doesn't stop at opaque: blending gives
-  `Cd + (Cs - Cd) * As / 0x80`, which at twice full is `2 * Cs - Cd`. Over a dark backdrop a light
-  picture burns towards white, keeping its own colour only at its soft edges. A flat fill of the
-  texel colour looks dull beside it.
+- **Past full, the port shows the picture's own colour.** On the GS a result above 0x80 can overshoot
+  (`Cd + (Cs - Cd) * As / 0x80` is `2 * Cs - Cd` at twice full), but in the port retail's doubled
+  pictures drawn at full show their texels' own colour: the title's selected row measures exactly its
+  painting's cream on a real GPU. Match that, not the arithmetic.
 
 **Finding the numbers.** `DC_TEXTURE_DUMP=<dir>` writes every texture as the renderer holds it, alpha
 in GS units (255 in the PNG is 0xFF, not 0x80). Read the picture's texel colour and alpha there,
@@ -227,10 +227,9 @@ textures, full coverage opaque. One trap when judging them: anything drawn as se
 copies (the renderer's `Bold` thickening stacks five) is more opaque than its alpha says.
 
 **Worked example: the title menu.** Retail's rows (`start3`) are cream letters, (226, 253, 210), at
-texel alpha 0xFF, drawn at 128 when selected and 32 when not. The selected row is drawn at twice full
-and burns to white with a cream rim; the others are the cream at half opacity, see-through, with no
-shadow. The font's rows do the same, in Chronicle Title, whose letters carry the painting's weight and widths: every row in a
-3.75-pixel halo at strength 0.55, the selected one near-white (247, 250, 239), the rest cream and
+texel alpha 0xFF, drawn at 128 when selected and 32 when not. The selected row shows the cream itself;
+the others are the cream at half opacity, see-through, with no shadow. The font's rows do the same, in Chronicle Title, whose letters carry the painting's weight and widths: every row in a
+3.75-pixel halo at strength 0.55, the selected one the cream at full strength, the rest cream and
 see-through, each row placed by its first letter's side bearing and kerned at 1.9 times the font's kerning,
 which is how tightly the painting kerns its T and A. The unselected rows are drawn at three quarters of the half
 the arithmetic gives: the painting's strokes are softer than the font's, so less of each letter is at

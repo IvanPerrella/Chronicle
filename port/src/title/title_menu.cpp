@@ -63,17 +63,12 @@ constexpr int kRowLeft = 193;
 constexpr int kRowWidth = 256;
 constexpr int kRowAboveText = 6;
 
-// The painting's letters (start.img): cream texels at alpha 0xFF, twice the GS's opaque 0x80. At
-// retail's 128 the GS blends them at twice their strength, 2 x cream - backdrop, which over the dark
-// backdrop burns to white, the cream left only at their soft edges. At retail's 32 they are half
-// opaque. The font's rows take the same look: the selected one burnt white, the rest cream at half
-// opacity.
+// The painting's letters (start.img): cream texels at alpha 0xFF, twice the GS's opaque 0x80. Retail
+// draws the selected row at 128, which shows the cream itself (226, 253, 210, measured on a real GPU),
+// and the others at 32, which the doubled texels make half opaque. The font's rows take the same look.
 constexpr u8 kCreamR = 226;
 constexpr u8 kCreamG = 253;
 constexpr u8 kCreamB = 210;
-constexpr u8 kBurntR = 247;
-constexpr u8 kBurntG = 250;
-constexpr u8 kBurntB = 239;
 
 // The painting's unselected letters read darker than half its cream: its strokes are softer than the
 // font's, so less of each letter is at full strength. Three quarters of half, judged on a real GPU.
@@ -163,9 +158,9 @@ void Draw(int selected, int selected_alpha, int other_alpha) {
 
     for (int row = 0; row < kRowCount; ++row) {
         const bool chosen = row == selected;
-        style.fill_r = chosen ? kBurntR : kCreamR;
-        style.fill_g = chosen ? kBurntG : kCreamG;
-        style.fill_b = chosen ? kBurntB : kCreamB;
+        style.fill_r = kCreamR;
+        style.fill_g = kCreamG;
+        style.fill_b = kCreamB;
         style.drop_shadow = false;
         style.halo = kHaloReach;
         style.halo_strength = kHaloStrength;

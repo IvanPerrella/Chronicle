@@ -1480,7 +1480,7 @@ Retail's three rows are painted pictures (`start.img` and its French, German, It
 copies) with no Exit among them, so all four are drawn through the UI framework
 (`port/src/title/title_menu.cpp`) in Chronicle Title, Albert Sans (the free geometric sans closest
 to the painted rows) refitted letter by letter to them, with retail's words as the `title.menu.*` keys, and coloured as the GS drew the painting:
-the selected row burnt to white with a cream rim, the rest cream at half opacity (see "Matching retail's
+the selected row the painting's cream, the rest that cream at half opacity (see "Matching retail's
 2D look" in `docs/UI_FRAMEWORK.md`). The rows stand 28
 pixels apart from 284, so the fourth clears the trademark lines; they keep retail's hand, blink and
 sounds. Exit's row shares its number with the attract movie's,
