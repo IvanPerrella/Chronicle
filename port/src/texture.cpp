@@ -1010,6 +1010,7 @@ PORT_OVERRIDE void CTextureManager::EnterFixTextureZ(u_char *buffer) {
     if (tex == nullptr) {
         StopBakedTexture(name, "fixed-Z texture has no manager entry");
     }
+    std::strcpy(tex->name, name);
     tex->width = static_cast<int>(decoded.width);
     tex->height = static_cast<int>(decoded.height);
     tex->bpp = 1;

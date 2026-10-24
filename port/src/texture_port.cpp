@@ -266,7 +266,9 @@ bool ResolveSide(unsigned tbp, unsigned psm, Side &side) {
         side.palette = entry;
         return true;
     }
-    if (IndexPsm(psm) != (entry->format == gfx::TextureFormat::Index8)) {
+    // A baked image is RGBA whatever PSM the game copies it as, so an index PSM may name either; a
+    // colour PSM never names an index image.
+    if (!IndexPsm(psm) && entry->format == gfx::TextureFormat::Index8) {
         return false;
     }
     side.texture = EntryTexture(*entry);
