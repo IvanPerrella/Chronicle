@@ -84,7 +84,12 @@ $cache = Join-Path $build 'CMakeCache.txt'
 $cachedSource = Read-CacheValue $cache 'CMAKE_HOME_DIRECTORY'
 $cachedBuild = Read-CacheValue $cache 'CMAKE_CACHEFILE_DIR'
 $cachedFfmpeg = Read-CacheValue $cache 'KZ_FFMPEG_DIR'
-$stale = ($null -ne $cachedSource -and $cachedSource -ne $source) -or ($null -ne $cachedBuild -and $cachedBuild -ne $buildPath)
+# Corrosion caches the Rust target's native libraries once; a cache first made with another Rust keeps an empty list.
+$rustc = "$($root.Replace('\', '/'))/deps/rust/1.99.0-gnullvm/bin/rustc.exe"
+$cachedRust = Read-CacheValue $cache 'Rust_COMPILER_CACHED'
+$cachedRustLibs = Read-CacheValue $cache 'Rust_CARGO_TARGET_LINK_NATIVE_LIBS'
+$stale = ($null -ne $cachedSource -and $cachedSource -ne $source) -or ($null -ne $cachedBuild -and $cachedBuild -ne $buildPath) -or
+    ($null -ne $cachedRust -and ($cachedRust -ne $rustc -or $cachedRustLibs -eq ''))
 if ($stale) {
     foreach ($file in 'CMakeCache.txt', 'CMakeFiles', 'build.ninja', '.ninja_log', '.ninja_deps') {
         Remove-Item -LiteralPath (Join-Path $build $file) -Recurse -Force -ErrorAction SilentlyContinue
