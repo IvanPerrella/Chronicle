@@ -76,10 +76,13 @@ constexpr int kOtherRowsOf = 4;
 constexpr float kHaloReach = 3.75f;
 constexpr float kHaloStrength = 0.55f;
 
-enum Choice { kYes = 0, kNo = 1 };
+enum class Choice : int {
+    Yes = 0,
+    No = 1
+};
 
 bool g_confirm_open = false;
-int  g_confirm_choice = kNo;
+int  g_confirm_choice = static_cast<int>(Choice::No);
 bool g_confirm_chosen = false;
 
 UI::Cursor &ConfirmCursor() {
@@ -129,7 +132,7 @@ namespace {
 // round one (C, O). This is how far the first letter of text sits right of where START's S does, in
 // logical pixels, from the two letters' left side bearings in the title font.
 float BearingFromS(const std::string &text) {
-    float h[4], first[4], s[4];
+    float      h[4], first[4], s[4];
     const auto ch = static_cast<unsigned char>(text.empty() ? 'S' : text[0]);
     if (ch >= 0x80 || !capfont::GetGlyphBounds(U'H', h, kTitleFontSlot) ||
         !capfont::GetGlyphBounds(ch, first, kTitleFontSlot) || !capfont::GetGlyphBounds(U'S', s, kTitleFontSlot)) {
@@ -163,7 +166,7 @@ void Draw(int selected, int selected_alpha, int other_alpha) {
         style.halo = kHaloReach;
         style.halo_strength = kHaloStrength;
         const std::string text = LocalizeText(kRows[row].key, kRows[row].english);
-        UI::Label label(text, style);
+        UI::Label         label(text, style);
         label.Draw(kTextLeft + static_cast<int>(std::lround(BearingFromS(text))), kFirstTextTop + row * kRowStride - cap_offset,
                    // Retail's alphas on the painting's doubled texels (above).
                    chosen ? selected_alpha : std::min(other_alpha * 2 * kOtherRowsShare / kOtherRowsOf, 0x80));
@@ -177,8 +180,8 @@ bool ConfirmOpen() {
 void OpenConfirm() {
     g_confirm_open = true;
     g_confirm_chosen = false;
-    g_confirm_choice = kNo;
-    const UI::Rect no = UI::ConfirmModal::ButtonRect(ConfirmTitle(), ConfirmDescription(), kNo);
+    g_confirm_choice = static_cast<int>(Choice::No);
+    const UI::Rect no = UI::ConfirmModal::ButtonRect(ConfirmTitle(), ConfirmDescription(), static_cast<int>(Choice::No));
     ConfirmCursor().SnapTo(static_cast<float>(no.x - 34), static_cast<float>(no.y + 3));
     PlayConfirmSound();
 }
@@ -195,7 +198,7 @@ void StepConfirm(int pointer_hover, bool pointer_click, bool pointer_back) {
         g_confirm_choice = 1 - g_confirm_choice;
         PlayCursorSound();
     } else if (GamePad.Down(PAD_CROSS) || GamePad.Down(PAD_START) || pointer_click) {
-        if (g_confirm_choice == kYes) {
+        if (g_confirm_choice == static_cast<int>(Choice::Yes)) {
             g_confirm_chosen = true;
             PlayConfirmSound();
             SDL_Event event{};
@@ -219,7 +222,7 @@ void DrawConfirm(int alpha) {
     }
     UI::ConfirmModal::Draw(ConfirmTitle(), ConfirmDescription(), LocalizeText("battlemenu.quit.yes", "YES"),
                            LocalizeText("battlemenu.quit.no", "NO"), g_confirm_choice, ConfirmCursor(), alpha,
-                           UI::WindowPreset::DarkTranslucent, g_confirm_chosen ? kYes : -1, g_confirm_chosen);
+                           UI::WindowPreset::DarkTranslucent, g_confirm_chosen ? static_cast<int>(Choice::Yes) : -1, g_confirm_chosen);
 }
 
 std::vector<std::pair<std::string, std::string>> Strings() {

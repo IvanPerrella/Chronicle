@@ -120,6 +120,7 @@ struct BoardAdjust {
     float    move = 0;    // how far it is drawn right of its place, the letters after it staying put
     int      nth = -1;    // which ch (from 0) advance and move are for, or every one; left and right are every one's
 };
+
 bool DrawBoardName(std::string_view utf8, float left_x, float cap_top, float squeeze, std::span<const BoardAdjust> adjust,
                    float clip_top, float clip_bottom, int alpha);
 
@@ -148,10 +149,10 @@ struct LineStyle {
     float weight = 0.0f, opacity = 1.0f;
     float alpha = 1.0f; // how opaque the line is drawn (opacity darkens it instead)
 
-    bool ink_fit = false;
-    bool thin = false;
-    bool status_font = false;
-    bool title_font = false;
+    bool  ink_fit = false;
+    bool  thin = false;
+    bool  status_font = false;
+    bool  title_font = false;
     float kern = 0.0f; // the font's kerning between letters, at this strength (0 for none)
     // Letters set by their outlines rather than their pictures. A picture's soft edge is a pixel of the window, so its
     // share of a logical pixel, and with it the spacing, would change with the window's size.

@@ -29,14 +29,14 @@ constexpr int kModalLineSpacing = 20;
  * Where ConfirmModal puts its box, text lines and the game's yes/no plates, from its title and description.
  */
 struct ConfirmLayout {
-    std::vector<std::string> lines; /**< The title's lines, then the description's. */
-    int box_x = 0;                  /**< Box left. */
-    int box_y = 0;                  /**< Box top. */
-    int box_w = 0;                  /**< Box width. */
-    int box_h = 0;                  /**< Box height. */
-    int btn_x = 0;                  /**< Plates' left. */
-    int btn_y0 = 0;                 /**< First (yes) plate's top. */
-    int btn_y1 = 0;                 /**< Second (no) plate's top. */
+    std::vector<std::string> lines;      /**< The title's lines, then the description's. */
+    int                      box_x = 0;  /**< Box left. */
+    int                      box_y = 0;  /**< Box top. */
+    int                      box_w = 0;  /**< Box width. */
+    int                      box_h = 0;  /**< Box height. */
+    int                      btn_x = 0;  /**< Plates' left. */
+    int                      btn_y0 = 0; /**< First (yes) plate's top. */
+    int                      btn_y1 = 0; /**< Second (no) plate's top. */
 };
 
 // The game's yes/no plates: their size and spacing, lettered as the weapon menu's buttons are.
