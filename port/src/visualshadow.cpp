@@ -19,10 +19,10 @@
 
 // Retail's three shadow microprograms all build volumes: each caster triangle becomes a prism from
 // the triangle down along light 0 to its drop onto the shadow plane, and the prism's faces are
-// counted into the black shadow target in colour, 1 per channel, Cs + Cd for faces turned towards
-// the eye and Cd - Cs for faces turned away, depth-tested against the scene and writing no depth
-// (z-pass). A scene pixel inside a prism ends non-black and MGEndDrawShadow darkens it. The
-// shadow target shares the main depth buffer, so the count here is retail's, face for face:
+// counted into the stencil, incremented for faces turned towards the eye and decremented for faces
+// turned away, depth-tested against the scene and writing no depth (z-pass). That is retail's
+// Cs + Cd and Cd - Cs of 1 in the black shadow target, saturating alike. A scene pixel inside a
+// prism ends non-zero and MGEndDrawShadow darkens it. The count here is retail's, face for face:
 //
 // - Vu_shadow (MGDrawShadowFast): every triangle of the shadow mesh, three sides and both caps.
 // - Vu_shadow3 (MGDrawShadowFast2): the same for the triangles facing away from light 0 only.
@@ -303,7 +303,7 @@ void DrawCount(const Volume &volume, const Projection &projection, const RenderI
 
     gfx::DrawState state = Draw3DState(info, false);
     state.cull = add ? gfx::CullMode::Back : gfx::CullMode::Front;
-    state.alpha = add ? gfx::GsBlend{0, 2, 2, 1, 0x80} : gfx::GsBlend{2, 0, 2, 1, 0x80};
+    Draw3DShadowCount(state, !add);
     gfx::DrawMeshImmediate(volume.vertices, indices, constants, {}, state,
                            projection.has_transform ? &projection.transform : nullptr);
 }

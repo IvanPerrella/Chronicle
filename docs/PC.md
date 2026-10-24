@@ -972,7 +972,7 @@ shape. With `video.aspect` `auto` the rest of the window is not bars:
   placeholders, and the water's `water` and `water_buff`; `MGPortFrameTarget`)
   are as wide as the window, so what they hold and draw back includes the
   sides; the canonical and display images are the window's size. The game's
-  other 640xN targets (`blender`, `shadow_buf`) keep their size at the render
+  other 640xN target (`blender`) keeps its size at the render
   scale.
 - **Depth of field** (`DepthOfField`, `port/src/effectmacro.cpp`; the towns'
   heat haze is its jittered second pass) is not retail's two shrunk copies of

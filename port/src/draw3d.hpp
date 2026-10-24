@@ -46,9 +46,14 @@ gfx::TextureHandle Draw3DLastFrameCopy();
 unsigned           Draw3DFrameCopies();
 gfx::TextureHandle Draw3DFramePicture();
 
-// Shadow passes 1 and 2 draw only between MGBeginDrawShadow and MGEndDrawShadow, into the target
-// the former picked; with no target they are dropped rather than brightening the frame.
+// Shadow passes 1 and 2 draw only between MGBeginDrawShadow and MGEndDrawShadow, counting into the
+// stencil of the target being drawn; outside them they are dropped rather than brightening the
+// frame.
 bool Draw3DShadowTargetActive();
+
+// Makes state a shadow counting draw: no colour, depth or blend, the stencil incremented (or
+// decremented, when subtract) wherever the depth test passes. Retail's Cs + Cd and Cd - Cs of 1.
+void Draw3DShadowCount(gfx::DrawState &state, bool subtract);
 
 // The shadow microprogram the running MGDrawShadow* call stands for. All three extrude caster
 // triangles into prisms down to the shadow plane: Vu_shadow (MGDrawShadowFast) every triangle of

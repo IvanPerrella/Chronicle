@@ -537,10 +537,10 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
     if (!projected && (info.clip_flags & 4) != 0) {
         state.cull = gfx::CullMode::Back;
     }
-    if (projected) {
-        // The first of the two passes SetShadowData hands VU1: Cs * 0x80 / 128 + Cd, so whatever
-        // the projection covers turns the black target non-black.
-        state.alpha = {0, 2, 2, 1, 0x80};
+    if (projected || (info.shadow_pass == 8 && Draw3DShadowTargetActive())) {
+        // The first of the two passes SetShadowData hands VU1, counted once wherever the
+        // projection covers; a shade frame covers the volumes' stencil the same way.
+        Draw3DShadowCount(state, false);
     }
 
     static const float kWhite[4] = {1.0f, 1.0f, 1.0f, 1.0f};
