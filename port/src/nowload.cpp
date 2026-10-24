@@ -64,15 +64,8 @@ void Show(CTexture *texture, const CRect_i_ &screen, const CRect_i_ &texel, u_ch
     sprite.alpha = alpha;
 }
 
-void Upload(CTexture *texture) {
-    sceGsTex0 *tex0 = reinterpret_cast<sceGsTex0 *>(&texture->tex0);
-    if (texture->image[0] == nullptr) {
-        tex0->TBP0 = 0;
-        tex0->bits.tcc = 1;
-        tex0->CBP = 0;
-        return;
-    }
-
+// The card's pixels from the baked texture documents.
+void LoadBaked(CTexture *texture, PortDecodedTexture &decoded) {
     DataReadSource source;
     if (!DataReadSourceRange(texture->image[0], 1, source)) {
         std::fprintf(stderr, "nowload: %s has no validated source identity\n", texture->name);
@@ -98,7 +91,6 @@ void Upload(CTexture *texture) {
     const std::size_t             clut_bytes = texture->bpp == 0 ? 64 : texture->bpp == 1 ? 1024
                                                                                           : 0;
     const std::optional<unsigned> entry_index = PortTextureEntryIndexFromSource(source);
-    PortDecodedTexture            decoded;
     std::string                   error;
     if (!PortLoadBakedTexture(*document, asset_name, 0, static_cast<unsigned>(texture->width),
                               static_cast<unsigned>(texture->height), 0, clut,
@@ -106,6 +98,28 @@ void Upload(CTexture *texture) {
         std::fprintf(stderr, "nowload: baked texture %s from %s failed: %s\n", asset_name.c_str(),
                      source.path.c_str(), error.c_str());
         std::abort();
+    }
+}
+
+void Upload(CTexture *texture) {
+    sceGsTex0 *tex0 = reinterpret_cast<sceGsTex0 *>(&texture->tex0);
+    if (texture->image[0] == nullptr) {
+        tex0->TBP0 = 0;
+        tex0->bits.tcc = 1;
+        tex0->CBP = 0;
+        return;
+    }
+
+    PortDecodedTexture decoded;
+    if (PortLegacyTexturePath()) {
+        const u_char *levels[1] = {reinterpret_cast<const u_char *>(texture->image[0])};
+        if (!PortDecodeTexture(texture->bpp, texture->width, texture->height, levels, 1,
+                               reinterpret_cast<const u_char *>(texture->clut), 0, false, decoded)) {
+            std::fprintf(stderr, "nowload: %s cannot be decoded\n", texture->name);
+            std::abort();
+        }
+    } else {
+        LoadBaked(texture, decoded);
     }
 
     if (texture == &nl_tex && !card_name.empty()) {

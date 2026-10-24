@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -277,6 +278,20 @@ bool ResolveSide(unsigned tbp, unsigned psm, Side &side) {
 }
 
 } // namespace
+
+bool PortLegacyTexturePath() {
+    static const bool legacy = [] {
+        const std::vector<std::string> files = DataReadListFiles();
+        const bool has_baked = std::any_of(files.begin(), files.end(), [](const std::string &path) {
+            return path.starts_with("textures/") && path.ends_with(".json");
+        });
+        if (!has_baked) {
+            std::fprintf(stderr, "texture: the data has no baked texture documents; decoding the raw textures\n");
+        }
+        return !has_baked;
+    }();
+    return legacy;
+}
 
 void PortRememberTextureClut(std::string_view name, const u_char *clut, std::size_t clut_bytes) {
     if (clut == nullptr || clut_bytes == 0) {

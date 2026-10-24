@@ -59,6 +59,9 @@ struct PortDecodedTexture {
     bool                              four_bit = false;
 };
 
+// True when the data has no baked texture documents at all (a fresh extraction), so every texture
+// decodes from its raw source bytes instead. Decided once, from the data root, at the first load.
+bool PortLegacyTexturePath();
 std::optional<std::string> PortTextureDocumentFromSource(const DataReadSource &source);
 std::string PortTextureDocumentFromAlias(std::string_view source_alias);
 std::optional<unsigned> PortTextureEntryIndexFromSource(const DataReadSource &source);

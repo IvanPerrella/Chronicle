@@ -845,7 +845,7 @@ void Enter(CTextureManager &manager, EnterMode mode, int block, char *name, u_ch
     bool canvas_backing = false;
     bool unsourced = false;
     PortDecodedTexture decoded;
-    if (image != nullptr) {
+    if (image != nullptr && !PortLegacyTexturePath()) {
         if (indexed) {
             PortRememberTextureClut(name, clut, static_cast<std::size_t>(clut_bytes));
         }
@@ -985,10 +985,54 @@ PORT_OVERRIDE void CTextureManager::EnterFixTexture(char *name, u_char *image, i
           tex1, swizzled);
 }
 
+namespace {
+
+// The fixed-Z sheet decoded from the TIM2 in the buffer, for data without baked documents.
+// GS pixel storage mode PSMT8H: 8-bit indices in the upper bytes of a 32-bit word.
+constexpr unsigned kPsmT8H = 27;
+
+void EnterRawFixTextureZ(CTextureManager &manager, u_char *buffer) {
+    char        *name = reinterpret_cast<char *>(buffer + 16);
+    TM2_head    *head = reinterpret_cast<TM2_head *>(buffer + *reinterpret_cast<int *>(buffer + 48));
+    TM2_picture *picture = reinterpret_cast<TM2_picture *>(reinterpret_cast<u_char *>(head) + 16);
+    const int    width = head->image_width;
+    const int    height = head->image_height;
+    if (width != 640 || height > SCREEN_HALF_HEIGHT || picture->image_type != TIM2_IDTEX8) {
+        return;
+    }
+
+    u_char   *image = reinterpret_cast<u_char *>(picture) + picture->header_size;
+    u_char   *clut = image + picture->image_size;
+    CTexture *tex = manager.SearchTexture(name);
+    std::strcpy(tex->name, name);
+    tex->width = width;
+    tex->height = height;
+    tex->bpp = 1;
+    tex->block = 73;
+
+    const u_char      *levels[1] = {image};
+    PortDecodedTexture decoded;
+    unsigned           tbp = 0;
+    unsigned           cbp = 0;
+    if (PortDecodeTexture(1, width, height, levels, 1, clut, 256, false, decoded)) {
+        LocalizeTexture(name, decoded);
+        caption::PreparePainted(name, decoded);
+        DumpTexture(name, decoded);
+        tbp = PortCreateTexture(decoded, PortTextureOwner::Manager, &cbp);
+    }
+    tex->tex0 = SCE_GS_SET_TEX0(tbp, 10, kPsmT8H, 10, 8, 1, 0, cbp, 0, 0, 0, 1);
+}
+
+} // namespace
+
 // Retail parks "stayframe", the menus' 640-wide 8-bit sheet of frames and digits, in the upper
 // bytes of the Z buffer as PSMT8H. Here it is an index texture like any other; the menus reach it
 // by name and draw pieces of it with set2DSprite.
 PORT_OVERRIDE void CTextureManager::EnterFixTextureZ(u_char *buffer) {
+    if (PortLegacyTexturePath()) {
+        EnterRawFixTextureZ(*this, buffer);
+        return;
+    }
     DataReadSource source;
     if (!DataReadSourceRange(buffer, 64, source)) {
         StopBakedTexture("<unknown>", "fixed-Z texture header has no validated source range");
