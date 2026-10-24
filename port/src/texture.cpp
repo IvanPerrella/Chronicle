@@ -843,6 +843,7 @@ void Enter(CTextureManager &manager, EnterMode mode, int block, char *name, u_ch
     unsigned cbp = 0;
     bool baked = false;
     bool canvas_backing = false;
+    bool unsourced = false;
     PortDecodedTexture decoded;
     if (image != nullptr) {
         if (indexed) {
@@ -868,9 +869,12 @@ void Enter(CTextureManager &manager, EnterMode mode, int block, char *name, u_ch
                 }
             }
         } else {
+            // Pixels outside any data source (a synthetic or runtime image) have no baked document
+            // and decode from the bytes given.
             resolution_error = "texture pixels have no validated source range";
+            unsourced = true;
         }
-        if (!baked && indexed && !canvas_backing) {
+        if (!baked && indexed && !canvas_backing && !unsourced) {
             StopBakedTexture(name, resolution_error);
         }
         if (!baked && !canvas_backing && !resolution_error.empty()) {

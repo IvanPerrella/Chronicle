@@ -1,13 +1,13 @@
 #include "language.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
-#include <algorithm>
-#include <cctype>
 
 #include "area_card.hpp"
 #include "dataread.hpp"
@@ -84,7 +84,7 @@ void Upload(CTexture *texture) {
         std::abort();
     }
 
-    std::string asset_name = texture->name;
+    std::string                 asset_name = texture->name;
     const std::filesystem::path source_path(source.path);
     std::string                 extension = source_path.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
@@ -94,11 +94,12 @@ void Upload(CTexture *texture) {
         asset_name = source_path.stem().string();
     }
 
-    const u_char *clut = reinterpret_cast<const u_char *>(texture->clut);
-    const std::size_t clut_bytes = texture->bpp == 0 ? 64 : texture->bpp == 1 ? 1024 : 0;
+    const u_char                 *clut = reinterpret_cast<const u_char *>(texture->clut);
+    const std::size_t             clut_bytes = texture->bpp == 0 ? 64 : texture->bpp == 1 ? 1024
+                                                                                          : 0;
     const std::optional<unsigned> entry_index = PortTextureEntryIndexFromSource(source);
-    PortDecodedTexture decoded;
-    std::string error;
+    PortDecodedTexture            decoded;
+    std::string                   error;
     if (!PortLoadBakedTexture(*document, asset_name, 0, static_cast<unsigned>(texture->width),
                               static_cast<unsigned>(texture->height), 0, clut,
                               clut == nullptr ? 0 : clut_bytes, decoded, error, entry_index, texture->bpp)) {
@@ -120,7 +121,7 @@ void Upload(CTexture *texture) {
             painted_tbp = PortCreateTexture(painted, PortTextureOwner::Loading, &painted_cbp);
         }
     }
-    unsigned cbp = 0;
+    unsigned       cbp = 0;
     const unsigned tbp = PortCreateTexture(decoded, PortTextureOwner::Loading, &cbp);
     tex0->TBP0 = tbp;
     tex0->bits.tcc = 1;

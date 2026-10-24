@@ -11,10 +11,10 @@
 #include <set>
 #include <string>
 
-#include "gfx/context.hpp"
-#include "dataread_port.hpp"
-#include "dataread.hpp"
 #include "data_fixture.hpp"
+#include "dataread.hpp"
+#include "dataread_port.hpp"
+#include "gfx/context.hpp"
 #include "platform/paths.hpp"
 #include "tex_fixture.hpp"
 
@@ -482,8 +482,8 @@ TEST(Texture, Dc1ContainerNamesAreStableAndLongPathsHashLikeRust) {
 
 TEST(Texture, BakedPngLoaderReadsSchema3ThroughDataVfs) {
     namespace fs = std::filesystem;
-    const fs::path dir = datafix::TempDir("texture_baked_vfs");
-    const fs::path data = dir / "data";
+    const fs::path    dir = datafix::TempDir("texture_baked_vfs");
+    const fs::path    data = dir / "data";
     const std::string document =
         R"({"schema_version":3,"groups":[0],"entries":[{"name":"TEST","pictures":[{"levels":["test.png","test.png"]}]}]})";
     datafix::WriteBytes(data / "textures/img/test_img.json", datafix::Bytes(document.begin(), document.end()));
@@ -504,7 +504,7 @@ TEST(Texture, BakedPngLoaderReadsSchema3ThroughDataVfs) {
     PathsSetDataRoot(data);
     InitCDFile();
     PortDecodedTexture decoded;
-    std::string error;
+    std::string        error;
     ASSERT_TRUE(PortLoadBakedTexture("textures/img/test_img.json", "TEST", 0, 0, 0, 3, nullptr, 0, decoded, error))
         << error;
     EXPECT_EQ(decoded.format, gfx::TextureFormat::Rgba8);
@@ -534,8 +534,8 @@ TEST(Texture, BakedPngLoaderReadsSchema3ThroughDataVfs) {
 
 TEST(Texture, DuplicateTextureNamesUseExactSourceImgOrdinal) {
     namespace fs = std::filesystem;
-    const fs::path dir = datafix::TempDir("texture_duplicate_names");
-    const fs::path data = dir / "data";
+    const fs::path            dir = datafix::TempDir("texture_duplicate_names");
+    const fs::path            data = dir / "data";
     std::vector<std::uint8_t> img(232);
     std::memcpy(img.data(), "IMG", 3);
     img[4] = 2;
@@ -585,8 +585,8 @@ TEST(Texture, DuplicateTextureNamesUseExactSourceImgOrdinal) {
     PathsSetDataRoot(data);
     InitCDFile();
     std::vector<std::uint8_t> loaded(img.size() + 2048);
-    char path[] = "dup.img";
-    int loaded_size = 0;
+    char                      path[] = "dup.img";
+    int                       loaded_size = 0;
     ASSERT_EQ(LoadFile2(path, loaded.data(), &loaded_size, 0), 1);
     DataReadSource first_source;
     ASSERT_TRUE(DataReadSourceRange(loaded.data() + 176, 4, first_source));
@@ -596,7 +596,7 @@ TEST(Texture, DuplicateTextureNamesUseExactSourceImgOrdinal) {
     EXPECT_EQ(PortTextureEntryIndexFromSource(second_source), 1);
     for (unsigned index = 0; index < 2; index++) {
         PortDecodedTexture decoded;
-        std::string error;
+        std::string        error;
         ASSERT_TRUE(PortLoadBakedTexture("textures/dup_img.json", "DUP", 0, 1, 1, 1, nullptr, 0,
                                          decoded, error, index))
             << error;
@@ -630,4 +630,21 @@ TEST(Texture, BakedDocumentPathMapMatchesRustDc1Plan) {
         }
     }
     EXPECT_EQ(mismatches, 0);
+}
+
+// The game copies item and weapon icons as index images (PSM T8), whatever the images are here; a
+// baked one is RGBA.
+TEST(TexDecode, ColourImagesTakeIndexPsmCopies) {
+    TexEnv env;
+    Bytes  img = Img({
+        {"src", Tim2({TIM2_RGB32, 2, 2, {Rgba32({Gs(255, 0, 0), Gs(0, 255, 0), Gs(0, 0, 255), Gs(255, 255, 255)})}, {}, 0})},
+        {"dst", Tim2({TIM2_RGB32, 2, 2, {Rgba32({0, 0, 0, 0})}, {}, 0})                                                    }
+    });
+    Enter(img, 0);
+    PortTextureRef src = Resolve("src");
+    PortTextureRef dst = Resolve("dst");
+    ASSERT_TRUE(src.valid && dst.valid);
+    const sceGsTex0 &src_tex0 = *reinterpret_cast<const sceGsTex0 *>(&TexManager.GetTexture(const_cast<char *>("src"), -1)->tex0);
+    const sceGsTex0 &dst_tex0 = *reinterpret_cast<const sceGsTex0 *>(&TexManager.GetTexture(const_cast<char *>("dst"), -1)->tex0);
+    EXPECT_TRUE(PortMoveImage(src_tex0.TBP0, SCE_GS_PSMT8, 0, 0, 2, 2, dst_tex0.TBP0, SCE_GS_PSMT8, 0, 0));
 }
