@@ -11,6 +11,7 @@
 
 #include "area_card.hpp"
 #include "dataread.hpp"
+#include "dataread_port.hpp"
 #include "gameloop.hpp"
 #include "gfx/gfx.hpp"
 #include "localize_texture.hpp"
