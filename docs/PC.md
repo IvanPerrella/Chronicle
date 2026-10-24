@@ -2058,11 +2058,10 @@ their bytes change; material-only animation still updates its draw constants.
 Transient visuals are released every frame; persistent visual tables are swept every
 sixteen frames, with immediate tag validation on lookup.
 
-Chronicle retains the retail HD/BD/SQ readers under `port/src/audio` because its
-extracted data uses the retail audio formats. The compatibility declarations under
-`port/include/audio` extend the shared audio API and must precede Kazarov's headers
-for every host and game unit. The SQ reader normalizes retail events once when a
-sequence loads; playback uses Kazarov's current event player. This does not require
+Chronicle reads the retail HD/BD/SQ audio formats through Kazarov's raw audio parser
+(`tools/kazarov/src/cpp/audio/raw_audio.cpp`), which normalizes retail events once when a
+sequence loads; playback uses Kazarov's event player. Dark Cloud's SQ note-offs carry only a
+note number, so `LoadSequence` passes `SqRawOptions::short_note_off`. This does not require
 re-extracting disc data.
 
 

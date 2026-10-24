@@ -18,7 +18,7 @@ TEST(RetailAudio, SequenceConversionPreservesRunningDeltasAndNoteOff) {
     put(0x14, 6, 4);
     put(0x18, 480, 2);
     bytes.insert(bytes.end(), {0, 0x90, 60, 0xe4, 0x80, 60, 0, 0xff, 0x2f, 0});
-    const auto sequence = audio::SqFile::Create(bytes);
+    const auto sequence = audio::SqFile::Create(bytes, {.short_note_off = true});
     ASSERT_NE(sequence, nullptr);
     ASSERT_EQ(sequence->Songs().size(), 1u);
     EXPECT_EQ(sequence->Songs()[0].division, 480);
