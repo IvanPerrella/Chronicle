@@ -60,6 +60,9 @@ Place your disc image in the corresponding region directory:
 build.bat <configuration>
 ```
 
+The first Windows build downloads the pinned toolchain into `.kazarov/windows`, including
+llvm-mingw, Rust and an LGPL FFmpeg; see [`docs/WINDOWS.md`](docs/WINDOWS.md).
+
 ### 4. Run the project
 
 ```bash

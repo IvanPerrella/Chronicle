@@ -11,6 +11,10 @@ Xcode or its command line tools, and Homebrew in `/opt/homebrew`:
 brew install llvm lld cmake ninja python glslang sdl3 nlohmann-json vulkan-headers vulkan-loader vulkan-tools molten-vk googletest
 ```
 
+The build also needs Rust 1.99.0 (`rustup toolchain install 1.99.0 --profile minimal`), `cxxbridge-cmd` 1.0.205
+(`cargo install cxxbridge-cmd --version 1.0.205 --locked`) and a static FFmpeg from
+`python3 tools/kazarov/scripts/build/kz-ffmpeg --out .kazarov/ffmpeg/darwin-arm64`.
+
 The presets use Homebrew's `llvm`; Apple's clang is not current enough for C++26.
 
 ## Building

@@ -39,8 +39,10 @@ for the configuration, through the same `acquire.ps1` dependencies, and keeps th
 downloads and locks in `<checkout>\.kazarov`, which both configurations share:
 
 - `acquire.ps1` runs only when a dependency is missing. It verifies each pinned archive's SHA-256.
+  It also installs Rust and FFmpeg (see "Rust and FFmpeg" below), so the first run downloads them.
 - `configure.ps1` runs only when the build directory has no `build.ninja`, or its
-  `CMakeCache.txt` was made for another checkout path. Then the cache files are deleted first.
+  `CMakeCache.txt` was made for another checkout path, which deletes the cache files first,
+  or without the current `KZ_FFMPEG_DIR`.
 - `build.ps1` builds the executables with Ninja, so an unchanged tree rebuilds nothing.
 - A lock in `.kazarov\locks` serialises runs of one configuration; other configurations run in parallel.
 
@@ -110,7 +112,7 @@ Builds default to `<root>/build`, or `<root>/build-tests` for
 saves may live beside them.
 
 `acquire.ps1` downloads llvm-mingw 20260922 (Clang/lld 23.1.2, x64 UCRT), Ninja
-1.13.2, SDL3 3.4.18, glslang 16.6.0 and Vulkan headers 1.4.363 from their
+1.13.2, SDL3 3.4.18, an LGPL shared FFmpeg n9.0.2 build, glslang 16.6.0 and Vulkan headers 1.4.363 from their
 upstream release archives into `<root>/archives` and `<root>/deps`; no toolchain
 installer is run. It verifies every pinned archive against its recorded SHA-256
 before extraction. CMake also fetches nlohmann/json 3.12.0 and, with tests
@@ -120,6 +122,26 @@ scripts do not install validation layers.
 On a machine without a Vulkan loader (CI), `-VulkanLoader` also fetches
 LunarG's 1.4.363 loader. Pass it to `configure.ps1` with `-VulkanLibrary` and
 copy it beside the built executables, as the Windows job does.
+
+### Rust and FFmpeg
+
+`dcdata` links Kazarov's `kazarov_bridge` (Rust, with FFmpeg for the movies and
+texture baking), so the port graph needs both. `acquire.ps1` installs them under `<root>/deps`:
+
+- FFmpeg n9.0.2 from BtbN's `win64-lgpl-shared` build, verified by SHA-256. The script
+  rejects an archive whose `LICENSE.txt` is not the LGPL. `configure.ps1` passes it as
+  `-DKZ_FFMPEG_DIR`, and `build.ps1` copies its DLLs beside the executables.
+- `acquire-rust.ps1`: Rust 1.99.0 for `x86_64-pc-windows-gnullvm` (the version in
+  `tools/kazarov/rust-toolchain.toml`) from `static.rust-lang.org`, Corrosion 0.6.1, the
+  prebuilt `cxxbridge` 1.0.205 and the locked Cargo crates, in `<root>/deps/rust`. It
+  keeps its own `CARGO_HOME` there. `-SkipRustfmt` and `-SkipClippy` leave out those tools.
+  `configure.ps1` passes the compiler, `Rust_CARGO`, the target, `INSTALLED_CXXBRIDGE` and
+  `FETCHCONTENT_SOURCE_DIR_CORROSION`, and `build.ps1` puts the toolchain on `PATH`.
+
+No system Rust or `rustup` is used. On Linux and macOS the Kazarov image provides
+both (`/opt/kazarov/ffmpeg`); on macOS outside the container run
+`tools/kazarov/scripts/build/kz-ffmpeg --out .kazarov/ffmpeg/darwin-arm64` and install Rust 1.99.0 and
+`cxxbridge-cmd` 1.0.205 yourself (`docs/MACOS.md`).
 
 ### Linking
 
