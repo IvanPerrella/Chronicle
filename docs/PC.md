@@ -1982,6 +1982,8 @@ port/build/pc/dcdata list "rom/pal/Dark Cloud (PAL).iso"
 
 `pack` takes an existing extracted directory and writes a ZIP archive beside it by default; a second output path is optional. It stores files without compression so the port can read them on Switch without a decompression cost. The runtime also reads standard deflated ZIP entries. ZIP64, encrypted and multi-disk archives are unsupported. The game gives `data.zip` priority over loose files when both exist. Do not modify an archive while the game is running.
 
+Extraction runs the disc's asset classes side by side. `dcdata::ClassOf` sorts the files by extension into textures, models, audio, movies, scripts, packs and the rest; `dcdata::Extract` cuts each class into slices of about 32 MiB and hands them to a `JobRunner`. The `dcdata` tool passes Kazarov's shared scheduler (`kazarov::job_set_run`, the one `dc2data` runs its conversion jobs on), which starts the largest slice of each class first and stops at the first failure; without a runner, as in the first-run window and the host tests, `dcdata::RunOnThreads` interleaves the same slices on plain threads. `dcdata pack` checksums the files on all cores through `kazarov::pack_directory_stored`, which writes the same stored classic ZIP byte for byte.
+
 The source is a disc image, read through its ISO 9660 tree, or a directory
 that holds `DATA.DAT` and `DATA.HD2` (such as `rom/pal/extracted/iso`).
 `extract` writes every file `DATA.HD2` indexes to `<data>/<path>`, the path

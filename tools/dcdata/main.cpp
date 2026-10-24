@@ -1,3 +1,5 @@
+#include "kazarov/extract_job.hpp"
+#include "kazarov_bridge/rust/host_jobs.h"
 #include "kazarov_bridge/rust/lib.h"
 
 #include <algorithm>
@@ -22,6 +24,26 @@ namespace fs = std::filesystem;
 std::string Utf8Path(const fs::path &path) {
     const auto bytes = path.u8string();
     return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+}
+
+unsigned WorkerCount() {
+    return std::clamp(std::thread::hardware_concurrency(), 1u, 64u);
+}
+
+// Hands the asset classes to the extraction scheduler shared with the other Kazarov tools.
+void RunOnKazarov(std::vector<dcdata::ClassJob> jobs) {
+    rust::Box<kazarov::JobSet> set = kazarov::new_job_set();
+    for (dcdata::ClassJob &job : jobs) {
+        kazarov::job_set_add(*set, static_cast<std::uint8_t>(job.asset_class), job.label, job.work,
+                             kazarov::make_extract_job(std::move(job.run)));
+    }
+    kazarov::job_set_run(std::move(set), WorkerCount());
+}
+
+void Pack(const fs::path &source, const fs::path &output) {
+    const kazarov::PackReport report =
+        kazarov::pack_directory_stored(Utf8Path(source), Utf8Path(output), WorkerCount());
+    dcdata::Log(stdout, "packed {} files ({} bytes) into {}\n", report.files, report.bytes, output.string());
 }
 
 class TextureStage {
@@ -144,7 +166,7 @@ void MergeTextureAssets(const fs::path &stage, const fs::path &data) {
 
 void BakeTextures(const fs::path &raw, const fs::path &data) {
     TextureStage stage;
-    const unsigned jobs = std::clamp(std::thread::hardware_concurrency(), 1u, 64u);
+    const unsigned jobs = WorkerCount();
     const auto textures = kazarov::textures_convert_dc1(Utf8Path(raw), Utf8Path(stage.root), jobs);
     kazarov::textures_verify(Utf8Path(stage.root / "data" / "textures"));
     MergeTextureAssets(stage.root, data);
@@ -173,7 +195,7 @@ void WriteTextureMap(const fs::path &raw, const fs::path &mapping) {
         throw std::runtime_error("texture mapping output already exists: " + mapping.string());
     }
     TextureStage stage;
-    const unsigned jobs = std::clamp(std::thread::hardware_concurrency(), 1u, 64u);
+    const unsigned jobs = WorkerCount();
     const rust::String rust_contents =
         kazarov::textures_document_map_dc1(Utf8Path(raw), Utf8Path(stage.root), jobs);
     const std::string contents = static_cast<std::string>(rust_contents);
@@ -211,7 +233,7 @@ int List(const std::filesystem::path &source) {
 int ExtractRaw(const std::filesystem::path &source, const std::filesystem::path &out) {
     dcdata::Archive archive = dcdata::OpenArchive(source);
     Describe(archive);
-    dcdata::Summary summary = dcdata::Extract(archive, out, stdout);
+    dcdata::Summary summary = dcdata::Extract(archive, out, stdout, {}, RunOnKazarov);
 
     std::vector<unsigned char>          hd2 = dcdata::ReadExtent(archive.hd2);
     std::vector<dcdata::Record>         records = dcdata::ParseIndex(hd2);
@@ -267,7 +289,7 @@ int main(int argc, char **argv) {
             const std::filesystem::path source = argv[2];
             const std::filesystem::path output = argc == 4 ? std::filesystem::path(argv[3])
                                                             : source.parent_path() / "data.zip";
-            dcdata::PackDirectory(source, output);
+            Pack(source, output);
             return 0;
         }
         return Usage();
