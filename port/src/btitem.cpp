@@ -77,8 +77,6 @@ std::pair<std::string, std::string> ItemPaths(int item_no) {
         model_path += prefixes[chara];
         if (offset < 10) {
             model_path += '0';
-        } else if (offset < 100) {
-            model_path += ' ';
         }
         model_path += std::to_string(offset);
     } else {
