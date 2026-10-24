@@ -43,6 +43,11 @@ jobs:
             mesa-vulkan-drivers vulkan-validationlayers libsdl3-dev libvulkan-dev libgtest-dev nlohmann-json3-dev
           # ld.lld and llvm-readobj under their plain names.
           echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
+          # dcdata links Kazarov's Rust bridge; FFmpeg uses Kazarov's pinned build configuration and cxxbridge-cmd is a
+          # prebuilt release asset.
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup default 1.99.0
+          tools/ci/prebuilt-deps.sh linux-x64
 
       # lavapipe takes seconds to start each renderer, and some of Kazarov's GfxGpu cases start several.
       - name: Configure
@@ -79,6 +84,9 @@ jobs:
         run: |
           brew install llvm lld cmake ninja python glslang sdl3 vulkan-headers vulkan-loader vulkan-tools molten-vk \
             googletest nlohmann-json
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup default 1.99.0
+          tools/ci/prebuilt-deps.sh macos-arm64
           # SDL loads the Vulkan loader by name, and dyld does not search Homebrew's prefix.
           echo "SDL_VULKAN_LIBRARY=$(brew --prefix vulkan-loader)/lib/libvulkan.1.dylib" >> "$GITHUB_ENV"
           echo "VK_DRIVER_FILES=$(brew --prefix)/etc/vulkan/icd.d/MoltenVK_icd.json" >> "$GITHUB_ENV"
@@ -184,6 +192,7 @@ jobs:
       - name: Package the Windows build
         run: |
           $files = @('darkcloud.exe', 'dcdata.exe', 'libc++.dll', 'libunwind.dll', 'libwinpthread-1.dll', 'SDL3.dll', 'vulkan-1.dll', 'lang', 'glyphs')
+          $files += Get-ChildItem 'port/build/windows' -Filter '*.dll' | Where-Object Name -Match '^(avcodec|avformat|avutil|swresample|swscale)-' | ForEach-Object Name
           $paths = $files | ForEach-Object { Join-Path 'port/build/windows' $_ }
           Compress-Archive -LiteralPath $paths -DestinationPath chronicle-windows-x64.zip
 
