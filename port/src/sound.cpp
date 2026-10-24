@@ -245,7 +245,7 @@ int LoadSequence(int slot, const std::uint8_t *data, int size) {
         std::printf("sound: more than %d sequences on slot %d\n", kSequencesPerSlot, slot);
         return -1;
     }
-    auto sequence = data != nullptr && size > 0 ? audio::SqFile::Create({data, static_cast<std::size_t>(size)}, {.short_note_off = true}) : nullptr;
+    auto sequence = data != nullptr && size > 0 ? audio::SqFile::Create({data, static_cast<std::size_t>(size)}) : nullptr;
     if (sequence == nullptr) {
         std::printf("sound: unreadable SQ sequence (%d bytes)\n", size);
     } else {
