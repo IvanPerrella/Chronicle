@@ -332,7 +332,8 @@ up; `mouse_invert_y` flips the latter.
 
 The actions are `up down left right cross circle square triangle l1 r1 l2
 r2 l3 r3 start select lx- lx+ ly- ly+ rx- rx+ ry- ry+ lx ly rx ry`, and the
-port's own `fps_toggle`, `developer_menu`, `debug_menu` and `gyro_hold`, which press no pad button. Keys are
+port's own `fps_toggle`, `developer_menu`, `debug_menu` and `gyro_hold`, which press no pad button. `walk` (Left Shift)
+is Kazarov's held keyboard walk. Kazarov's Dark Cloud 2 actions `mode_debug_menu` and `quick_loadout` are not read and have no Options row. Keys are
 SDL names (any case, `_` for a space; `Grave`, `Backquote` or `Backtick` for
 the key left of 1); `Mouse1` to `Mouse5` are left, right,
 middle and the two side buttons. The port's own actions also take

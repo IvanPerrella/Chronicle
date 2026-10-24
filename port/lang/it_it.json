@@ -245,6 +245,8 @@
     "options.input.bindings.triangle.label": "Triangolo",
     "options.input.bindings.up.help": "\"Su\"\nConferma, poi premi\nun tasto o pulsante\ndel mouse per\ncambiare comando.",
     "options.input.bindings.up.label": "Su",
+    "options.input.bindings.walk.help": "\"Cammina\"\nConferma, poi premi\nun tasto o pulsante\ndel mouse per\ncambiare comando.",
+    "options.input.bindings.walk.label": "Cammina",
     "options.page.bindings": "Comandi",
     "options.page.bindings.help": "\"Comandi\"\nFunzione dei tasti e\ndei pulsanti del mouse.",
     "options.video.anisotropy.choice.0": "No",

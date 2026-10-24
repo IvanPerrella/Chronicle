@@ -245,6 +245,8 @@
     "options.input.bindings.triangle.label": "Dreieck",
     "options.input.bindings.up.help": "\"Oben\"\nBestätigen, dann\neine Taste oder\nMaustaste zum\nNeubelegen drücken.",
     "options.input.bindings.up.label": "Oben",
+    "options.input.bindings.walk.help": "\"Gehen\"\nBestätigen, dann\neine Taste oder\nMaustaste zum\nNeubelegen drücken.",
+    "options.input.bindings.walk.label": "Gehen",
     "options.page.bindings": "Belegung",
     "options.page.bindings.help": "\"Belegung\"\nFunktionen der Tasten\nund Maustasten.",
     "options.video.anisotropy.choice.0": "Aus",

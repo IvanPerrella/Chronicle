@@ -245,6 +245,8 @@
     "options.input.bindings.triangle.label": "Triangle",
     "options.input.bindings.up.help": "\"Haut\"\nValidez, puis appuyez\nsur une touche ou un\nbouton de souris pour\nchanger la commande.",
     "options.input.bindings.up.label": "Haut",
+    "options.input.bindings.walk.help": "\"Marcher\"\nValidez, puis appuyez\nsur une touche ou un\nbouton de souris pour\nchanger la commande.",
+    "options.input.bindings.walk.label": "Marcher",
     "options.page.bindings": "Affectations",
     "options.page.bindings.help": "\"Affectations\"\nTouches et boutons\nde la souris.",
     "options.video.anisotropy.choice.0": "Désactivé",

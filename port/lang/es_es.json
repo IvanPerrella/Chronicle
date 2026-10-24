@@ -245,6 +245,8 @@
     "options.input.bindings.triangle.label": "Triángulo",
     "options.input.bindings.up.help": "\"Arriba\"\nConfirma y pulsa\nuna tecla o botón\ndel ratón para\ncambiar el control.",
     "options.input.bindings.up.label": "Arriba",
+    "options.input.bindings.walk.help": "\"Caminar\"\nConfirma y pulsa\nuna tecla o botón\ndel ratón para\ncambiar el control.",
+    "options.input.bindings.walk.label": "Caminar",
     "options.page.bindings": "Asignaciones",
     "options.page.bindings.help": "\"Asignaciones\"\nFunciones de teclas\ny botones del ratón.",
     "options.video.anisotropy.choice.0": "No",
