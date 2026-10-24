@@ -6,6 +6,8 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <tuple>
+#include <utility>
 #include <span>
 #include <vector>
 
@@ -118,12 +120,13 @@ void AddFace(Volume &volume, std::initializer_list<uint32_t> points, bool as_giv
          std::span<const uint32_t>(polygon.data(), points.size()));
 }
 
-// The triangle's prism down to its drop on the plane. A prism the light grazes has no inside and
-// counts nothing, which is also what the microprograms make of it.
-void AddPrism(Volume &volume, const Vec3 top[3], const Vec3 drop[3], const bool sides[3], Count far_cap) {
+// Whether the triangle's prism has an inside, and if so whether its top is wound against the drop
+// direction (down). A prism the light grazes has no inside and counts nothing, which is also what
+// the microprograms make of it.
+bool PrismThickness(const Vec3 top[3], const Vec3 drop[3], bool &down) {
     for (int i = 0; i < 3; i++) {
         if (!Finite(top[i]) || !Finite(drop[i])) {
-            return;
+            return false;
         }
     }
     Vec3  normal = Cross(top[1] - top[0], top[2] - top[0]);
@@ -135,14 +138,23 @@ void AddPrism(Volume &volume, const Vec3 top[3], const Vec3 drop[3], const bool 
     float thickness = Dot(normal, height);
     if (!std::isfinite(area) || !std::isfinite(span) || area == 0.0f || span == 0.0f ||
         !std::isfinite(thickness) || std::fabs(thickness) <= 1e-4f * area * span) {
-        return;
+        return false;
     }
     // Every face's outward winding follows from the one sign of the prism's thickness: a triangle
     // extruded against its normal keeps its own winding on top, and each side runs down its edge.
     // A test per face, of the side the prism's centre lies on, is not used: for a prism the light
     // nearly grazes the centre lies almost on the long sides, float error turns one inwards, and it
     // counts with the wrong sign, a streak from the triangle to the ground (#87).
-    bool down = thickness < 0.0f;
+    down = thickness < 0.0f;
+    return true;
+}
+
+// The triangle's prism down to its drop on the plane.
+void AddPrism(Volume &volume, const Vec3 top[3], const Vec3 drop[3], const bool sides[3], Count far_cap) {
+    bool down;
+    if (!PrismThickness(top, drop, down)) {
+        return;
+    }
     uint32_t first = static_cast<uint32_t>(volume.vertices.size());
     for (int i = 0; i < 3; i++) {
         AddVertex(volume, top[i]);
@@ -283,6 +295,122 @@ float NearPlane(const Projection &projection) {
     return a < 1.0f ? b / (1.0f - a) : 0.0f;
 }
 
+void ClearVolume(Volume &volume) {
+    volume.vertices.clear();
+    volume.both.clear();
+    volume.away.clear();
+    volume.cap.clear();
+}
+
+uint32_t PositionBits(float value) {
+    value += 0.0f;
+    uint32_t bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+// For each triangle of a position list and each of its edges, the one other triangle that has the
+// same two corner positions, as triangle * 4 + its edge, or -1 when none or several do.
+void FindEdgeNeighbours(const std::vector<gfx::Vertex3D> &vertices, std::vector<std::array<int32_t, 3>> &out) {
+    using Key = std::array<uint32_t, 3>;
+    const size_t                          corners = vertices.size() / 3 * 3;
+    std::vector<std::pair<Key, uint32_t>> positions;
+    positions.reserve(corners);
+    for (size_t i = 0; i < corners; i++) {
+        const float *p = vertices[i].position;
+        positions.push_back({Key{PositionBits(p[0]), PositionBits(p[1]), PositionBits(p[2])},
+                             static_cast<uint32_t>(i)});
+    }
+    std::sort(positions.begin(), positions.end());
+    std::vector<uint32_t> id(corners);
+    uint32_t              next_id = 0;
+    for (size_t i = 0; i < corners; i++) {
+        if (i != 0 && positions[i].first != positions[i - 1].first) {
+            next_id++;
+        }
+        id[positions[i].second] = next_id;
+    }
+
+    struct EdgeRef {
+        uint64_t key;
+        uint32_t triangle;
+        uint32_t edge;
+        bool     operator<(const EdgeRef &other) const {
+            return std::tie(key, triangle, edge) < std::tie(other.key, other.triangle, other.edge);
+        }
+    };
+    std::vector<EdgeRef> edges;
+    edges.reserve(corners);
+    out.assign(corners / 3, std::array<int32_t, 3>{-1, -1, -1});
+    for (size_t triangle = 0; triangle < corners / 3; triangle++) {
+        for (uint32_t edge = 0; edge < 3; edge++) {
+            uint32_t a = id[triangle * 3 + edge];
+            uint32_t b = id[triangle * 3 + (edge + 1) % 3];
+            if (a != b) {
+                edges.push_back({(static_cast<uint64_t>(std::min(a, b)) << 32) | std::max(a, b),
+                                 static_cast<uint32_t>(triangle), edge});
+            }
+        }
+    }
+    std::sort(edges.begin(), edges.end());
+    for (size_t first = 0; first < edges.size();) {
+        size_t last = first + 1;
+        while (last < edges.size() && edges[last].key == edges[first].key) {
+            last++;
+        }
+        if (last - first == 2 && edges[first].triangle != edges[last - 1].triangle) {
+            const EdgeRef &a = edges[first];
+            const EdgeRef &b = edges[last - 1];
+            out[a.triangle][a.edge] = static_cast<int32_t>(b.triangle * 4 + b.edge);
+            out[b.triangle][b.edge] = static_cast<int32_t>(a.triangle * 4 + a.edge);
+        }
+        first = last;
+    }
+}
+
+struct Prism {
+    Vec3 top[3];
+    Vec3 drop[3];
+    bool selected;
+    bool solid;
+};
+
+// Whether the side of prism a across its edge (corner edge to edge + 1) is cancelled by the
+// neighbour's: both prisms lie on opposite sides of the plane through the edge and the drop
+// direction, so they share that quad with opposite outward windings and the adding and subtracting
+// passes count it out. Anything less certain keeps the side.
+bool SideCancelled(const Prism &a, const Prism &b, int edge) {
+    int   next = (edge + 1) % 3;
+    Vec3  base = a.top[edge];
+    Vec3  normal = Cross(a.top[next] - base, a.drop[edge] - base);
+    Vec3  far_corner = a.drop[next] - base;
+    float scale = Length(normal);
+    if (!std::isfinite(scale) || scale == 0.0f ||
+        std::fabs(Dot(normal, far_corner)) > 1e-5f * scale * Length(far_corner)) {
+        return false;
+    }
+    // The side of the plane a prism lies on, from its corners off the shared edge; 0 if unclear.
+    auto side = [&](const Prism &prism) {
+        float result = 0.0f;
+        for (const Vec3 *corners : {prism.top, prism.drop}) {
+            for (int i = 0; i < 3; i++) {
+                Vec3  offset = corners[i] - base;
+                float distance = Dot(normal, offset);
+                if (std::fabs(distance) > 1e-5f * scale * Length(offset)) {
+                    if (result != 0.0f && (distance < 0.0f) != (result < 0.0f)) {
+                        return 0.0f;
+                    }
+                    result = distance;
+                }
+            }
+        }
+        return result;
+    };
+    float side_a = side(a);
+    float side_b = side(b);
+    return side_a != 0.0f && side_b != 0.0f && (side_a < 0.0f) != (side_b < 0.0f);
+}
+
 void DrawCount(const Volume &volume, const Projection &projection, const RenderInfo &info, bool add) {
     // DrawMeshImmediate copies recorded vertices and indices, so the pass list can be reused.
     static thread_local std::vector<uint32_t> indices;
@@ -362,6 +490,7 @@ PORT_OVERRIDE int CVisualShadow::CreateVUdataShadow(u_int *block, u_int *model_d
             }
         }
     }
+    FindEdgeNeighbours(visual.vertices, visual.shadow_neighbours);
     return vu_size;
 }
 
@@ -465,23 +594,52 @@ PORT_OVERRIDE int CVisualShadow::DrawVu1(u_int *packet, float (*matrix)[4], Rend
     if (visual == nullptr) {
         return 0;
     }
-    bool   away_only = Draw3DCurrentShadowProgram() == Draw3DShadowProgram::AwayFromLight;
-    bool   sides[3] = {true, true, true};
-    Volume volume;
-    volume.both.reserve((visual->vertices.size() / 3) * 24);
-    for (size_t first = 0; first + 3 <= visual->vertices.size(); first += 3) {
-        Vec3 local[3];
+    bool away_only = Draw3DCurrentShadowProgram() == Draw3DShadowProgram::AwayFromLight;
+    // Every selected triangle's prism is built first; each side is then left out where the
+    // neighbouring triangle's prism lies across it and has the same quad with the opposite winding.
+    static thread_local std::vector<Prism> prisms;
+    static thread_local Volume             volume;
+    const size_t                           triangles = visual->vertices.size() / 3;
+    const bool                             linked = visual->shadow_neighbours.size() == triangles;
+    prisms.resize(triangles);
+    for (size_t triangle = 0; triangle < triangles; triangle++) {
+        Prism &prism = prisms[triangle];
+        Vec3   local[3];
         for (int i = 0; i < 3; i++) {
-            const float *p = visual->vertices[first + i].position;
+            const float *p = visual->vertices[triangle * 3 + i].position;
             local[i] = {p[0], p[1], p[2]};
         }
-        if (away_only && !FacesAwayFromLight(projection, local)) {
+        prism.selected = !away_only || FacesAwayFromLight(projection, local);
+        prism.solid = false;
+        if (prism.selected) {
+            Corners(projection, local, prism.top, prism.drop);
+            bool down;
+            prism.solid = PrismThickness(prism.top, prism.drop, down);
+        }
+    }
+    ClearVolume(volume);
+    volume.both.reserve(triangles * 24);
+    for (size_t triangle = 0; triangle < triangles; triangle++) {
+        const Prism &prism = prisms[triangle];
+        if (!prism.solid) {
             continue;
         }
-        Vec3 top[3];
-        Vec3 drop[3];
-        Corners(projection, local, top, drop);
-        AddPrism(volume, top, drop, sides, Count::Both);
+        bool sides[3] = {true, true, true};
+        for (int edge = 0; linked && edge < 3; edge++) {
+            int32_t link = visual->shadow_neighbours[triangle][edge];
+            if (link < 0) {
+                continue;
+            }
+            size_t other = static_cast<size_t>(link / 4);
+            if (!prisms[other].solid) {
+                continue;
+            }
+            // Both triangles of a pair take the lower one's verdict, so a marginal quad is never
+            // kept by one and dropped by the other.
+            sides[edge] = triangle < other ? !SideCancelled(prism, prisms[other], edge)
+                                           : !SideCancelled(prisms[other], prism, link % 4);
+        }
+        AddPrism(volume, prism.top, prism.drop, sides, Count::Both);
     }
     DrawVolume(volume, projection, *info);
     return 0;

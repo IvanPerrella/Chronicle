@@ -1065,8 +1065,11 @@ share small internal headers:
   into meshes keyed by the game's vu_data block (the record dies with the
   block), `DrawVu1` submitting meshes with the constants the VU1 header
   carried (matrices, four lights, ambient, material, fog), shadow volumes
-  extruded to the shadow plane and counted into `shadow_buf` against the
-  scene's depth, then composited, cloth rebuilt per draw, water sampling the
+  extruded to the shadow plane and counted into the main target's stencil
+  against the scene's depth (retail's `shadow_buf` colour count, saturating
+  alike), then composited by a full-frame quad where the stencil is non-zero;
+  a side shared with an opposite-side neighbour is not emitted, as the pair
+  would cancel in the count; cloth rebuilt per draw, water sampling the
   last frame copy. The assembly functions (`MulMatrix`, `MotionProc2`,
   `CCloth::Step`, the shadow CLIP builder and the rest) are C++ with the
   lanes retail writes.

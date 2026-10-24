@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -154,6 +155,9 @@ struct Draw3DVisual {
     std::vector<Draw3DStripRun> strip_runs;
     std::vector<gfx::Vertex3D>  vertices;
     std::vector<uint32_t>       indices; // kept only for immediate (per-frame) visuals
+    // A shadow mesh's triangles' neighbours across each edge (corner i to i + 1): the one other
+    // triangle sharing it, as triangle * 4 + its edge, else -1.
+    std::vector<std::array<int32_t, 3>> shadow_neighbours;
     bool                        vertex_colour = false;
     bool                        immediate = false;
     bool                        cache_strip_runs_on_finish = false; /**< Model builders opt in before finalization. */
