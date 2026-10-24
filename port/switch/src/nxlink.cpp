@@ -5,10 +5,14 @@
 
 #include <arpa/inet.h>
 #include <switch.h>
+#include <sys/iosupport.h>
+#include <sys/reent.h>
 #include <unistd.h>
 
 #include <cstdio>
+#include <string_view>
 
+#include "switch_main.hpp"
 #include "switch_memory.hpp"
 
 namespace {
@@ -24,6 +28,34 @@ void LogToFile() {
     std::setvbuf(stderr, nullptr, _IONBF, 0);
 }
 } // namespace
+
+void SwitchDisplaySize(int &width, int &height) {
+    const bool handheld = appletGetOperationMode() == AppletOperationMode_Handheld;
+    width = handheld ? 1280 : 1920;
+    height = handheld ? 720 : 1080;
+}
+
+void SwitchShowMissingData() {
+    consoleInit(nullptr);
+    constexpr std::string_view message =
+        "Missing game data. Place data.zip in the switch/chronicle/ folder in your SD card.\n"
+        "Press + to exit.\n";
+    // stdout may already point to the log file or nxlink socket.
+    devoptab_list[STD_OUT]->write_r(_REENT, nullptr, message.data(), message.size());
+    consoleUpdate(nullptr);
+
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    PadState pad;
+    padInitializeDefault(&pad);
+    while (appletMainLoop()) {
+        padUpdate(&pad);
+        if ((padGetButtonsDown(&pad) & HidNpadButton_Plus) != 0) {
+            break;
+        }
+        consoleUpdate(nullptr);
+    }
+    consoleExit(nullptr);
+}
 
 extern "C" void userAppInit() {
     if (__nxlink_host.s_addr != 0 && R_SUCCEEDED(socketInitializeDefault())) {

@@ -6,7 +6,6 @@
 #include <array>
 #include <cmath>
 #include <cstring>
-#include <numeric>
 #include <span>
 #include <vector>
 
@@ -85,36 +84,38 @@ enum class Count {
 
 // Triangles wound outwards (counter-clockwise on the target when turned towards the eye).
 struct Volume {
-    // Count::Both faces, drawn by both passes.
-    std::vector<gfx::Vertex3D> both;
-    // Count::AwayOnly faces, drawn by the subtracting pass.
-    std::vector<gfx::Vertex3D> away;
-    // Near-plane sections, turned towards the eye and drawn by the adding pass.
-    std::vector<gfx::Vertex3D> cap;
+    std::vector<gfx::Vertex3D> vertices;
+    // Index lists retain face order while sharing each prism's six corners.
+    std::vector<uint32_t> both;
+    std::vector<uint32_t> away;
+    std::vector<uint32_t> cap;
 };
 
-void Emit(std::vector<gfx::Vertex3D> &out, std::span<const Vec3> polygon) {
+uint32_t AddVertex(Volume &volume, Vec3 corner) {
+    gfx::Vertex3D vertex = {};
+    vertex.position[0] = corner.x;
+    vertex.position[1] = corner.y;
+    vertex.position[2] = corner.z;
+    vertex.color[0] = vertex.color[1] = vertex.color[2] = vertex.color[3] = 0x80;
+    volume.vertices.push_back(vertex);
+    return static_cast<uint32_t>(volume.vertices.size() - 1);
+}
+
+void Emit(std::vector<uint32_t> &out, std::span<const uint32_t> polygon) {
     for (size_t i = 1; i + 1 < polygon.size(); i++) {
-        for (Vec3 corner : {polygon[0], polygon[i], polygon[i + 1]}) {
-            gfx::Vertex3D vertex = {};
-            vertex.position[0] = corner.x;
-            vertex.position[1] = corner.y;
-            vertex.position[2] = corner.z;
-            vertex.color[0] = vertex.color[1] = vertex.color[2] = vertex.color[3] = 0x80;
-            out.push_back(vertex);
-        }
+        out.insert(out.end(), {polygon[0], polygon[i], polygon[i + 1]});
     }
 }
 
 // A face of a prism, wound outwards when as_given (else reversed).
-void AddFace(Volume &volume, std::initializer_list<Vec3> points, bool as_given, Count count) {
-    std::array<Vec3, 4> polygon{};
+void AddFace(Volume &volume, std::initializer_list<uint32_t> points, bool as_given, Count count) {
+    std::array<uint32_t, 4> polygon{};
     std::copy(points.begin(), points.end(), polygon.begin());
     if (!as_given) {
         std::reverse(polygon.begin(), polygon.begin() + points.size());
     }
     Emit(count == Count::Both ? volume.both : volume.away,
-         std::span<const Vec3>(polygon.data(), points.size()));
+         std::span<const uint32_t>(polygon.data(), points.size()));
 }
 
 // The triangle's prism down to its drop on the plane. A prism the light grazes has no inside and
@@ -142,12 +143,21 @@ void AddPrism(Volume &volume, const Vec3 top[3], const Vec3 drop[3], const bool 
     // nearly grazes the centre lies almost on the long sides, float error turns one inwards, and it
     // counts with the wrong sign, a streak from the triangle to the ground (#87).
     bool down = thickness < 0.0f;
-    AddFace(volume, {top[0], top[1], top[2]}, down, Count::Both);
-    AddFace(volume, {drop[0], drop[1], drop[2]}, !down, far_cap);
+    uint32_t first = static_cast<uint32_t>(volume.vertices.size());
+    for (int i = 0; i < 3; i++) {
+        AddVertex(volume, top[i]);
+    }
+    for (int i = 0; i < 3; i++) {
+        AddVertex(volume, drop[i]);
+    }
+    AddFace(volume, {first, first + 1, first + 2}, down, Count::Both);
+    AddFace(volume, {first + 3, first + 4, first + 5}, !down, far_cap);
     for (int edge = 0; edge < 3; edge++) {
         int next = (edge + 1) % 3;
         if (sides[edge]) {
-            AddFace(volume, {top[edge], drop[edge], drop[next], top[next]}, down, Count::Both);
+            AddFace(volume, {first + static_cast<uint32_t>(edge), first + 3 + static_cast<uint32_t>(edge),
+                             first + 3 + static_cast<uint32_t>(next), first + static_cast<uint32_t>(next)},
+                    down, Count::Both);
         }
     }
 }
@@ -205,7 +215,11 @@ void AddNearCap(Volume &volume, const Vec3 top[3], const Vec3 drop[3], float dep
     std::sort(section.begin(), section.begin() + section_count, [mean](Vec3 a, Vec3 b) {
         return std::atan2(a.y - mean.y, a.x - mean.x) > std::atan2(b.y - mean.y, b.x - mean.x);
     });
-    Emit(volume.cap, std::span<const Vec3>(section.data(), section_count));
+    std::array<uint32_t, 9> indices{};
+    for (size_t i = 0; i < section_count; i++) {
+        indices[i] = AddVertex(volume, section[i]);
+    }
+    Emit(volume.cap, std::span<const uint32_t>(indices.data(), section_count));
 }
 
 struct Projection {
@@ -269,16 +283,15 @@ float NearPlane(const Projection &projection) {
     return a < 1.0f ? b / (1.0f - a) : 0.0f;
 }
 
-void DrawCount(const std::vector<gfx::Vertex3D> &shared, const std::vector<gfx::Vertex3D> &own,
-               const Projection &projection, const RenderInfo &info, bool add) {
-    // DrawMeshImmediate copies recorded vertices and indices, so these buffers can be reused.
-    static thread_local std::vector<gfx::Vertex3D> faces;
-    static thread_local std::vector<uint32_t>      indices;
-    faces.clear();
-    faces.reserve(shared.size() + own.size());
-    faces.insert(faces.end(), shared.begin(), shared.end());
-    faces.insert(faces.end(), own.begin(), own.end());
-    if (faces.empty()) {
+void DrawCount(const Volume &volume, const Projection &projection, const RenderInfo &info, bool add) {
+    // DrawMeshImmediate copies recorded vertices and indices, so the pass list can be reused.
+    static thread_local std::vector<uint32_t> indices;
+    const std::vector<uint32_t> &own = add ? volume.cap : volume.away;
+    indices.clear();
+    indices.reserve(volume.both.size() + own.size());
+    indices.insert(indices.end(), volume.both.begin(), volume.both.end());
+    indices.insert(indices.end(), own.begin(), own.end());
+    if (indices.empty()) {
         return;
     }
     gfx::MeshConstants constants = {};
@@ -291,15 +304,13 @@ void DrawCount(const std::vector<gfx::Vertex3D> &shared, const std::vector<gfx::
     gfx::DrawState state = Draw3DState(info, false);
     state.cull = add ? gfx::CullMode::Back : gfx::CullMode::Front;
     state.alpha = add ? gfx::GsBlend{0, 2, 2, 1, 0x80} : gfx::GsBlend{2, 0, 2, 1, 0x80};
-    indices.resize(faces.size());
-    std::iota(indices.begin(), indices.end(), uint32_t{0});
-    gfx::DrawMeshImmediate(faces, indices, constants, {}, state,
+    gfx::DrawMeshImmediate(volume.vertices, indices, constants, {}, state,
                            projection.has_transform ? &projection.transform : nullptr);
 }
 
 void DrawVolume(const Volume &volume, const Projection &projection, const RenderInfo &info) {
-    DrawCount(volume.both, volume.cap, projection, info, true);
-    DrawCount(volume.both, volume.away, projection, info, false);
+    DrawCount(volume, projection, info, true);
+    DrawCount(volume, projection, info, false);
     // The GS is left with the subtracting pass's ALPHA.
     MGPortRegisters &current = MGPortCurrent();
     current.alpha.bits.a = 2;
@@ -406,9 +417,10 @@ PORT_OVERRIDE int CVisualShadow::CreateVUdataShadowCLIP(u_int *block, u_int *mod
     cap.first_index = away.first_index + away.index_count;
     cap.index_count = static_cast<uint32_t>(volume.cap.size());
     visual.strips = {both, away, cap};
-    visual.vertices = std::move(volume.both);
-    visual.vertices.insert(visual.vertices.end(), volume.away.begin(), volume.away.end());
-    visual.vertices.insert(visual.vertices.end(), volume.cap.begin(), volume.cap.end());
+    visual.vertices = std::move(volume.vertices);
+    visual.indices = std::move(volume.both);
+    visual.indices.insert(visual.indices.end(), volume.away.begin(), volume.away.end());
+    visual.indices.insert(visual.indices.end(), volume.cap.begin(), volume.cap.end());
     return vu_size;
 }
 
@@ -432,12 +444,14 @@ PORT_OVERRIDE int CVisualShadow::DrawVu1(u_int *packet, float (*matrix)[4], Rend
         ActiveData->Align64();
         ActiveData->Alloc(CreateVUdataShadowCLIP(reinterpret_cast<u_int *>(ActiveData->base + ActiveData->used * 16), data,
                                                  info, matrix));
-        if (const Draw3DVisual *visual = Draw3DFindVisual(vu_data); visual && visual->strips.size() == 3) {
+        if (const Draw3DVisual *visual = Draw3DFindVisual(vu_data);
+            visual && visual->strips.size() == 3 && !visual->indices.empty()) {
             Volume volume;
-            auto   begin = visual->vertices.begin();
+            volume.vertices = visual->vertices;
+            auto begin = visual->indices.begin();
             volume.both.assign(begin, begin + visual->strips[1].first_index);
             volume.away.assign(begin + visual->strips[1].first_index, begin + visual->strips[2].first_index);
-            volume.cap.assign(begin + visual->strips[2].first_index, visual->vertices.end());
+            volume.cap.assign(begin + visual->strips[2].first_index, visual->indices.end());
             DrawVolume(volume, projection, *info);
         }
         vu_data_buffer[0] = saved_primary;

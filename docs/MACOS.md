@@ -29,7 +29,10 @@ parallel jobs.
 
 ```sh
 port/build/macos-arm64-release/dcdata extract "rom/pal/Dark Cloud (PAL).iso" data
+port/build/macos-arm64-release/dcdata pack data
 ```
+
+`pack` writes `data.zip` beside `data/`. The game accepts the archive on its own and gives it priority when both are present.
 
 Without it, the first windowed start asks for the disc image and extracts it.
 File names on the disc that are not UTF-8 are written with `%xx` escapes, since

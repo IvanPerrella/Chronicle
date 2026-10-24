@@ -63,7 +63,10 @@ To extract by hand:
 
 ```powershell
 & "$root/port/build/windows-x64-release/dcdata.exe" extract "path/to/Dark Cloud (PAL).iso" "$root/data"
+& "$root/port/build/windows-x64-release/dcdata.exe" pack "$root/data"
 ```
+
+`pack` writes `$root/data.zip`, including the normalized copies and language list. The game accepts `data.zip` beside the logical `data` path without keeping loose files installed; the archive takes priority when both are present. `run.bat` still extracts into `port\run\data` for its automatic setup.
 
 Use only an owned PAL disc image, or a directory holding its `DATA.DAT` and
 `DATA.HD2`. Keep the image and extracted files outside git. Non-ASCII disc

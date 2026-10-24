@@ -18,7 +18,15 @@ if [ "$preset" != switch ]; then
 fi
 
 # Include every patch in the tag so editing one rebuilds the image.
-tag=$({ cat "$containerfile"; cat "$root"/port/switch/patches/*.patch; } | sha256sum | cut -c1-12)
+tag=$({
+    cat "$containerfile" "$root"/port/switch/build-mesa.sh \
+        "$root"/port/switch/bindgen-switch-wrapper.sh \
+        "$root"/port/switch/rustc-switch-wrapper.sh \
+        "$root"/port/switch/bindgen-atomic-shim.h \
+        "$root"/port/switch/switch_cross_file.txt \
+        "$root"/port/switch/switch_native_file.txt \
+        "$root"/port/switch/patches/*.patch
+} | sha256sum | cut -c1-12)
 image=$name:$tag
 if ! "$builder" image inspect "$image" > /dev/null 2>&1; then
     echo "switch: building $image (the first build takes a while)" >&2
@@ -39,10 +47,10 @@ if [ "${1:-}" = shell ]; then
     shift
     exec "${run[@]}" bash "$@"
 fi
-exec "${run[@]}" bash -c '
+"${run[@]}" bash -c '
 set -euo pipefail
 if [ -n "$CLEAN" ] && [ "$CLEAN" != 0 ]; then
-    rm -rf port/build/switch
+    rm -rf "port/build/$PRESET"
 fi
 cmake --preset "$PRESET" > /dev/null
 build_args=()
@@ -51,3 +59,5 @@ if [ -n "$JOBS" ]; then
 fi
 exec cmake --build --preset "$PRESET" "${build_args[@]}" "$@"
 ' build "$@"
+
+echo "switch: NVK compiles shaders at startup and saves a cache for later launches" >&2

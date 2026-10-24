@@ -1,6 +1,8 @@
 #include "texture.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -9,10 +11,14 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "caption_text.hpp"
 #include "dataalloc.hpp"
+#include "dataread_port.hpp"
 #include "localize_texture.hpp"
 #include "mglib.hpp"
 #include "texture_port.hpp"
@@ -20,7 +26,98 @@
 
 namespace {
 
-constexpr int kPsmT8H = 27;
+std::string Sha256Hex(std::string_view input) {
+    constexpr std::array<std::uint32_t, 64> kRound = {
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    };
+    std::array<std::uint32_t, 8> state = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                                           0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    const auto rotate = [](std::uint32_t value, unsigned amount) {
+        return (value >> amount) | (value << (32 - amount));
+    };
+    std::vector<std::uint8_t> bytes(input.begin(), input.end());
+    const std::uint64_t bit_length = static_cast<std::uint64_t>(bytes.size()) * 8;
+    bytes.push_back(0x80);
+    while (bytes.size() % 64 != 56) {
+        bytes.push_back(0);
+    }
+    for (int shift = 56; shift >= 0; shift -= 8) {
+        bytes.push_back(static_cast<std::uint8_t>(bit_length >> shift));
+    }
+    for (std::size_t block = 0; block < bytes.size(); block += 64) {
+        std::array<std::uint32_t, 64> words{};
+        for (unsigned index = 0; index < 16; index++) {
+            const std::size_t at = block + index * 4;
+            words[index] = (static_cast<std::uint32_t>(bytes[at]) << 24) |
+                           (static_cast<std::uint32_t>(bytes[at + 1]) << 16) |
+                           (static_cast<std::uint32_t>(bytes[at + 2]) << 8) | bytes[at + 3];
+        }
+        for (unsigned index = 16; index < 64; index++) {
+            const std::uint32_t s0 = rotate(words[index - 15], 7) ^ rotate(words[index - 15], 18) ^
+                                     (words[index - 15] >> 3);
+            const std::uint32_t s1 = rotate(words[index - 2], 17) ^ rotate(words[index - 2], 19) ^
+                                     (words[index - 2] >> 10);
+            words[index] = words[index - 16] + s0 + words[index - 7] + s1;
+        }
+        std::uint32_t a = state[0], b = state[1], c = state[2], d = state[3];
+        std::uint32_t e = state[4], f = state[5], g = state[6], h = state[7];
+        for (unsigned index = 0; index < 64; index++) {
+            const std::uint32_t s1 = rotate(e, 6) ^ rotate(e, 11) ^ rotate(e, 25);
+            const std::uint32_t choose = (e & f) ^ (~e & g);
+            const std::uint32_t temp1 = h + s1 + choose + kRound[index] + words[index];
+            const std::uint32_t s0 = rotate(a, 2) ^ rotate(a, 13) ^ rotate(a, 22);
+            const std::uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
+            const std::uint32_t temp2 = s0 + majority;
+            h = g;
+            g = f;
+            f = e;
+            e = d + temp1;
+            d = c;
+            c = b;
+            b = a;
+            a = temp1 + temp2;
+        }
+        state[0] += a;
+        state[1] += b;
+        state[2] += c;
+        state[3] += d;
+        state[4] += e;
+        state[5] += f;
+        state[6] += g;
+        state[7] += h;
+    }
+    constexpr char kHex[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(64);
+    for (std::uint32_t word : state) {
+        for (int shift = 28; shift >= 0; shift -= 4) {
+            result.push_back(kHex[(word >> shift) & 0xF]);
+        }
+    }
+    return result;
+}
+
+std::string Dc1SourceTag(std::string_view alias) {
+    std::uint64_t hash = 0xcbf29ce484222325ULL;
+    for (unsigned char byte : alias) {
+        hash ^= byte;
+        hash *= 0x100000001b3ULL;
+    }
+    constexpr char kHex[] = "0123456789abcdef";
+    std::string result(16, '0');
+    for (int index = 15; index >= 0; index--) {
+        result[static_cast<std::size_t>(index)] = kHex[hash & 0xF];
+        hash >>= 4;
+    }
+    return result;
+}
 
 enum class EnterMode {
     Block,
@@ -62,8 +159,393 @@ int ImageBytes(int width, int height, int bpp) {
     return bpp == 0 ? width * height / 2 : width * height * bpp;
 }
 
+bool TextureSourceExtension(std::string_view extension) {
+    if (extension == "img" || extension == "tm2" || extension == "im2" || extension == "im3" ||
+        extension == "tim2") {
+        return true;
+    }
+    for (std::string_view base : {"img", "tm2"}) {
+        if (extension.starts_with(base) && extension.size() > base.size() &&
+            extension.substr(base.size()).find_first_not_of('_') == std::string_view::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string SafeTextureComponent(std::string_view component) {
+    if (component == "." || component == "..") {
+        std::string escaped;
+        for (std::size_t index = 0; index < component.size(); index++) {
+            escaped += "%2E";
+        }
+        return escaped;
+    }
+    constexpr char hex[] = "0123456789ABCDEF";
+    std::string result;
+    for (unsigned char byte : component) {
+        if ((byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') ||
+            (byte >= '0' && byte <= '9') || byte == '.' || byte == '_' || byte == '-') {
+            result.push_back(static_cast<char>(byte));
+        } else {
+            result.push_back('%');
+            result.push_back(hex[byte >> 4]);
+            result.push_back(hex[byte & 0xF]);
+        }
+    }
+    return result;
+}
+
+std::string LegacyTextureDocument(std::string_view key) {
+    std::vector<std::string> raw;
+    for (size_t start = 0; start < key.size();) {
+        const size_t end = key.find('/', start);
+        const size_t stop = end == std::string_view::npos ? key.size() : end;
+        if (stop > start) {
+            raw.emplace_back(key.substr(start, stop - start));
+        }
+        if (end == std::string_view::npos) {
+            break;
+        }
+        start = end + 1;
+    }
+    for (size_t index = 0; index < raw.size();) {
+        const size_t offset = raw[index].find("#offset:");
+        if (offset != std::string::npos) {
+            const std::string name = raw[index].substr(0, offset);
+            const std::string value = raw[index].substr(offset + 8);
+            raw[index] = name;
+            raw.insert(raw.begin() + static_cast<std::ptrdiff_t>(index + 1), "embedded-offset-" + value + ".json");
+            continue;
+        }
+        const size_t entry = raw[index].find("#entry:");
+        if (entry != std::string::npos) {
+            const std::string name = raw[index].substr(0, entry);
+            const std::string ordinal = raw[index].substr(entry + 7);
+            const size_t dot = name.rfind('.');
+            raw[index] = (dot == std::string::npos ? name : name.substr(0, dot)) + "-entry-" + ordinal + ".json";
+        }
+        index++;
+    }
+    if (raw.empty()) {
+        return {};
+    }
+    std::vector<std::string> parts;
+    parts.reserve(raw.size() + 1);
+    for (size_t index = 0; index < raw.size(); index++) {
+        std::string part = SafeTextureComponent(raw[index]);
+        if (index + 1 < raw.size()) {
+            if (part.size() >= 4 && part.substr(part.size() - 4) == ".img") {
+                part.resize(part.size() - 4);
+                part += "-img";
+            }
+        } else {
+            std::string lower = part;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            if (lower.ends_with(".tm2") || lower.ends_with(".img")) {
+                part.resize(part.size() - 4);
+                part += ".json";
+            } else if (!lower.ends_with(".json")) {
+                parts.push_back(std::move(part));
+                parts.push_back("embedded.json");
+                continue;
+            }
+        }
+        parts.push_back(std::move(part));
+    }
+    std::string result;
+    for (const std::string &part : parts) {
+        if (!result.empty()) {
+            result.push_back('/');
+        }
+        result += part;
+    }
+    return result;
+}
+
+std::string Dc1TextureDocument(std::string_view alias) {
+    const size_t slash = alias.rfind('/');
+    const std::string_view leaf = alias.substr(slash == std::string_view::npos ? 0 : slash + 1);
+    const size_t marker = leaf.find('#');
+    const std::string_view source_name = leaf.substr(0, marker);
+    const size_t dot = source_name.rfind('.');
+    std::string extension = dot == std::string_view::npos ? std::string{} : std::string(source_name.substr(dot + 1));
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    std::string path;
+    if (!TextureSourceExtension(extension)) {
+        path = LegacyTextureDocument(alias);
+    } else {
+        std::string projected(alias);
+        if (extension != "img" && extension != "tm2") {
+            const size_t alias_marker = projected.find('#');
+            const size_t source_end = alias_marker == std::string::npos ? projected.size() : alias_marker;
+            const size_t source_dot = projected.rfind('.', source_end);
+            if (source_dot == std::string::npos) {
+                return {};
+            }
+            projected.replace(source_dot, source_end - source_dot, ".img");
+        }
+        path = LegacyTextureDocument(projected);
+        if (path.size() < 5 || path.substr(path.size() - 5) != ".json") {
+            return {};
+        }
+        path.resize(path.size() - 5);
+        path += "_" + extension + ".json";
+    }
+
+    std::vector<std::string> raw;
+    for (size_t start = 0; start < alias.size();) {
+        const size_t end = alias.find('/', start);
+        const size_t stop = end == std::string_view::npos ? alias.size() : end;
+        if (stop > start) {
+            raw.emplace_back(alias.substr(start, stop - start));
+        }
+        if (end == std::string_view::npos) {
+            break;
+        }
+        start = end + 1;
+    }
+    std::vector<std::string> folders;
+    std::optional<std::string> character;
+    bool has_container = false;
+    for (size_t index = 0; index < raw.size(); index++) {
+        const std::string_view component(raw[index]);
+        const size_t mark = component.find('#');
+        const std::string base(component.substr(0, mark));
+        const size_t base_dot = base.rfind('.');
+        if (index + 1 < raw.size() && base_dot != std::string::npos) {
+            has_container = true;
+        }
+        if (base == "." || base == "..") {
+            folders.push_back(SafeTextureComponent(base));
+        } else if (base_dot != std::string::npos) {
+            std::string suffix = base.substr(base_dot + 1);
+            std::transform(suffix.begin(), suffix.end(), suffix.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            if (suffix == "chr" || suffix == "chr_") {
+                character = SafeTextureComponent(base);
+            }
+        } else if (base != "." && base != ".." && index + 1 < raw.size()) {
+            folders.push_back(SafeTextureComponent(base));
+        }
+    }
+    const size_t path_slash = path.rfind('/');
+    std::string leaf_path = path.substr(path_slash == std::string::npos ? 0 : path_slash + 1);
+    if (character) {
+        std::string owner = *character;
+        const bool underscore = owner.size() >= 5 && owner.substr(owner.size() - 5) == ".chr_";
+        owner.resize(owner.size() - (underscore ? 5 : 4));
+        leaf_path = owner + (underscore ? "_" : "") + "-" + leaf_path;
+    }
+    if (has_container && leaf_path.ends_with(".json")) {
+        leaf_path.insert(leaf_path.size() - 5, "-" + Dc1SourceTag(alias));
+    }
+    std::string result = "textures";
+    for (const std::string &folder : folders) {
+        result += "/" + folder;
+    }
+    result += "/" + leaf_path;
+    if (result.size() > 160) {
+        return "textures/long-path-" + Sha256Hex(alias).substr(0, 24) + ".json";
+    }
+    return result;
+}
+
+uint16_t ReadLe16(const std::uint8_t *bytes) {
+    return static_cast<uint16_t>(bytes[0] | (static_cast<uint16_t>(bytes[1]) << 8));
+}
+
+uint32_t ReadLe32(const std::uint8_t *bytes) {
+    return static_cast<uint32_t>(bytes[0]) | (static_cast<uint32_t>(bytes[1]) << 8) |
+           (static_cast<uint32_t>(bytes[2]) << 16) | (static_cast<uint32_t>(bytes[3]) << 24);
+}
+
+std::optional<std::size_t> EmbeddedTextureOffset(const std::vector<std::uint8_t> &bytes, std::size_t container_start,
+                                                 std::size_t container_size, std::size_t image_offset) {
+    if (container_start > bytes.size() || container_size > bytes.size() - container_start ||
+        image_offset < container_start || image_offset - container_start >= container_size) {
+        return std::nullopt;
+    }
+    const std::size_t container_end = container_start + container_size;
+    std::optional<std::size_t> result;
+    auto record = [&](std::size_t offset) {
+        if (result && *result != offset) {
+            result = std::numeric_limits<std::size_t>::max();
+        } else {
+            result = offset;
+        }
+    };
+    for (std::size_t at = container_start; at + 16 <= container_end; at++) {
+        if (std::memcmp(bytes.data() + at, "IMG\0", 4) == 0) {
+            const uint32_t count = ReadLe32(bytes.data() + at + 4);
+            if (count == 0 || count > 256 || static_cast<std::size_t>(count) > (container_end - at - 16) / 48) {
+                continue;
+            }
+            for (uint32_t entry = 0; entry < count; entry++) {
+                const std::size_t table_entry = at + 16 + static_cast<std::size_t>(entry) * 48;
+                const uint32_t head_offset = ReadLe32(bytes.data() + table_entry + 32);
+                if (head_offset > container_end - at || head_offset + 32 > container_end - at) {
+                    continue;
+                }
+                const std::size_t picture = at + head_offset + 16;
+                const uint16_t header_size = ReadLe16(bytes.data() + picture + 12);
+                if (header_size < 0x30 || header_size > container_end - picture ||
+                    picture + header_size != image_offset) {
+                    continue;
+                }
+                record(at - container_start);
+            }
+        }
+        if (std::memcmp(bytes.data() + at, "TIM2", 4) != 0 || at + 16 > container_end) {
+            continue;
+        }
+        const uint16_t count = ReadLe16(bytes.data() + at + 6);
+        if (count == 0 || count > 256) {
+            continue;
+        }
+        std::size_t picture = at + (bytes[at + 5] != 0 ? 0x80 : 16);
+        for (uint16_t index = 0; index < count && picture + 0x30 <= container_end; index++) {
+            const uint32_t total = ReadLe32(bytes.data() + picture);
+            const uint32_t clut_size = ReadLe32(bytes.data() + picture + 4);
+            const uint32_t image_size = ReadLe32(bytes.data() + picture + 8);
+            const uint16_t header_size = ReadLe16(bytes.data() + picture + 12);
+            if (header_size < 0x30 || header_size > container_end - picture ||
+                image_size > container_end - picture - header_size || picture + header_size != image_offset) {
+                if (header_size >= 0x30 && header_size <= container_end - picture &&
+                    image_size <= container_end - picture - header_size) {
+                    picture += header_size + image_size + clut_size;
+                    continue;
+                }
+                break;
+            }
+            record(at - container_start);
+            if (total < header_size + image_size + clut_size || total > container_end - picture) {
+                break;
+            }
+            picture += total;
+        }
+    }
+    if (result && *result == std::numeric_limits<std::size_t>::max()) {
+        return std::nullopt;
+    }
+    return result;
+}
+
+std::optional<unsigned> Dc1ImgEntryIndex(const DataReadSource &source) {
+    std::size_t member_start = 0;
+    std::size_t member_size = static_cast<std::size_t>(source.range_size);
+    if (!source.member.empty()) {
+        if (source.member_source_offsets.empty() || source.member_sizes.empty()) {
+            return std::nullopt;
+        }
+        member_start = static_cast<std::size_t>(source.member_source_offsets.back());
+        member_size = static_cast<std::size_t>(source.member_sizes.back());
+    }
+    if (source.offset < member_start || source.offset - member_start >= member_size) {
+        return std::nullopt;
+    }
+    std::vector<std::uint8_t> raw;
+    if (!DataReadReadResolvedFile(source.path, raw) || member_start > raw.size() ||
+        member_size > raw.size() - member_start || member_size < 16) {
+        return std::nullopt;
+    }
+    const std::uint8_t *member = raw.data() + member_start;
+    const bool img3 = std::memcmp(member, "IM3\0", 4) == 0;
+    if (!img3 && std::memcmp(member, "IMG\0", 4) != 0 && std::memcmp(member, "IM2\0", 4) != 0) {
+        return std::nullopt;
+    }
+    const unsigned count = ReadLe32(member + (img3 ? 8 : 4));
+    const std::size_t stride = img3 ? 64 : 48;
+    if (count == 0 || count > 16384 || count > (member_size - 16) / stride) {
+        return std::nullopt;
+    }
+    const std::size_t image_offset = static_cast<std::size_t>(source.offset - member_start);
+    std::optional<unsigned> result;
+    for (unsigned index = 0; index < count; index++) {
+        const std::size_t table_entry = 16 + static_cast<std::size_t>(index) * stride;
+        const std::size_t head_offset = ReadLe32(member + table_entry + (img3 ? 36 : 32));
+        bool matches = false;
+        if (img3) {
+            const std::size_t image_size = ReadLe32(member + table_entry + 52);
+            matches = head_offset <= member_size && image_size <= member_size - head_offset &&
+                      image_offset >= head_offset && image_offset - head_offset < image_size;
+        } else if (head_offset <= member_size && 32 <= member_size - head_offset) {
+            const std::size_t picture = head_offset + 16;
+            const std::size_t header_size = ReadLe16(member + picture + 12);
+            matches = header_size >= 0x30 && header_size <= member_size - picture &&
+                      picture + header_size == image_offset;
+        }
+        if (matches) {
+            if (result) {
+                return std::nullopt;
+            }
+            result = index;
+        }
+    }
+    return result;
+}
+
+std::optional<std::string> BakedTextureDocument(const DataReadSource &source) {
+    std::string alias = source.path;
+    if (!source.member.empty()) {
+        alias += "/";
+        alias += source.member;
+    }
+    const size_t last_slash = alias.rfind('/');
+    const std::string_view leaf(alias.data() + (last_slash == std::string::npos ? 0 : last_slash + 1),
+                                alias.size() - (last_slash == std::string::npos ? 0 : last_slash + 1));
+    const size_t hash = leaf.find('#');
+    const std::string_view basename = leaf.substr(0, hash);
+    const size_t dot = basename.rfind('.');
+    std::string extension = dot == std::string_view::npos ? std::string{} : std::string(basename.substr(dot + 1));
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if ((extension == "chr" || extension == "chr_") && alias.find("#offset:") == std::string::npos) {
+        std::size_t container_start = 0;
+        std::size_t container_size = 0;
+        if (!source.member.empty()) {
+            if (source.member_source_offsets.empty() || source.member_sizes.empty()) {
+                return std::nullopt;
+            }
+            container_start = static_cast<std::size_t>(source.member_source_offsets.back());
+            container_size = static_cast<std::size_t>(source.member_sizes.back());
+        } else {
+            container_size = static_cast<std::size_t>(source.range_size);
+        }
+        std::vector<std::uint8_t> raw;
+        if (!DataReadReadResolvedFile(source.path, raw)) {
+            return std::nullopt;
+        }
+        const auto offset = EmbeddedTextureOffset(raw, container_start, container_size,
+                                                  static_cast<std::size_t>(source.offset));
+        if (!offset) {
+            return std::nullopt;
+        }
+        if (*offset != 0) {
+            alias += "#offset:" + std::to_string(*offset);
+        }
+    }
+    const std::string path = Dc1TextureDocument(alias);
+    if (path.empty()) {
+        return std::nullopt;
+    }
+    return path;
+}
+
 [[noreturn]] void Stop(const char *what, const char *name, int value) {
     std::fprintf(stderr, "texture: %s (%s %d)\n", what, name, value);
+    std::abort();
+}
+
+[[noreturn]] void StopBakedTexture(const char *name, std::string_view message) {
+    std::fprintf(stderr, "texture: baked asset resolution failed for %s: %.*s\n", name,
+                 static_cast<int>(message.size()), message.data());
     std::abort();
 }
 
@@ -194,7 +676,8 @@ void DumpTexture(const char *name, const PortDecodedTexture &texture) {
 void MakeGroundPeriodic(const char *name, PortDecodedTexture &texture) {
     if ((std::strcmp(name, "d02b05") != 0 && std::strcmp(name, "d02b06") != 0 &&
          std::strcmp(name, "e04b01") != 0) ||
-        texture.format != gfx::TextureFormat::Index8 || texture.width < 64 || texture.height < 64 ||
+        (texture.format != gfx::TextureFormat::Index8 && texture.format != gfx::TextureFormat::Rgba8) ||
+        texture.width < 64 || texture.height < 64 ||
         texture.levels.empty()) {
         return;
     }
@@ -204,19 +687,32 @@ void MakeGroundPeriodic(const char *name, PortDecodedTexture &texture) {
     std::vector<uint8_t> &pixels = texture.levels[0];
     const unsigned        width = texture.width;
     const unsigned        height = texture.height;
+    const auto color_at = [&](unsigned pixel) {
+        if (texture.format == gfx::TextureFormat::Index8) {
+            return texture.palette[pixels[pixel]];
+        }
+        uint32_t color;
+        std::memcpy(&color, pixels.data() + static_cast<std::size_t>(pixel) * 4, sizeof(color));
+        return color;
+    };
+    const auto set_color = [&](unsigned pixel, uint32_t color) {
+        if (texture.format == gfx::TextureFormat::Index8) {
+            pixels[pixel] = NearestPaletteColor(texture.palette, color);
+        } else {
+            std::memcpy(pixels.data() + static_cast<std::size_t>(pixel) * 4, &color, sizeof(color));
+        }
+    };
 
     for (unsigned y = 0; y < height; y++) {
         for (unsigned offset = 0; offset < horizontal_band; offset++) {
             unsigned left = y * width + offset;
             unsigned right = y * width + width - 1 - offset;
-            uint32_t left_color = texture.palette[pixels[left]];
-            uint32_t right_color = texture.palette[pixels[right]];
+            uint32_t left_color = color_at(left);
+            uint32_t right_color = color_at(right);
             unsigned left_weight = horizontal_band + offset;
             unsigned right_weight = horizontal_band - offset;
-            pixels[left] = NearestPaletteColor(texture.palette,
-                                               BlendColors(left_color, right_color, left_weight, 2 * horizontal_band));
-            pixels[right] = NearestPaletteColor(texture.palette,
-                                                BlendColors(left_color, right_color, right_weight, 2 * horizontal_band));
+            set_color(left, BlendColors(left_color, right_color, left_weight, 2 * horizontal_band));
+            set_color(right, BlendColors(left_color, right_color, right_weight, 2 * horizontal_band));
         }
     }
 
@@ -224,14 +720,12 @@ void MakeGroundPeriodic(const char *name, PortDecodedTexture &texture) {
         for (unsigned offset = 0; offset < vertical_band; offset++) {
             unsigned top = offset * width + x;
             unsigned bottom = (height - 1 - offset) * width + x;
-            uint32_t top_color = texture.palette[pixels[top]];
-            uint32_t bottom_color = texture.palette[pixels[bottom]];
+            uint32_t top_color = color_at(top);
+            uint32_t bottom_color = color_at(bottom);
             unsigned top_weight = vertical_band + offset;
             unsigned bottom_weight = vertical_band - offset;
-            pixels[top] = NearestPaletteColor(texture.palette,
-                                              BlendColors(top_color, bottom_color, top_weight, 2 * vertical_band));
-            pixels[bottom] = NearestPaletteColor(texture.palette,
-                                                 BlendColors(top_color, bottom_color, bottom_weight, 2 * vertical_band));
+            set_color(top, BlendColors(top_color, bottom_color, top_weight, 2 * vertical_band));
+            set_color(bottom, BlendColors(top_color, bottom_color, bottom_weight, 2 * vertical_band));
         }
     }
 }
@@ -347,19 +841,62 @@ void Enter(CTextureManager &manager, EnterMode mode, int block, char *name, u_ch
 
     unsigned tbp;
     unsigned cbp = 0;
+    bool baked = false;
+    bool canvas_backing = false;
+    PortDecodedTexture decoded;
+    if (image != nullptr) {
+        if (indexed) {
+            PortRememberTextureClut(name, clut, static_cast<std::size_t>(clut_bytes));
+        }
+        DataReadSource source;
+        std::string resolution_error;
+        std::optional<std::string> document;
+        if (image_size > 0 && DataReadSourceRange(image, static_cast<std::size_t>(image_size), source)) {
+            document = BakedTextureDocument(source);
+            if (!document) {
+                StopBakedTexture(name, "unsupported source identity " + source.path +
+                                           (source.member.empty() ? std::string{} : "/" + source.member));
+            } else {
+                const std::optional<unsigned> entry_index = Dc1ImgEntryIndex(source);
+                baked = PortLoadBakedTexture(*document, name, 0, static_cast<unsigned>(width),
+                                             static_cast<unsigned>(height), 0, clut,
+                                             clut == nullptr ? 0 : static_cast<std::size_t>(clut_bytes), decoded,
+                                             resolution_error, entry_index, bpp);
+                canvas_backing = !baked && resolution_error == "canvas texture keeps its runtime backing";
+                if (!baked && !canvas_backing) {
+                    StopBakedTexture(name, resolution_error);
+                }
+            }
+        } else {
+            resolution_error = "texture pixels have no validated source range";
+        }
+        if (!baked && indexed && !canvas_backing) {
+            StopBakedTexture(name, resolution_error);
+        }
+        if (!baked && !canvas_backing && !resolution_error.empty()) {
+            std::fprintf(stderr, "texture: using source decoder for non-indexed %s: %s\n", name,
+                         resolution_error.c_str());
+        }
+    }
     if (image == nullptr) {
         tbp = PortCreatePlaceholder(name, width, height, bpp, PortTextureOwner::Manager, &cbp);
     } else {
-        const u_char      *levels[3] = {image, mipmap ? mip1 : nullptr, mipmap ? mip2 : nullptr};
-        PortDecodedTexture decoded;
-        if (!PortDecodeTexture(bpp, width, height, levels, mipmap ? 3 : 1, clut, clut_colors,
-                               indexed && swizzled != 0, decoded)) {
-            return;
+        if (!baked) {
+            const u_char *levels[3] = {image, mipmap ? mip1 : nullptr, mipmap ? mip2 : nullptr};
+            if (!PortDecodeTexture(bpp, width, height, levels, mipmap ? 3 : 1, clut, clut_colors,
+                                   indexed && swizzled != 0, decoded)) {
+                return;
+            }
         }
         LocalizeTexture(name, decoded);
         caption::PreparePainted(name, decoded);
         MakeGroundPeriodic(name, decoded);
         DumpTexture(name, decoded);
+        if (baked) {
+            tex->clut = nullptr;
+            cbp = 0;
+            psm = SCE_GS_PSMCT32;
+        }
         tbp = PortCreateTexture(decoded, PortTextureOwner::Manager, &cbp);
     }
     tex->tex0 = Tex0(tbp, tbw, psm, tw, th, cbp, indexed ? 1 : 0);
@@ -381,6 +918,18 @@ void Enter(CTextureManager &manager, EnterMode mode, int block, char *name, u_ch
 }
 
 } // namespace
+
+std::optional<std::string> PortTextureDocumentFromSource(const DataReadSource &source) {
+    return BakedTextureDocument(source);
+}
+
+std::string PortTextureDocumentFromAlias(std::string_view source_alias) {
+    return Dc1TextureDocument(source_alias);
+}
+
+std::optional<unsigned> PortTextureEntryIndexFromSource(const DataReadSource &source) {
+    return Dc1ImgEntryIndex(source);
+}
 
 PORT_OVERRIDE void CTextureManager::Initialize(int size) {
     PortReleaseOwner(PortTextureOwner::Manager);
@@ -436,36 +985,40 @@ PORT_OVERRIDE void CTextureManager::EnterFixTexture(char *name, u_char *image, i
 // bytes of the Z buffer as PSMT8H. Here it is an index texture like any other; the menus reach it
 // by name and draw pieces of it with set2DSprite.
 PORT_OVERRIDE void CTextureManager::EnterFixTextureZ(u_char *buffer) {
-    char        *name = reinterpret_cast<char *>(buffer + 16);
-    TM2_head    *head = reinterpret_cast<TM2_head *>(buffer + *reinterpret_cast<int *>(buffer + 48));
-    TM2_picture *picture = reinterpret_cast<TM2_picture *>(reinterpret_cast<u_char *>(head) + 16);
-    int          width = head->image_width;
-    int          height = head->image_height;
-
-    if (width != 640 || height > SCREEN_HALF_HEIGHT || picture->image_type != TIM2_IDTEX8) {
-        return;
+    DataReadSource source;
+    if (!DataReadSourceRange(buffer, 64, source)) {
+        StopBakedTexture("<unknown>", "fixed-Z texture header has no validated source range");
     }
-
-    u_char   *image = reinterpret_cast<u_char *>(picture) + picture->header_size;
-    u_char   *clut = image + picture->image_size;
+    char *name = reinterpret_cast<char *>(buffer + 16);
+    const std::size_t name_size = strnlen(name, 32);
+    if (name_size == 0 || name_size == 32) {
+        StopBakedTexture("<unknown>", "fixed-Z texture name is not terminated");
+    }
+    const std::optional<std::string> document = BakedTextureDocument(source);
+    if (!document) {
+        StopBakedTexture(name, "fixed-Z source has no deterministic baked document path");
+    }
+    PortDecodedTexture decoded;
+    std::string error;
+    if (!PortLoadBakedTexture(*document, name, 0, 640, 0, 0, nullptr, 0, decoded, error)) {
+        StopBakedTexture(name, error);
+    }
+    if (decoded.height > SCREEN_HALF_HEIGHT) {
+        StopBakedTexture(name, "fixed-Z baked texture exceeds the logical height limit");
+    }
     CTexture *tex = SearchTexture(name);
-    std::strcpy(tex->name, name);
-    tex->width = width;
-    tex->height = height;
+    if (tex == nullptr) {
+        StopBakedTexture(name, "fixed-Z texture has no manager entry");
+    }
+    tex->width = static_cast<int>(decoded.width);
+    tex->height = static_cast<int>(decoded.height);
     tex->bpp = 1;
     tex->block = 73;
-
-    const u_char      *levels[1] = {image};
-    PortDecodedTexture decoded;
-    unsigned           tbp = 0;
-    unsigned           cbp = 0;
-    if (PortDecodeTexture(1, width, height, levels, 1, clut, 256, false, decoded)) {
-        LocalizeTexture(name, decoded);
-        caption::PreparePainted(name, decoded);
-        DumpTexture(name, decoded);
-        tbp = PortCreateTexture(decoded, PortTextureOwner::Manager, &cbp);
-    }
-    tex->tex0 = SCE_GS_SET_TEX0(tbp, 10, kPsmT8H, 10, 8, 1, 0, cbp, 0, 0, 0, 1);
+    LocalizeTexture(name, decoded);
+    caption::PreparePainted(name, decoded);
+    DumpTexture(name, decoded);
+    const unsigned tbp = PortCreateTexture(decoded, PortTextureOwner::Manager, nullptr);
+    tex->tex0 = SCE_GS_SET_TEX0(tbp, 10, SCE_GS_PSMCT32, 10, 8, 1, 0, 0, 0, 0, 0, 0);
 }
 
 // Native textures occupy independent storage, so simulated PS2 VRAM overlap does not overwrite

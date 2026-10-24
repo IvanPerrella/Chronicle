@@ -41,6 +41,25 @@ bool SameMaterial(const Draw3DStrip &a, const Draw3DStrip &b) {
            a.ground_uv_period == b.ground_uv_period && a.ground_uv_flip_v == b.ground_uv_flip_v;
 }
 
+void BuildStripRuns(Draw3DVisual &visual) {
+    visual.strip_runs.clear();
+    for (size_t strip_index = 0; strip_index < visual.strips.size();) {
+        const size_t       first_strip = strip_index;
+        const Draw3DStrip &strip = visual.strips[strip_index++];
+        uint32_t           index_count = strip.index_count;
+        while (strip_index < visual.strips.size()) {
+            const Draw3DStrip &next = visual.strips[strip_index];
+            if (strip.first_index + index_count != next.first_index || !SameMaterial(strip, next)) {
+                break;
+            }
+            index_count += next.index_count;
+            ++strip_index;
+        }
+        visual.strip_runs.push_back({first_strip, strip_index - first_strip, index_count});
+    }
+    visual.strip_runs_cached = true;
+}
+
 // CreateVisual places the block right behind a visual whose host size outgrows the two or three
 // quadwords retail allocates for it, and then writes the visual's pointer fields over the block's
 // first two quadwords; the tag sits past them.
@@ -452,12 +471,23 @@ void Draw3DSweepVisuals() {
 }
 
 void Draw3DFinishVisual(Draw3DVisual &visual) {
-    if (visual.immediate || visual.vertices.empty() || visual.indices.empty()) {
+    if (visual.immediate) {
+        return;
+    }
+    if (visual.cache_strip_runs_on_finish) {
+        BuildStripRuns(visual);
+    }
+    if (visual.vertices.empty() || visual.indices.empty()) {
         return;
     }
     visual.mesh = gfx::CreateMesh(visual.vertices, visual.indices);
     visual.indices.clear();
     visual.indices.shrink_to_fit();
+}
+
+void Draw3DInvalidateStripRuns(Draw3DVisual &visual) {
+    visual.strip_runs.clear();
+    visual.strip_runs_cached = false;
 }
 
 void Draw3DStripToList(std::vector<uint32_t> &indices, uint32_t first_vertex, uint32_t count) {
@@ -515,17 +545,28 @@ void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const
 
     static const float kWhite[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     uint32_t           base_flags = constants.flags;
+    size_t             strip_run_index = 0;
     for (size_t strip_index = 0; strip_index < visual.strips.size();) {
-        const Draw3DStrip &strip = visual.strips[strip_index++];
-        uint32_t           index_count = strip.index_count;
-        while (strip_index < visual.strips.size()) {
-            const Draw3DStrip &next = visual.strips[strip_index];
-            if (strip.first_index + index_count != next.first_index || !SameMaterial(strip, next)) {
-                break;
+        const Draw3DStrip *strip_ptr;
+        uint32_t           index_count;
+        if (visual.strip_runs_cached) {
+            const Draw3DStripRun &run = visual.strip_runs[strip_run_index++];
+            strip_ptr = &visual.strips[run.first_strip];
+            index_count = run.index_count;
+            strip_index += run.strip_count;
+        } else {
+            strip_ptr = &visual.strips[strip_index++];
+            index_count = strip_ptr->index_count;
+            while (strip_index < visual.strips.size()) {
+                const Draw3DStrip &next = visual.strips[strip_index];
+                if (strip_ptr->first_index + index_count != next.first_index || !SameMaterial(*strip_ptr, next)) {
+                    break;
+                }
+                index_count += next.index_count;
+                ++strip_index;
             }
-            index_count += next.index_count;
-            ++strip_index;
         }
+        const Draw3DStrip &strip = *strip_ptr;
         if (index_count == 0) {
             continue;
         }
@@ -689,6 +730,7 @@ PORT_OVERRIDE int CVisualVu1::CreateVUdataFromMDT(u_int *block, u_int *data, int
             strip.ground_uv_flip_v = true;
         }
     }
+    visual.cache_strip_runs_on_finish = true;
     Draw3DFinishVisual(visual);
     return vu_size;
 }
@@ -733,6 +775,7 @@ PORT_OVERRIDE int CVisualVu1::CreateVUdataFromMDTRemake(u_int *block, u_int *dat
         }
     }
     // Record stationary poses too: a display frame needs both ends when animation starts or stops.
+    Draw3DInvalidateStripRuns(*visual);
     if (visual->mesh != gfx::kNullMesh) {
         gfx::UpdateMeshVertices(visual->mesh, 0, visual->vertices);
     }

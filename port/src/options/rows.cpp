@@ -669,11 +669,21 @@ const Row kAndroidDisplayRows[] = {
     kDisplayRows[10],
     kDisplayRows[11],
 };
+#elif defined(__SWITCH__)
+const Row kSwitchDisplayRows[] = {
+    kDisplayRows[5],
+    kDisplayRows[7],
+    kDisplayRows[8],
+    kDisplayRows[9],
+    kDisplayRows[10],
+};
 #endif
 
 std::span<const Row> DisplayRows() {
 #if defined(__ANDROID__)
     return kAndroidDisplayRows;
+#elif defined(__SWITCH__)
+    return kSwitchDisplayRows;
 #else
     return kDisplayRows;
 #endif

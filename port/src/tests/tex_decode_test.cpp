@@ -1,10 +1,21 @@
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
+#include <array>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <random>
+#include <set>
+#include <string>
 
 #include "gfx/context.hpp"
+#include "dataread_port.hpp"
+#include "dataread.hpp"
+#include "data_fixture.hpp"
+#include "platform/paths.hpp"
 #include "tex_fixture.hpp"
 
 using namespace dc::test;
@@ -414,4 +425,209 @@ TEST(TextureBuffer, RejectsBlocksOutsideStagingBuffer) {
     ASSERT_EQ(TexManager.CleanUpBuffer(), 0);
     ASSERT_EQ(TexManager.blocks[1].buffer, staging + 8);
     ASSERT_EQ(TexManager.buffer_used, 0);
+}
+
+TEST(Texture, BakedDocumentPathsFollowDc1SourceIdentity) {
+    DataReadSource source;
+    source.path = "img/mt01.img";
+    EXPECT_EQ(PortTextureDocumentFromSource(source), "textures/img/mt01_img.json");
+
+    source.path = "img/mt01.tm2";
+    EXPECT_EQ(PortTextureDocumentFromSource(source), "textures/img/mt01_tm2.json");
+
+    source.path = "img_6/title.img";
+    EXPECT_EQ(PortTextureDocumentFromSource(source), "textures/img_6/title_img.json");
+
+    source.path = "commenu/a_fre/kgetoan2.img__";
+    EXPECT_EQ(PortTextureDocumentFromSource(source), "textures/commenu/a_fre/kgetoan2_img__.json");
+
+    source.path = "map/room.pac";
+    source.member = "part.ipk/panel.img";
+    EXPECT_EQ(PortTextureDocumentFromSource(source), "textures/map/panel_img-5ea003ec7ffe1ca5.json");
+
+    source.member = "hero.chr/panel.img";
+    EXPECT_EQ(PortTextureDocumentFromSource(source), "textures/map/hero-panel_img-6fdaa27efdabbb25.json");
+
+    source.path = "normalized/img/mt01.img";
+    source.member.clear();
+    EXPECT_EQ(PortTextureDocumentFromSource(source), "textures/normalized/img/mt01_img.json");
+}
+
+TEST(Texture, Dc1ContainerNamesAreStableAndLongPathsHashLikeRust) {
+    const std::array<std::string, 6> expected = {
+        "textures/commenu/a_eng/dunenter/dunenter_img-e4f1eb26b1393e1b.json",
+        "textures/commenu/a_eng/dunenter/dunenter_img-a2e14711da50f58a.json",
+        "textures/commenu/a_eng/dunenter/dunenter_img-f840864b5542ad51.json",
+        "textures/commenu/a_eng/dunenter/dunenter_img-7dce6242a747eec0.json",
+        "textures/commenu/a_eng/dunenter/dunenter_img-81d6e21f9f2f588f.json",
+        "textures/commenu/a_eng/dunenter/dunenter_img-9ddcfc8ad7597c0e.json",
+    };
+    std::set<std::string> actual;
+    for (unsigned index = 0; index < expected.size(); index++) {
+        const std::string alias = "commenu/a_eng/dunenter/dunenter" + std::to_string(index) +
+                                  ".pak/dunenter.img";
+        const std::string path = PortTextureDocumentFromAlias(alias);
+        EXPECT_EQ(path, expected[index]);
+        actual.insert(path);
+    }
+    EXPECT_EQ(actual.size(), expected.size());
+
+    const std::string long_alias = "path/" + std::string(180, 'a') + "/texture.img";
+    EXPECT_EQ(PortTextureDocumentFromAlias(long_alias), "textures/long-path-01e6fc2a3093d2f98c7909ab.json");
+    EXPECT_EQ(PortTextureDocumentFromAlias("root/../pic%FF.img"),
+              "textures/root/%2E%2E/pic%25FF_img-beb47efc782afc7d.json");
+    EXPECT_EQ(PortTextureDocumentFromAlias("map/room.pac/part.ipk/panel.img#entry:1"),
+              "textures/map/panel-entry-1_img-bb9569f33eb90803.json");
+}
+
+TEST(Texture, BakedPngLoaderReadsSchema3ThroughDataVfs) {
+    namespace fs = std::filesystem;
+    const fs::path dir = datafix::TempDir("texture_baked_vfs");
+    const fs::path data = dir / "data";
+    const std::string document =
+        R"({"schema_version":3,"groups":[0],"entries":[{"name":"TEST","pictures":[{"levels":["test.png","test.png"]}]}]})";
+    datafix::WriteBytes(data / "textures/img/test_img.json", datafix::Bytes(document.begin(), document.end()));
+    const std::string canvas_document =
+        R"({"schema_version":3,"groups":[0],"entries":[{"name":"CANVAS","pictures":[{"canvas":true}]}]})";
+    datafix::WriteBytes(data / "textures/img/canvas_img.json",
+                        datafix::Bytes(canvas_document.begin(), canvas_document.end()));
+    constexpr std::uint8_t png[] = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+        0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x10, 0x50, 0x30, 0x68,
+        0x00, 0x00, 0x01, 0x85, 0x00, 0xE1, 0xE2, 0xC4, 0x23, 0x36, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+        0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+    datafix::WriteBytes(data / "textures/img/test.png", datafix::Bytes(std::begin(png), std::end(png)));
+
+    PathsReset();
+    PathsConfigure({.app_dir = "chronicle", .env_data = "DC_DATA", .env_save = "DC_SAVE"});
+    PathsSetDataRoot(data);
+    InitCDFile();
+    PortDecodedTexture decoded;
+    std::string error;
+    ASSERT_TRUE(PortLoadBakedTexture("textures/img/test_img.json", "TEST", 0, 0, 0, 3, nullptr, 0, decoded, error))
+        << error;
+    EXPECT_EQ(decoded.format, gfx::TextureFormat::Rgba8);
+    EXPECT_EQ(decoded.width, 1);
+    EXPECT_EQ(decoded.height, 1);
+    ASSERT_EQ(decoded.levels.size(), 2);
+    EXPECT_EQ(decoded.levels[0], (std::vector<std::uint8_t>{16, 32, 48, 128}));
+    PortDecodedTexture source24;
+    ASSERT_TRUE(PortLoadBakedTexture("textures/img/test_img.json", "TEST", 0, 1, 1, 1, nullptr, 0,
+                                     source24, error, std::nullopt, 3))
+        << error;
+    EXPECT_FALSE(source24.has_alpha);
+    PortDecodedTexture source32;
+    ASSERT_TRUE(PortLoadBakedTexture("textures/img/test_img.json", "TEST", 0, 1, 1, 1, nullptr, 0,
+                                     source32, error, std::nullopt, 4))
+        << error;
+    EXPECT_TRUE(source32.has_alpha);
+    PortDecodedTexture canvas;
+    ASSERT_FALSE(PortLoadBakedTexture("textures/img/canvas_img.json", "CANVAS", 0, 1, 1, 0, nullptr, 0,
+                                      canvas, error));
+    EXPECT_EQ(error, "canvas texture keeps its runtime backing");
+    DataReadReset();
+    PathsReset();
+    std::error_code ignored;
+    fs::remove_all(dir, ignored);
+}
+
+TEST(Texture, DuplicateTextureNamesUseExactSourceImgOrdinal) {
+    namespace fs = std::filesystem;
+    const fs::path dir = datafix::TempDir("texture_duplicate_names");
+    const fs::path data = dir / "data";
+    std::vector<std::uint8_t> img(232);
+    std::memcpy(img.data(), "IMG", 3);
+    img[4] = 2;
+    const auto write32 = [&img](std::size_t offset, std::uint32_t value) {
+        img[offset] = static_cast<std::uint8_t>(value);
+        img[offset + 1] = static_cast<std::uint8_t>(value >> 8);
+        img[offset + 2] = static_cast<std::uint8_t>(value >> 16);
+        img[offset + 3] = static_cast<std::uint8_t>(value >> 24);
+    };
+    const auto write_texture = [&img, &write32](std::size_t header, std::array<std::uint8_t, 4> pixel) {
+        std::memcpy(img.data() + header, "TIM2", 4);
+        img[header + 6] = 1;
+        const std::size_t picture = header + 16;
+        write32(picture, 52);
+        write32(picture + 8, 4);
+        img[picture + 12] = 48;
+        std::copy(pixel.begin(), pixel.end(), img.begin() + static_cast<std::ptrdiff_t>(header + 64));
+    };
+    std::memcpy(img.data() + 16, "DUP", 3);
+    write32(16 + 32, 112);
+    std::memcpy(img.data() + 64, "DUP", 3);
+    write32(64 + 32, 164);
+    write_texture(112, {1, 2, 3, 4});
+    write_texture(164, {5, 6, 7, 8});
+    datafix::WriteBytes(data / "dup.img", img);
+
+    const std::string document =
+        R"({"schema_version":3,"groups":[0],"entries":[{"name":"DUP","pictures":[{"levels":["red.png"]}]},{"name":"DUP","pictures":[{"levels":["blue.png"]}]}]})";
+    datafix::WriteBytes(data / "textures" / "dup_img.json", datafix::Bytes(document.begin(), document.end()));
+    constexpr std::uint8_t red_png[] = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+        0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0xF0,
+        0x1F, 0x00, 0x05, 0x00, 0x01, 0xFF, 0x89, 0x99, 0x3D, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+        0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+    constexpr std::uint8_t blue_png[] = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+        0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x60, 0x60, 0xF8, 0xFF,
+        0x1F, 0x00, 0x03, 0x02, 0x01, 0xFF, 0xE6, 0x77, 0x0B, 0xAE, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+        0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+    datafix::WriteBytes(data / "textures" / "red.png", datafix::Bytes(std::begin(red_png), std::end(red_png)));
+    datafix::WriteBytes(data / "textures" / "blue.png", datafix::Bytes(std::begin(blue_png), std::end(blue_png)));
+
+    PathsReset();
+    PathsConfigure({.app_dir = "chronicle", .env_data = "DC_DATA", .env_save = "DC_SAVE"});
+    PathsSetDataRoot(data);
+    InitCDFile();
+    std::vector<std::uint8_t> loaded(img.size() + 2048);
+    char path[] = "dup.img";
+    int loaded_size = 0;
+    ASSERT_EQ(LoadFile2(path, loaded.data(), &loaded_size, 0), 1);
+    DataReadSource first_source;
+    ASSERT_TRUE(DataReadSourceRange(loaded.data() + 176, 4, first_source));
+    EXPECT_EQ(PortTextureEntryIndexFromSource(first_source), 0);
+    DataReadSource second_source;
+    ASSERT_TRUE(DataReadSourceRange(loaded.data() + 228, 4, second_source));
+    EXPECT_EQ(PortTextureEntryIndexFromSource(second_source), 1);
+    for (unsigned index = 0; index < 2; index++) {
+        PortDecodedTexture decoded;
+        std::string error;
+        ASSERT_TRUE(PortLoadBakedTexture("textures/dup_img.json", "DUP", 0, 1, 1, 1, nullptr, 0,
+                                         decoded, error, index))
+            << error;
+        ASSERT_EQ(decoded.levels.size(), 1);
+        EXPECT_EQ(decoded.levels[0], index == 0 ? (std::vector<std::uint8_t>{255, 0, 0, 255})
+                                                : (std::vector<std::uint8_t>{0, 0, 255, 255}));
+    }
+    DataReadReset();
+    PathsReset();
+    std::error_code ignored;
+    fs::remove_all(dir, ignored);
+}
+
+TEST(Texture, BakedDocumentPathMapMatchesRustDc1Plan) {
+    const char *map_path = std::getenv("CHRONICLE_TEXTURE_LAYOUT_MAP");
+    if (map_path == nullptr) {
+        GTEST_SKIP() << "set CHRONICLE_TEXTURE_LAYOUT_MAP to the private dcdata texture-map artifact";
+    }
+    std::ifstream stream(map_path, std::ios::binary);
+    ASSERT_TRUE(stream) << map_path;
+    const nlohmann::json mappings = nlohmann::json::parse(stream);
+    ASSERT_TRUE(mappings.is_array());
+    std::size_t mismatches = 0;
+    for (const auto &mapping : mappings) {
+        const std::string source_alias = mapping.at("source_alias").get<std::string>();
+        const std::string expected = mapping.at("document_path").get<std::string>();
+        const std::string actual = PortTextureDocumentFromAlias(source_alias);
+        if (actual != expected) {
+            ++mismatches;
+            ADD_FAILURE() << source_alias << " mapped to " << actual << ", expected " << expected;
+        }
+    }
+    EXPECT_EQ(mismatches, 0);
 }

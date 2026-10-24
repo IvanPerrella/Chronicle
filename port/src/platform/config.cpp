@@ -391,12 +391,16 @@ bool Apply(Config &config, std::string_view name, const Json &value) {
         return ApplyBindings(config, value);
     }
     if (name == "game.tick_rate") {
+#if defined(__SWITCH__)
+        return true;
+#else
         double rate = 0.0;
         if (!ReadNumber(value, rate) || !(rate > 0.0) || !std::isfinite(rate)) {
             return false;
         }
         config.tick_rate = rate;
         return true;
+#endif
     }
     if (name == "game.qte_always_win") {
         return ReadBool(value, config.qte_always_win);
@@ -440,10 +444,18 @@ bool Apply(Config &config, std::string_view name, const Json &value) {
         return ReadLanguage(value, config.language);
     }
     if (name == "video.present_mode") {
+#if defined(__SWITCH__)
+        return true;
+#else
         return ReadPresentMode(value, config.present_mode);
+#endif
     }
     if (name == "video.interpolation") {
+#if defined(__SWITCH__)
+        return true;
+#else
         return ReadBool(value, config.interpolation);
+#endif
     }
     if (name == "video.render_thread") {
         if (!value.is_string()) {
@@ -457,34 +469,54 @@ bool Apply(Config &config, std::string_view name, const Json &value) {
         return true;
     }
     if (name == "video.max_fps") {
+#if defined(__SWITCH__)
+        return true;
+#else
         double fps = 0.0;
         if (!ReadNumber(value, fps) || !(fps >= 0.0) || !std::isfinite(fps)) {
             return false;
         }
         config.max_fps = fps;
         return true;
+#endif
     }
     if (name == "video.vsync") {
+#if defined(__SWITCH__)
+        return true;
+#else
         bool vsync = true;
         if (!ReadBool(value, vsync)) {
             return false;
         }
         config.present_mode = vsync ? ConfigPresentMode::Fifo : ConfigPresentMode::Immediate;
         return true;
+#endif
     }
     if (name == "video.width" || name == "video.height") {
+#if defined(__SWITCH__)
+        return true;
+#else
         if (!value.is_number_integer() || value.get<std::int64_t>() < 0 ||
             value.get<std::int64_t>() > std::numeric_limits<int>::max()) {
             return false;
         }
         (name == "video.width" ? config.window_width : config.window_height) = value.get<int>();
         return true;
+#endif
     }
     if (name == "video.fullscreen") {
+#if defined(__SWITCH__)
+        return true;
+#else
         return ReadBool(value, config.fullscreen);
+#endif
     }
     if (name == "video.aspect") {
+#if defined(__SWITCH__)
+        return true;
+#else
         return ReadAspect(value, config.aspect);
+#endif
     }
     if (name == "video.ui_scale") {
         float scale = 0.0f;
@@ -494,6 +526,11 @@ bool Apply(Config &config, std::string_view name, const Json &value) {
         config.ui_scale = scale;
         return true;
     }
+#if defined(__SWITCH__)
+    if (name == "video.render_scale") {
+        return true;
+    }
+#endif
 #if defined(__ANDROID__)
     if (name == "video.render_scale") {
         float scale = 0.0f;

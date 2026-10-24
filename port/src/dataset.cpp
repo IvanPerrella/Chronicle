@@ -18,6 +18,7 @@ void Carve(CDataAlloc2<1> *arena, int quads) {
     if (arena == nullptr || quads <= 0 || quads > std::numeric_limits<int>::max() / kArenaHeadroom) {
         ArenaOverflow(arena, quads, std::numeric_limits<int>::max() / kArenaHeadroom);
     }
+    DataReadForgetPackCapacities(arena);
     arena->base = ArenaBlock(arena, static_cast<std::size_t>(quads) * 16 * kArenaHeadroom);
     arena->limit = quads * kArenaHeadroom;
     arena->used = 0;
@@ -40,6 +41,7 @@ void CarveReadBuffer(int quads) {
     if (quads <= 0 || quads > std::numeric_limits<int>::max() / kArenaHeadroom) {
         ArenaOverflow("file read buffer", quads, std::numeric_limits<int>::max() / kArenaHeadroom);
     }
+    DataReadForgetPackCapacities(read_buffer);
     read_buffer = reinterpret_cast<u_int *>(ArenaBlock(&read_buffer, static_cast<std::size_t>(quads) * 16 * kArenaHeadroom, kReadBufferLead));
 }
 
@@ -55,12 +57,10 @@ void InitializeDataBuffer() {
 }
 
 PORT_OVERRIDE void SetDataBuffer(CDataAlloc2<1> *arena, int quads) {
-    DataReadClearPackCapacities();
     Carve(arena, quads);
 }
 
 PORT_OVERRIDE void SetPacketReadBuffer(int packet_quads, int read_quads) {
-    DataReadClearPackCapacities();
     CarveReadBuffer(read_quads);
     MGInitVif1Packet(CarvePackets(packet_quads, 0), CarvePackets(packet_quads, 1));
     CarveWorkBuffer(2048);

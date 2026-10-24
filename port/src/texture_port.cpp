@@ -1,3 +1,5 @@
+#include <nlohmann/json.hpp>
+
 #include "texture_port.hpp"
 
 #include <algorithm>
@@ -5,8 +7,11 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "mglib_port.hpp"
+#include "dataread_port.hpp"
+#include "platform/png_image.hpp"
 #include "screen.hpp"
 #include "texture.hpp"
 
@@ -20,6 +25,8 @@ constexpr unsigned kPsmT4 = SCE_GS_PSMT4;
 constexpr unsigned kPsmT8H = 27;
 constexpr unsigned kPsmT4HL = 36;
 constexpr unsigned kPsmT4HH = 44;
+
+std::unordered_map<std::string, std::vector<std::uint8_t>> texture_cluts;
 
 enum class EntryKind : uint8_t {
     Free,
@@ -268,6 +275,149 @@ bool ResolveSide(unsigned tbp, unsigned psm, Side &side) {
 }
 
 } // namespace
+
+void PortRememberTextureClut(std::string_view name, const u_char *clut, std::size_t clut_bytes) {
+    if (clut == nullptr || clut_bytes == 0) {
+        return;
+    }
+    texture_cluts[std::string(name)] = std::vector<std::uint8_t>(clut, clut + clut_bytes);
+}
+
+bool PortLoadBakedTexture(std::string_view document, std::string_view name, unsigned picture_index,
+                          unsigned width, unsigned height, unsigned level_count,
+                          const u_char *clut, std::size_t clut_bytes,
+                          PortDecodedTexture &out, std::string &error,
+                          std::optional<unsigned> entry_index, int source_bpp) {
+    (void)level_count;
+    using Json = nlohmann::json;
+    std::vector<std::uint8_t> json_bytes;
+    if (!DataReadReadFile(document, json_bytes)) {
+        error = "missing texture document " + std::string(document);
+        return false;
+    }
+    Json root = Json::parse(json_bytes.begin(), json_bytes.end(), nullptr, false);
+    if (root.is_discarded() || !root.is_object() || root.value("schema_version", 0) != 3 ||
+        !root.contains("groups") || !root["groups"].is_array() || !root.contains("entries") ||
+        !root["entries"].is_array()) {
+        error = "invalid schema-3 texture document " + std::string(document);
+        return false;
+    }
+    const Json *entry = nullptr;
+    if (entry_index) {
+        if (*entry_index >= root["entries"].size()) {
+            error = "baked texture entry ordinal is out of range in " + std::string(document);
+            return false;
+        }
+        const Json &candidate = root["entries"][*entry_index];
+        if (!candidate.is_object() || candidate.value("name", std::string{}) != name) {
+            error = "baked texture entry ordinal does not match " + std::string(name);
+            return false;
+        }
+        entry = &candidate;
+    } else {
+        for (const Json &candidate : root["entries"]) {
+            if (candidate.is_object() && candidate.value("name", std::string{}) == name) {
+                if (entry != nullptr) {
+                    error = "ambiguous texture entry " + std::string(name) + " in " + std::string(document);
+                    return false;
+                }
+                entry = &candidate;
+            }
+        }
+    }
+    if (entry == nullptr || !entry->contains("pictures") || !(*entry)["pictures"].is_array() ||
+        picture_index >= (*entry)["pictures"].size()) {
+        error = "missing texture picture " + std::string(name) + " in " + std::string(document);
+        return false;
+    }
+    const Json &picture = (*entry)["pictures"][picture_index];
+    if (picture.is_object() && picture.contains("canvas") && !picture.contains("levels")) {
+        error = "canvas texture keeps its runtime backing";
+        return false;
+    }
+    if (!picture.is_object() || !picture.contains("levels") || !picture["levels"].is_array()) {
+        error = "texture picture has no baked levels: " + std::string(document);
+        return false;
+    }
+    const Json *levels = &picture["levels"];
+    if (picture.contains("variants") && picture["variants"].is_array() && clut != nullptr && clut_bytes != 0) {
+        const Json *selected = nullptr;
+        std::string selected_name;
+        for (const Json &variant : picture["variants"]) {
+            if (!variant.is_object() || !variant.contains("selector") || !variant["selector"].is_string()) {
+                continue;
+            }
+            const std::string selector = variant["selector"].get<std::string>();
+            const auto palette = texture_cluts.find(selector);
+            if (palette != texture_cluts.end() && palette->second.size() == clut_bytes &&
+                std::memcmp(palette->second.data(), clut, clut_bytes) == 0) {
+                if (selected != nullptr && selected_name != selector) {
+                    error = "ambiguous baked palette variant for texture " + std::string(name);
+                    return false;
+                }
+                selected = &variant;
+                selected_name = selector;
+            }
+        }
+        if (selected != nullptr) {
+            if (!selected->contains("levels") || !(*selected)["levels"].is_array()) {
+                error = "invalid baked palette variant for texture " + std::string(name);
+                return false;
+            }
+            levels = &(*selected)["levels"];
+        }
+    }
+    if (levels->empty()) {
+        error = "baked texture has no mip levels: " + std::string(name);
+        return false;
+    }
+
+    const std::size_t slash = document.rfind('/');
+    const std::string parent = slash == std::string_view::npos ? std::string{} : std::string(document.substr(0, slash + 1));
+    out = PortDecodedTexture{};
+    out.format = gfx::TextureFormat::Rgba8;
+    out.has_alpha = source_bpp < 0 || source_bpp != 3;
+    for (unsigned level = 0; level < levels->size(); level++) {
+        const Json &level_path = (*levels)[level];
+        if (!level_path.is_string()) {
+            error = "invalid baked level path in " + std::string(document);
+            return false;
+        }
+        const std::string relative = level_path.get<std::string>();
+        if (relative.empty() || relative.front() == '/' || relative.find('\\') != std::string::npos ||
+            relative.find(':') != std::string::npos || relative.find("../") != std::string::npos ||
+            relative == ".." || relative.starts_with("./")) {
+            error = "unsafe baked level path " + relative;
+            return false;
+        }
+        std::vector<std::uint8_t> png_bytes;
+        const std::string png_path = parent + relative;
+        if (!DataReadReadFile(png_path, png_bytes)) {
+            error = "missing baked PNG " + png_path;
+            return false;
+        }
+        int decoded_width = 0;
+        int decoded_height = 0;
+        std::vector<std::uint8_t> rgba;
+        if (!PngDecodeRgba(png_bytes, decoded_width, decoded_height, rgba)) {
+            error = "invalid baked PNG " + png_path;
+            return false;
+        }
+        if (level == 0) {
+            out.width = width == 0 ? static_cast<unsigned>(decoded_width) : width;
+            out.height = height == 0 ? static_cast<unsigned>(decoded_height) : height;
+        }
+        const unsigned expected_width = std::max(1u, out.width >> level);
+        const unsigned expected_height = std::max(1u, out.height >> level);
+        if (decoded_width != static_cast<int>(expected_width) ||
+            decoded_height != static_cast<int>(expected_height)) {
+            error = "baked PNG dimensions differ for " + png_path;
+            return false;
+        }
+        out.levels.push_back(std::move(rgba));
+    }
+    return true;
+}
 
 void PortUnswizzle8(int width, int height, const u_char *swizzled, u_char *linear) {
     for (int y = 0; y < height; y++) {

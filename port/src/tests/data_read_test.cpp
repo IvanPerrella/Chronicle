@@ -2,8 +2,10 @@
 #include <signal.h>
 #include <stdlib.h>
 
+#include <array>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -12,20 +14,43 @@
 #include "audio/hdbank.hpp"
 #include "audio/sq.hpp"
 #include "data_fixture.hpp"
+#include "dataalloc.hpp"
 #include "dataread.hpp"
 #include "dataread_port.hpp"
 #include "dataset.hpp"
 #include "exitcodes.hpp"
 #include "platform/audio.hpp"
+#include "platform/data_archive.hpp"
 #include "platform/paths.hpp"
 #include "platform_fixture.hpp"
 #include "sound.hpp"
+#include "texture_port.hpp"
 
 using namespace datafix;
 
 namespace {
 
 constexpr unsigned char kUntouched = 0xEE;
+
+struct PathTestScope {
+    fs::path working_directory = fs::current_path();
+    dc::test::EnvSnapshot data_environment = dc::test::SaveEnv("DC_DATA");
+    dc::test::EnvSnapshot save_environment = dc::test::SaveEnv("DC_SAVE");
+
+    PathTestScope() {
+        PathsReset();
+        PathsConfigure({.app_dir = "chronicle", .env_data = "DC_DATA", .env_save = "DC_SAVE"});
+    }
+
+    ~PathTestScope() {
+        std::error_code error;
+        fs::current_path(working_directory, error);
+        dc::test::RestoreEnv(data_environment);
+        dc::test::RestoreEnv(save_environment);
+        PathsReset();
+        PathsConfigure({.app_dir = "chronicle", .env_data = "DC_DATA", .env_save = "DC_SAVE"});
+    }
+};
 
 struct alignas(64) BufferBlock {
     unsigned char bytes[64];
@@ -108,6 +133,182 @@ TEST(DataRead, Loadfile2ReadsExactSizeAndZeroFills) {
     Clear();
     ASSERT_TRUE(LoadFile(Mutable("meswin/systeme.bin"), buffer, &size) == 1);
     ASSERT_TRUE(size == 2047 && Equals(buffer, disc.files[4].data) && buffer[2047] == 0);
+    fs::remove_all(dir);
+}
+
+TEST(DataRead, ReadsStoredArchiveWithoutExtractedDirectory) {
+    fs::path dir = InstallStandardData("read_archive");
+    const Disc disc = StandardDisc();
+    dcdata::PackDirectory(dir / "data", dir / "data.zip");
+    ASSERT_TRUE(DataArchivePresent(dir / "data"));
+    fs::remove_all(dir / "data");
+    InitCDFile();
+
+    int size = -1;
+    Clear();
+    ASSERT_TRUE(LoadFile2(Mutable("dun/pack/maindat.pac"), buffer, &size, 0) == 1);
+    ASSERT_TRUE(size == 5000 && Equals(buffer, disc.files[0].data));
+    Clear();
+    ASSERT_TRUE(LoadFile2(Mutable("DUN\\PACK\\MAINDAT.PAC"), buffer, &size, 0) == 1);
+    ASSERT_TRUE(size == 5000 && Equals(buffer, disc.files[0].data));
+    std::vector<std::uint8_t> indexed_file;
+    ASSERT_TRUE(DataReadReadFile("img/title.img", indexed_file));
+    ASSERT_TRUE(indexed_file == disc.files[1].data);
+    DataReadReset();
+    fs::remove_all(dir);
+}
+
+TEST(DataRead, ArchiveLookupEscapesShiftJisBytesOnEveryPlatform) {
+    const fs::path    dir = TempDir("read_archive_shift_jis");
+    const std::string shift_jis_path = std::string("dun/") + "\x82\xa0" + ".bin";
+    const Bytes       contents = Pattern(17, 21);
+    const Disc        disc = MakeDisc({
+        {shift_jis_path, contents}
+    });
+    const fs::path    source = dir / "source";
+    WriteBytes(source / "data.hd2", disc.hd2);
+    WriteBytes(source / "dun" / "%82%a0.bin", contents);
+    dcdata::PackDirectory(source, dir / "data.zip");
+    PathsSetDataRoot(dir / "data");
+    PathsSetSaveRoot(dir / "save");
+
+    testing::internal::CaptureStderr();
+    InitCDFile();
+    const std::string init_diagnostics = testing::internal::GetCapturedStderr();
+    EXPECT_TRUE(init_diagnostics.empty()) << init_diagnostics;
+
+    int size = -1;
+    Clear();
+    ASSERT_EQ(LoadFile2(Mutable(shift_jis_path.c_str()), buffer, &size, 0), 1);
+    EXPECT_EQ(size, static_cast<int>(contents.size()));
+    EXPECT_TRUE(Equals(buffer, contents));
+
+    DataReadReset();
+    fs::remove_all(dir);
+}
+
+TEST(DataRead, LooseDirectoryKeepsItsNativeShiftJisPathKeys) {
+    const fs::path    dir = TempDir("read_loose_shift_jis");
+    const std::string path = std::string("loose/") + "\x82\xa0" + ".bin";
+    const Bytes       contents = Pattern(23, 22);
+    const Disc        disc = MakeDisc({
+        {path, contents}
+    });
+    WriteBytes(dir / "disc.iso", MakeIso("DATA.DAT;1", disc.dat, "DATA.HD2;1", disc.hd2));
+    dcdata::Extract(dcdata::OpenArchive(dir / "disc.iso"), dir / "data", nullptr);
+    PathsSetDataRoot(dir / "data");
+    PathsSetSaveRoot(dir / "save");
+    InitCDFile();
+
+    int size = -1;
+    Clear();
+    ASSERT_EQ(LoadFile2(Mutable(path.c_str()), buffer, &size, 0), 1);
+    EXPECT_EQ(size, static_cast<int>(contents.size()));
+    EXPECT_TRUE(Equals(buffer, contents));
+
+    DataReadReset();
+    fs::remove_all(dir);
+}
+
+TEST(DataRead, ArchiveIntegrityUsesBaseAssetsBeforeNormalizedOverrides) {
+    const fs::path dir = TempDir("read_archive_overlay_integrity");
+    const Bytes    base = {1, 2, 3, 4};
+    const Bytes    overlay = {5, 6};
+    const Bytes    base_chr = {7, 8, 9};
+    Bytes overlay_chr(72);
+    std::memcpy(overlay_chr.data() + 4, "TIM2", 4);
+    overlay_chr[10] = 1;
+    overlay_chr[20] = 52;
+    overlay_chr[28] = 4;
+    overlay_chr[32] = 48;
+    const Disc     disc = MakeDisc({
+        {"asset.bin", base}
+    });
+    const fs::path source = dir / "source";
+    WriteBytes(source / "data.hd2", disc.hd2);
+    WriteBytes(source / "asset.bin", base);
+    WriteBytes(source / "normalized" / "asset.bin", overlay);
+    WriteBytes(source / "hero.chr", base_chr);
+    WriteBytes(source / "normalized" / "hero.chr", overlay_chr);
+    dcdata::PackDirectory(source, dir / "data.zip");
+    PathsSetDataRoot(dir / "data");
+    PathsSetSaveRoot(dir / "save");
+
+    testing::internal::CaptureStderr();
+    InitCDFile();
+    const std::string init_diagnostics = testing::internal::GetCapturedStderr();
+    EXPECT_TRUE(init_diagnostics.empty()) << init_diagnostics;
+
+    int size = -1;
+    Clear();
+    ASSERT_EQ(LoadFile2(Mutable("asset.bin"), buffer, &size, 0), 1);
+    EXPECT_EQ(size, static_cast<int>(overlay.size()));
+    EXPECT_TRUE(Equals(buffer, overlay));
+    DataReadSource source_info;
+    ASSERT_TRUE(DataReadSourceRange(buffer, overlay.size(), source_info));
+    EXPECT_EQ(source_info.path, "normalized/asset.bin");
+    EXPECT_TRUE(source_info.member.empty());
+
+    Clear();
+    ASSERT_EQ(LoadFile2(Mutable("hero.chr"), buffer, &size, 0), 1);
+    ASSERT_TRUE(DataReadSourceRange(buffer, overlay_chr.size(), source_info));
+    EXPECT_EQ(source_info.path, "normalized/hero.chr");
+    Bytes resolved_chr;
+    ASSERT_TRUE(DataReadReadResolvedFile(source_info.path, resolved_chr));
+    EXPECT_EQ(resolved_chr, overlay_chr);
+    ASSERT_TRUE(DataReadSourceRange(static_cast<const std::uint8_t *>(buffer) + 68, 4, source_info));
+    EXPECT_EQ(source_info.path, "normalized/hero.chr");
+    EXPECT_EQ(PortTextureDocumentFromSource(source_info), "textures/normalized/hero-embedded-offset-4.json");
+
+    DataReadReset();
+    fs::remove_all(dir);
+}
+
+TEST(DataRead, CountsBakedTextureReadsFromArchiveWithSourcePaths) {
+    const fs::path dir = TempDir("read_texture_archive_stats");
+    const fs::path source = dir / "source";
+    WriteBytes(source / "textures" / "fixture.json", Bytes{'{', '}'});
+    WriteBytes(source / "textures" / "fixture.png", Bytes{1, 2, 3});
+    dcdata::PackDirectory(source, dir / "data.zip");
+    PathsSetDataRoot(dir / "data");
+
+    DataReadSetTextureReadStatsEnabled(true);
+    InitCDFile();
+    Bytes document;
+    Bytes image;
+    ASSERT_TRUE(DataReadReadFile("textures/fixture.json", document));
+    ASSERT_TRUE(DataReadReadFile("textures/fixture.png", image));
+    const DataTextureReadStats stats = DataReadTextureReadStats();
+    EXPECT_EQ(stats.archived_json, 1);
+    EXPECT_EQ(stats.archived_png, 1);
+    EXPECT_EQ(stats.loose_json, 0);
+    EXPECT_EQ(stats.loose_png, 0);
+    EXPECT_EQ(stats.archived_sources, (std::vector<std::string>{"textures/fixture.json", "textures/fixture.png"}));
+
+    DataReadSetTextureReadStatsEnabled(false);
+    DataReadReset();
+    fs::remove_all(dir);
+}
+
+TEST(DataArchive, RejectsPayloadWithWrongCrc) {
+    const fs::path dir = TempDir("archive_crc");
+    WriteBytes(dir / "source" / "file.bin", Bytes{1, 2, 3, 4});
+    const fs::path archive_path = dir / "data.zip";
+    dcdata::PackDirectory(dir / "source", archive_path);
+    {
+        std::fstream archive(archive_path, std::ios::binary | std::ios::in | std::ios::out);
+        archive.seekg(30 + std::string("file.bin").size());
+        char byte = 0;
+        archive.read(&byte, 1);
+        archive.seekp(30 + std::string("file.bin").size());
+        byte ^= 0xFF;
+        archive.write(&byte, 1);
+    }
+    {
+        DataArchive archive(archive_path);
+        std::vector<std::uint8_t> output(4);
+        ASSERT_FALSE(archive.Read(0, output));
+    }
     fs::remove_all(dir);
 }
 
@@ -286,6 +487,12 @@ TEST(DataRead, NestedPackLookupUsesEachMembersExactCapacity) {
     auto *outer_pack = reinterpret_cast<u_int *>(buffer);
     ASSERT_EQ(LoadFile2(Mutable("nested.pac"), buffer, &size, 0), 1);
     ASSERT_EQ(size, static_cast<int>(outer.size()));
+    DataReadSource source;
+    ASSERT_TRUE(DataReadSourceRange(buffer, outer.size(), source));
+    EXPECT_EQ(source.path, "nested.pac");
+    EXPECT_TRUE(source.member.empty());
+    EXPECT_EQ(source.offset, 0);
+    EXPECT_EQ(source.size, outer.size());
 
     auto files = std::make_unique<u_int *[]>(1);
     auto sizes = std::make_unique<int[]>(1);
@@ -310,10 +517,36 @@ TEST(DataRead, NestedPackLookupUsesEachMembersExactCapacity) {
     ASSERT_EQ(std::strcmp(name, "trap01.mds"), 0);
     ASSERT_EQ(size, static_cast<int>(model.size()));
     ASSERT_TRUE(Equals(model_file, model));
+    ASSERT_TRUE(DataReadSourceRange(model_file, model.size(), source));
+    EXPECT_EQ(source.path, "nested.pac");
+    EXPECT_EQ(source.member, "maindat.pac/trap01.chr/trap01.mds");
+    const std::uint64_t model_source_offset = source.offset;
+    EXPECT_LE(source.offset + source.size, outer.size());
+    EXPECT_TRUE(DataReadSourceRange(model_file, 1, source));
+    EXPECT_FALSE(DataReadSourceRange(model_file, model.size() + 1, source));
+    ASSERT_TRUE(DataReadSourceRange(model_file, model.size(), source));
+
+    CDataAlloc2<1>            copied_arena;
+    std::array<u_long128, 32> copied_storage{};
+    copied_arena.base = reinterpret_cast<u_char *>(copied_storage.data());
+    copied_arena.buffer = copied_arena.base;
+    copied_arena.used = 0;
+    copied_arena.limit = static_cast<int>(copied_storage.size());
+    auto *copied_member = copied_arena.Alloc((static_cast<int>(model.size()) >> 4) + 1);
+    std::memcpy(copied_member, model_file, model.size());
+    ASSERT_TRUE(DataReadRegisterCopiedSource(copied_member, model.size(), &copied_arena, source));
+    ASSERT_TRUE(DataReadRegisterCopiedSource(copied_member, model.size(), &copied_arena, source));
+    CDataAlloc2<1> unrelated_arena;
+    DataReadForgetPackCapacities(&unrelated_arena);
+    ASSERT_TRUE(DataReadSourceRange(copied_member, model.size(), source));
+    EXPECT_EQ(source.path, "nested.pac");
+    ASSERT_TRUE(DataReadSourceRange(copied_member + 1, model.size() - 1, source));
+    EXPECT_EQ(source.offset, model_source_offset + 1);
+    EXPECT_FALSE(DataReadSourceRange(copied_member + model.size() - 4, 8, source));
 
     // A malformed child entry may fit in its parent's remaining bytes, but cannot extend beyond
     // the exact size of the child archive returned above.
-    auto *leaf_bytes = reinterpret_cast<unsigned char *>(leaf_pack);
+    auto               *leaf_bytes = reinterpret_cast<unsigned char *>(leaf_pack);
     const std::uint32_t too_far = static_cast<std::uint32_t>(leaf_size + 16);
     for (int byte = 0; byte < 4; ++byte) {
         leaf_bytes[72 + byte] = static_cast<unsigned char>(too_far >> (byte * 8));
@@ -325,6 +558,17 @@ TEST(DataRead, NestedPackLookupUsesEachMembersExactCapacity) {
     ASSERT_EQ(LoadFile2(Mutable("img/title.img"), buffer, &size, 0), 1);
     ASSERT_EQ(GetPackFile(middle_pack, Mutable("trap01.chr"), &size), nullptr);
     ASSERT_EQ(size, 0);
+    ASSERT_TRUE(DataReadSourceRange(model_file, model.size(), source));
+    EXPECT_EQ(source.path, "img/title.img");
+    EXPECT_TRUE(source.member.empty());
+    ASSERT_TRUE(DataReadSourceRange(copied_member, model.size(), source));
+    EXPECT_EQ(source.path, "nested.pac");
+    EXPECT_EQ(source.member, "maindat.pac/trap01.chr/trap01.mds");
+
+    copied_arena.Reset();
+    EXPECT_FALSE(DataReadSourceRange(copied_member, 1, source));
+    copied_member = copied_arena.Alloc(1);
+    EXPECT_FALSE(DataReadSourceRange(copied_member, 1, source));
     fs::remove_all(dir);
 }
 
@@ -382,6 +626,7 @@ TEST(DataRead, WritefileGoesToSaveHost0) {
 }
 
 TEST(DataRead, PathsFromArguments) {
+    PathTestScope paths;
     fs::path    dir = TempDir("paths_args");
     std::string data = (dir / "d").string();
     std::string save = "--save=" + (dir / "s").string();
@@ -397,6 +642,7 @@ TEST(DataRead, PathsFromArguments) {
 }
 
 TEST(DataRead, PathsFromEnvironment) {
+    PathTestScope paths;
     fs::path dir = TempDir("paths_env");
     dc::test::SetEnv("DC_DATA", (dir / "env_data"), 1);
     dc::test::SetEnv("DC_SAVE", (dir / "env_save"), 1);
@@ -408,6 +654,7 @@ TEST(DataRead, PathsFromEnvironment) {
 }
 
 TEST(DataRead, PathsDefaultToWorkingDirectory) {
+    PathTestScope paths;
     fs::path dir = TempDir("paths_cwd");
     dc::test::UnsetEnv("DC_DATA");
     dc::test::UnsetEnv("DC_SAVE");

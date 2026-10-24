@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -132,13 +133,26 @@ struct Draw3DStrip {
     bool        ground_uv_flip_v = false;
 };
 
+/**
+ * One adjacent set of strips with compatible materials and contiguous indices.
+ * Runs keep the mesh's original strip order for drawing.
+ */
+struct Draw3DStripRun {
+    std::size_t first_strip = 0;
+    std::size_t strip_count = 0;
+    uint32_t    index_count = 0;
+};
+
 struct Draw3DVisual {
-    gfx::MeshHandle            mesh = gfx::kNullMesh;
-    std::vector<Draw3DStrip>   strips;
-    std::vector<gfx::Vertex3D> vertices;
-    std::vector<uint32_t>      indices; // kept only for immediate (per-frame) visuals
-    bool                       vertex_colour = false;
-    bool                       immediate = false;
+    gfx::MeshHandle             mesh = gfx::kNullMesh;
+    std::vector<Draw3DStrip>    strips;
+    std::vector<Draw3DStripRun> strip_runs;
+    std::vector<gfx::Vertex3D>  vertices;
+    std::vector<uint32_t>       indices; // kept only for immediate (per-frame) visuals
+    bool                        vertex_colour = false;
+    bool                        immediate = false;
+    bool                        cache_strip_runs_on_finish = false; /**< Model builders opt in before finalization. */
+    bool                        strip_runs_cached = false;          /**< Whether cached runs match the current strips. */
 };
 
 Draw3DVisual *Draw3DFindVisual(const void *block);
@@ -150,6 +164,11 @@ Draw3DVisual &Draw3DRegisterVisual(unsigned int *block, bool transient);
 void Draw3DSweepVisuals();
 // Uploads the record's vertices and indices as a mesh, or keeps them for immediate draws.
 void Draw3DFinishVisual(Draw3DVisual &visual);
+/**
+ * Discards cached strip boundaries after a visual's materials or strip layout changes.
+ * Future draws use the current strip data directly.
+ */
+void Draw3DInvalidateStripRuns(Draw3DVisual &visual);
 void Draw3DDrawVisual(const Draw3DVisual &visual, const float model[4][4], const RenderInfo &info, int program);
 
 // Strip index order into a triangle list, every triangle wound as the strip's first.

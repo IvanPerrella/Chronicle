@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "dataalloc.hpp"
+#include "dataread_port.hpp"
 #include "platform/arena.hpp"
 
 // Retail's arena methods with its arithmetic and its off-by-one checks kept;
@@ -64,6 +65,7 @@ void *PlaceDataAllocObject(std::size_t size, u_long128 *block) {
 
 PORT_OVERRIDE u_char *CDataAlloc2<1>::Alloc(int quads) {
     CheckAllocation(this, used, quads, limit);
+    DataReadInvalidateCopiedSources(this, static_cast<std::size_t>(quads));
     u_char *block = base + used * 16;
     used += quads;
     g_last_run = {this, block, quads};
@@ -78,6 +80,7 @@ PORT_OVERRIDE u_char *CDataAlloc2<1>::Alloc64(int quads) {
     if (quads >= limit - used) {
         ArenaOverflow(this, -1, limit);
     }
+    DataReadInvalidateCopiedSources(this, static_cast<std::size_t>(quads));
     u_char *block = base + used * 16;
     used += quads;
     g_last_run = {this, block, quads};

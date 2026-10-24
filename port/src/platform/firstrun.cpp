@@ -28,6 +28,7 @@
 #include "exitcodes.hpp"
 #include "gfx/gfx.hpp"
 #include "platform/overlay.hpp"
+#include "platform/data_archive.hpp"
 #include "platform/paths.hpp"
 #include "platform/settings.hpp"
 #include "platform/window.hpp"
@@ -533,6 +534,9 @@ Java_org_themoonpeople_chronicle_ChronicleActivity_nativeCancelFirstRun(JNIEnv *
 #endif
 
 bool FirstRunDataMissing(const fs::path &root) {
+    if (DataArchivePresent(root)) {
+        return false;
+    }
     std::error_code error;
     if (!fs::is_directory(root, error)) {
         return true;

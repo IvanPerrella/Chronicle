@@ -7,10 +7,10 @@ set(CMAKE_PROJECT_simdjson_INCLUDE_BEFORE "${CMAKE_CURRENT_LIST_DIR}/patch_simdj
 
 if(DEFINED ENV{SWITCH_PREFIX})
     list(PREPEND CMAKE_PREFIX_PATH $ENV{SWITCH_PREFIX})
-    set(Vulkan_INCLUDE_DIR $ENV{SWITCH_PREFIX}/include CACHE PATH "NVK's Vulkan headers")
-    set(Vulkan_LIBRARY $ENV{SWITCH_PREFIX}/lib/libvulkan_nouveau.a CACHE FILEPATH "NVK, linked statically")
-    # SDL3 and NVK use the same Mesa libraries, ahead of devkitPro's older portlibs.
-    set(CMAKE_EXE_LINKER_FLAGS "-L$ENV{SWITCH_PREFIX}/lib ${CMAKE_EXE_LINKER_FLAGS}")
+    unset(Vulkan_LIBRARY CACHE)
+    unset(Vulkan_INCLUDE_DIR CACHE)
+    set(Vulkan_DIR "$ENV{SWITCH_PREFIX}/lib/cmake/Vulkan")
+    find_package(Vulkan CONFIG REQUIRED)
 endif()
 
 # What newlib and libnx lack of POSIX (switch_compat.h, ucontext.h), ahead of every unit.
@@ -25,7 +25,7 @@ add_compile_options(-fsigned-char)
 function(dc_switch_host target)
     set_source_files_properties(${KZ_PORT_ROOT}/platform/memory.cpp PROPERTIES HEADER_FILE_ONLY ON)
     target_sources(${target} PRIVATE ${DC_SWITCH_DIR}/src/memory.cpp ${DC_SWITCH_DIR}/src/ucontext.cpp
-        ${DC_SWITCH_DIR}/src/nxlink.cpp)
+        ${DC_SWITCH_DIR}/src/nxlink.cpp ${DC_SWITCH_DIR}/src/thread_affinity.cpp)
 endfunction()
 
 function(dc_switch_port target)

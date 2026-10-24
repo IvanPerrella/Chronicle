@@ -17,7 +17,7 @@ screenshot output, stay under this ignored directory. Explicit `--data` and
 `--save` arguments override these script defaults. Relative file arguments are
 resolved from `port/run/`; use absolute paths for inputs elsewhere.
 
-For an existing checkout, move `data/`, `save/`, `soundtrack/` and `darkcloud.ico`
+For an existing checkout, move `data/`, `data.zip`, `save/`, `soundtrack/` and `darkcloud.ico`
 from the repository root into `port/run/` before the first script launch to keep
 using them. A directly launched executable retains the path defaults below.
 
@@ -52,8 +52,11 @@ same from a shell:
 
 ```sh
 port/build/pc/dcdata extract "rom/pal/Dark Cloud (PAL).iso" data
+port/build/pc/dcdata pack data
 port/build/pc/darkcloud --data data --save save
 ```
+
+`pack` writes `data.zip` beside `data/`. The archive contains the extracted and normalized game data, including `languages.json`; you can install just the archive for game data. When both are present, the archive supplies game files. Keep `data/` until you have verified the archive and any workflows that need loose files.
 
 The extractor accepts a PAL or NTSC disc image. For NTSC data it supplies the
 localized filenames and pack members expected by the shared game code, including
@@ -89,7 +92,7 @@ a language the data lacks, and its English button reads as the disc's art does.
 
 | Option | Meaning |
 |---|---|
-| `--data DIR` | the extracted data (default: `DC_DATA`, then `./data`, then `data/` beside the executable, then `$XDG_DATA_HOME/chronicle/data`) |
+| `--data DIR` | the extracted data directory or the logical directory beside `data.zip` (default: `DC_DATA`, then `./data`, then `data/` beside the executable, then `$XDG_DATA_HOME/chronicle/data`) |
 | `--save DIR` | saves, `config.json`, the pipeline cache and host files (default: `DC_SAVE`, then `./save`, then `save/` beside the executable, then `save/` beside a local `data/`, then `$XDG_DATA_HOME/chronicle/save`); created on first use |
 | `--headless` | SDL's offscreen video driver with `VK_EXT_headless_surface`, SDL's dummy audio driver, and the game clock unbounded (one tick per pump, no sleeping) |
 | `--offscreen` | `--headless` without a Vulkan surface: frames are drawn to an image only (what `--headless` does by itself when the loader has no `VK_EXT_headless_surface`) |
@@ -1939,13 +1942,16 @@ which verifies every image byte for byte.
 
 ## Game data
 
-The game reads its files from a plain directory, not from the disc.
+The game reads extracted files from a plain directory or a sibling `data.zip` archive, not from the disc.
 `port/build/pc/dcdata` (`tools/dcdata`) makes it:
 
 ```sh
 port/build/pc/dcdata extract "rom/pal/Dark Cloud (PAL).iso" data
+port/build/pc/dcdata pack data
 port/build/pc/dcdata list "rom/pal/Dark Cloud (PAL).iso"
 ```
+
+`pack` takes an existing extracted directory and writes a ZIP archive beside it by default; a second output path is optional. It stores files without compression so the port can read them on Switch without a decompression cost. The runtime also reads standard deflated ZIP entries. ZIP64, encrypted and multi-disk archives are unsupported. The game gives `data.zip` priority over loose files when both exist. Do not modify an archive while the game is running.
 
 The source is a disc image, read through its ISO 9660 tree, or a directory
 that holds `DATA.DAT` and `DATA.HD2` (such as `rom/pal/extracted/iso`).
@@ -1956,7 +1962,7 @@ its size is kept, so a rerun only repairs what is missing. When a path is
 listed twice, only the first is written, as the game only ever finds the
 first. `list` prints each file's sector, size and path.
 
-The layout of `data/` is the archive's own: `dun/pack/maindat.pac`,
+The layout of `data/` or the root of `data.zip` is the disc archive's own: `dun/pack/maindat.pac`,
 `commenu/a_eng/savetex.pak`, `sound/bgm/...` and so on. Lookups fold case,
 as the game's `strcasecmp` does, so the case on disk does not matter.
 
@@ -2001,7 +2007,7 @@ installing, the first start and where the data and saves live.
 
 ## Renderer performance and threading
 
-The Kazarov dependency is pinned to upstream `master` at `28281ce`. It includes
+The Kazarov dependency is pinned at `726b1ee`. It includes
 ChronicleTwo's renderer work: cached camera re-basing, bone palettes stored separately
 from draw constants, shared storage-buffer records, deduplicated uploads and descriptor
 bindings, cached display-list rewrites, full-cover grabs without a redundant copy, and

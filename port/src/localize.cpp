@@ -19,6 +19,7 @@
 
 #include "../../tools/dcdata/dcdata.hpp"
 #include "dataread.hpp"
+#include "dataread_port.hpp"
 #include "mainselect.hpp"
 #include "menu_option.hpp"
 #include "platform/config.hpp"
@@ -794,12 +795,6 @@ bool IsJapanese(const std::map<int, std::string> &messages) {
 } // namespace
 
 int LocalizeExport(const fs::path &out, bool verify) {
-    const fs::path &root = PathsDataRoot();
-    std::error_code error;
-    if (!fs::is_directory(root, error)) {
-        std::fprintf(stderr, "export: %s is not a directory\n", PathsDisplay(root).c_str());
-        return -1;
-    }
     std::vector<Exported> found;
     int                   mismatched = 0;
     auto                  add = [&](const std::string &key, const s16 *words, size_t count) {
@@ -836,21 +831,16 @@ int LocalizeExport(const fs::path &out, bool verify) {
         found.push_back(std::move(item));
     };
 
-    auto options = fs::directory_options::follow_directory_symlink | fs::directory_options::skip_permission_denied;
-    for (fs::recursive_directory_iterator it(root, options, error), end; !error && it != end; it.increment(error)) {
-        std::error_code entry_error;
-        if (!it->is_regular_file(entry_error)) {
-            continue;
-        }
-        const std::string key = dcdata::FoldPath(it->path().lexically_relative(root).generic_string());
+    for (const std::string &key : DataReadListFiles()) {
         const bool        mes = IsMessageName(key);
         if (!mes && !IsPackName(key)) {
             continue;
         }
-        std::string bytes;
-        if (!ReadText(it->path(), bytes)) {
+        std::vector<std::uint8_t> file_bytes;
+        if (!DataReadReadFile(key, file_bytes)) {
             continue;
         }
+        std::string bytes(file_bytes.begin(), file_bytes.end());
         if (mes) {
             std::vector<s16> words(bytes.size() / 2);
             std::memcpy(words.data(), bytes.data(), words.size() * 2);

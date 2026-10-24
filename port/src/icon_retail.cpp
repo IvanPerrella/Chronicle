@@ -3,6 +3,10 @@
 // No renderer or platform implementation is duplicated.
 #include "icon_retail.hpp"
 
+#include "dataread_port.hpp"
+#include "platform/data_archive.hpp"
+#include "platform/paths.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -436,7 +440,11 @@ GameIconSource RetailIconSource(const fs::path &root) {
         fs::path                  path;
         std::vector<std::uint8_t> pack, icon;
         std::vector<vfs::Ref>     result;
-        if (FindFolded(root, relative.parent_path(), path) && ReadFile(path, pack) && PackMember(pack, "dkicon.ico", icon)) {
+        const fs::path pack_name = relative.parent_path();
+        const bool read = root == PathsDataRoot() && DataArchivePresent(root)
+                              ? DataReadReadFile(pack_name.generic_string(), pack)
+                              : FindFolded(root, pack_name, path) && ReadFile(path, pack);
+        if (read && PackMember(pack, "dkicon.ico", icon)) {
             auto file = std::make_shared<IconFile>();
             file->bytes = RetailIconToGlb(icon);
             if (!file->bytes.empty()) {

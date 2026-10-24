@@ -2,9 +2,12 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <algorithm>
+#include <cctype>
 
 #include "area_card.hpp"
 #include "dataread.hpp"
@@ -62,30 +65,62 @@ void Show(CTexture *texture, const CRect_i_ &screen, const CRect_i_ &texel, u_ch
 
 void Upload(CTexture *texture) {
     sceGsTex0 *tex0 = reinterpret_cast<sceGsTex0 *>(&texture->tex0);
-    unsigned   tbp = 0;
-    unsigned   cbp = 0;
-    if (texture->image[0] != nullptr) {
-        const u_char      *levels[1] = {reinterpret_cast<const u_char *>(texture->image[0])};
-        PortDecodedTexture decoded;
-        if (PortDecodeTexture(texture->bpp, texture->width, texture->height, levels, 1,
-                              reinterpret_cast<const u_char *>(texture->clut), 0,
-                              false, decoded)) {
-            if (texture == &nl_tex && !card_name.empty()) {
-                painted_tbp = painted_cbp = 0;
-                PortDecodedTexture painted = decoded;
-                if (!areacard::Prepare(card_name, decoded)) {
-                    LocalizeTexture(card_name.c_str(), decoded);
-                    painted.levels.clear();
-                } else {
-                    LocalizeTexture(card_name.c_str(), painted);
-                }
-                if (!painted.levels.empty()) {
-                    painted_tbp = PortCreateTexture(painted, PortTextureOwner::Loading, &painted_cbp);
-                }
-            }
-            tbp = PortCreateTexture(decoded, PortTextureOwner::Loading, &cbp);
+    if (texture->image[0] == nullptr) {
+        tex0->TBP0 = 0;
+        tex0->bits.tcc = 1;
+        tex0->CBP = 0;
+        return;
+    }
+
+    DataReadSource source;
+    if (!DataReadSourceRange(texture->image[0], 1, source)) {
+        std::fprintf(stderr, "nowload: %s has no validated source identity\n", texture->name);
+        std::abort();
+    }
+    const std::optional<std::string> document = PortTextureDocumentFromSource(source);
+    if (!document) {
+        std::fprintf(stderr, "nowload: %s has no baked document for %s\n", texture->name, source.path.c_str());
+        std::abort();
+    }
+
+    std::string asset_name = texture->name;
+    const std::filesystem::path source_path(source.path);
+    std::string                 extension = source_path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (extension == ".tm2") {
+        asset_name = source_path.stem().string();
+    }
+
+    const u_char *clut = reinterpret_cast<const u_char *>(texture->clut);
+    const std::size_t clut_bytes = texture->bpp == 0 ? 64 : texture->bpp == 1 ? 1024 : 0;
+    const std::optional<unsigned> entry_index = PortTextureEntryIndexFromSource(source);
+    PortDecodedTexture decoded;
+    std::string error;
+    if (!PortLoadBakedTexture(*document, asset_name, 0, static_cast<unsigned>(texture->width),
+                              static_cast<unsigned>(texture->height), 0, clut,
+                              clut == nullptr ? 0 : clut_bytes, decoded, error, entry_index, texture->bpp)) {
+        std::fprintf(stderr, "nowload: baked texture %s from %s failed: %s\n", asset_name.c_str(),
+                     source.path.c_str(), error.c_str());
+        std::abort();
+    }
+
+    if (texture == &nl_tex && !card_name.empty()) {
+        painted_tbp = painted_cbp = 0;
+        PortDecodedTexture painted = decoded;
+        if (!areacard::Prepare(card_name, decoded)) {
+            LocalizeTexture(card_name.c_str(), decoded);
+            painted.levels.clear();
+        } else {
+            LocalizeTexture(card_name.c_str(), painted);
+        }
+        if (!painted.levels.empty()) {
+            painted_tbp = PortCreateTexture(painted, PortTextureOwner::Loading, &painted_cbp);
         }
     }
+    unsigned cbp = 0;
+    const unsigned tbp = PortCreateTexture(decoded, PortTextureOwner::Loading, &cbp);
     tex0->TBP0 = tbp;
     tex0->bits.tcc = 1;
     tex0->CBP = cbp;

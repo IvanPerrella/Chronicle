@@ -1,8 +1,8 @@
 # The Nintendo Switch homebrew toolchain for Chronicle (docs/SWITCH.md): devkitPro's devkitA64 and
 # libnx, with the two libraries devkitPro does not package yet built in from source:
 #
-# - Mesa with NVK (Vulkan 1.3 on the Tegra X1) and nouveau GL/EGL, from etonedemid/mesa-switch.
-#   Kazarov's Vulkan renderer runs on it unchanged.
+# - Mesa with NVK from Dan's Switch port, using the direct libnx Horizon GPU backend.
+#   Its loaderless, merged static Vulkan archive is linked into the NRO.
 # - SDL3 for libnx: devkitPro's switch-sdl-3.4 branch with etonedemid's Vulkan surface support
 #   (VK_NN_vi_surface), from etonedemid/SDL.
 #
@@ -11,7 +11,7 @@
 
 FROM docker.io/devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282
 
-ARG MESA_REV=e1e2a5ffa473312bec8e6d618f8c2ef269137ec9
+ARG MESA_REV=0ff52079ca9e9e837ed27eb95a8d239f439a1864
 ARG SDL_REV=1e3b67ef787c0fdba47b42fc663c70613c8b04db
 ARG RUST_NIGHTLY=nightly-2026-09-20
 ARG BINDGEN_VERSION=0.72.1
@@ -47,25 +47,22 @@ RUN git clone --depth 1 --branch ${GLSLANG_TAG} https://github.com/KhronosGroup/
 
 # NVK's compiler (NAK) is Rust: a pinned nightly with rust-src, since the Switch's std is built from it.
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain none \
-    && rustup toolchain install ${RUST_NIGHTLY} --profile minimal --component rust-src \
+    && rustup toolchain install ${RUST_NIGHTLY} --profile minimal --component rust-src --component rustfmt \
+    && rustup target add --toolchain ${RUST_NIGHTLY} aarch64-unknown-linux-gnu \
     && rustup default ${RUST_NIGHTLY} \
     && LIBCLANG_PATH=/usr/lib/llvm-15/lib cargo install --locked bindgen-cli --version ${BINDGEN_VERSION} \
     && rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git"
 ENV LIBCLANG_PATH=/usr/lib/llvm-15/lib
 
-# Mesa: setup.sh writes the machine files and builds Rust's std for the Switch and the host tools;
-# merge-vk.sh folds NVK and everything it links into one libvulkan_nouveau.a. Its scripts ask for
-# a toolchain named plain "nightly", which rustup will not alias, so they are pointed at the pin;
-# its bindgen wrapper runs /usr/bin/bindgen. The fork's subprojects/.gitignore leaves out
-# subprojects/packagefiles (the Rust crates' Meson files), so they come from the 26.2.3 release
-# it is based on.
-ARG MESA_TARBALL_SHA256=1628058a8d2c0615975de5a15ab7bbb9638c50000b5bed9456ff423ea034a81f
-# NVK's image layout library (nil) also needs cbindgen 0.28 or later, and bindgen runs rustfmt.
+# Dan's Mesa checkout omits ignored Meson wrap packagefiles; restore them from the matching release.
+ARG MESA_TARBALL_SHA256=bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9
+# NVK's image layout library (nil) also needs cbindgen 0.28 or later.
 # mesa_clc looks for clang's OpenCL headers beside itself rather than in Debian's LLVM, so the host
 # build bundles them into it.
 ARG CBINDGEN_VERSION=0.29.4
 # mesa_clc also needs SPIRV-Tools 2024.1 or later; Debian 12 has 2023.1.
 ARG SPIRV_SDK_TAG=vulkan-sdk-1.4.363.0
+# Keep the fixed extents reported by NVK in step with handheld and docked display modes.
 RUN git clone --depth 1 --branch ${SPIRV_SDK_TAG} https://github.com/KhronosGroup/SPIRV-Headers.git /tmp/spirv-headers \
     && git clone --depth 1 --branch ${SPIRV_SDK_TAG} https://github.com/KhronosGroup/SPIRV-Tools.git /tmp/spirv-tools \
     && cmake -S /tmp/spirv-headers -B /tmp/spirv-headers/build -G Ninja -DCMAKE_INSTALL_PREFIX=/usr/local \
@@ -76,42 +73,59 @@ RUN git clone --depth 1 --branch ${SPIRV_SDK_TAG} https://github.com/KhronosGrou
     && cmake --build /tmp/spirv-tools/build --target install \
     && ldconfig \
     && rm -rf /tmp/spirv-headers /tmp/spirv-tools
-RUN ln -sf "$CARGO_HOME/bin/bindgen" /usr/bin/bindgen \
-    && rustup component add rustfmt --toolchain ${RUST_NIGHTLY} \
-    && cargo install --locked cbindgen --version ${CBINDGEN_VERSION} \
+COPY patches/mesa-switch-dock-mode.patch /tmp/mesa-switch-dock-mode.patch
+COPY patches/mesa-switch-shader-va-fallback.patch /tmp/mesa-switch-shader-va-fallback.patch
+COPY patches/mesa-switch-no-elf.patch /tmp/mesa-switch-no-elf.patch
+COPY build-mesa.sh /tmp/build-mesa.sh
+COPY bindgen-switch-wrapper.sh /tmp/bindgen-switch-wrapper.sh
+COPY rustc-switch-wrapper.sh /tmp/rustc-switch-wrapper.sh
+COPY bindgen-atomic-shim.h /tmp/bindgen-atomic-shim.h
+COPY switch_cross_file.txt /tmp/switch_cross_file.txt
+COPY switch_native_file.txt /tmp/switch_native_file.txt
+RUN cargo install --locked cbindgen --version ${CBINDGEN_VERSION} \
     && rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git" \
-    && git clone https://github.com/etonedemid/mesa-switch.git /tmp/mesa \
-    && git -C /tmp/mesa checkout --detach ${MESA_REV} \
-    && curl -sSfL -o /tmp/mesa.tar.xz https://archive.mesa3d.org/mesa-26.2.3.tar.xz \
+    && mkdir -p /tmp/mesa \
+    && git -C /tmp/mesa init \
+    && git -C /tmp/mesa remote add origin https://github.com/danfromtico/mesa-switch.git \
+    && git -C /tmp/mesa fetch --depth 1 origin ${MESA_REV} \
+    && git -C /tmp/mesa checkout --detach FETCH_HEAD \
+    && git -C /tmp/mesa apply --check /tmp/mesa-switch-dock-mode.patch \
+    && git -C /tmp/mesa apply /tmp/mesa-switch-dock-mode.patch \
+    && git -C /tmp/mesa apply --check /tmp/mesa-switch-shader-va-fallback.patch \
+    && git -C /tmp/mesa apply /tmp/mesa-switch-shader-va-fallback.patch \
+    && git -C /tmp/mesa apply --check /tmp/mesa-switch-no-elf.patch \
+    && git -C /tmp/mesa apply /tmp/mesa-switch-no-elf.patch \
+    && curl -sSfL -o /tmp/mesa.tar.xz https://archive.mesa3d.org/mesa-26.2.4.tar.xz \
     && echo "${MESA_TARBALL_SHA256}  /tmp/mesa.tar.xz" | sha256sum -c - \
-    && tar -xJf /tmp/mesa.tar.xz -C /tmp/mesa/subprojects --strip-components=2 mesa-26.2.3/subprojects/packagefiles \
+    && tar -xJf /tmp/mesa.tar.xz -C /tmp/mesa/subprojects --strip-components=2 mesa-26.2.4/subprojects/packagefiles \
     && rm /tmp/mesa.tar.xz \
-    && cd /tmp/mesa/switch \
-    && sed -i "s/--toolchain nightly/--toolchain ${RUST_NIGHTLY}/; s/+nightly /+${RUST_NIGHTLY} /" setup.sh rust/build-sysroot.sh \
-    && sed -i "s/-Dzstd=disabled$/-Dzstd=disabled -Dmesa-clc-bundle-headers=enabled/" build-host.sh \
-    && grep -q mesa-clc-bundle-headers build-host.sh \
-    && ./setup.sh \
-    && ./configure-vk.sh \
-    && ninja -C build-vk install \
-    && ./merge-vk.sh \
-    && mkdir -p ${SWITCH_PREFIX} \
-    && cp -r stage-vk/lib stage-vk/include ${SWITCH_PREFIX}/ \
+    && cp /tmp/bindgen-switch-wrapper.sh /tmp/mesa/bindgen-switch-wrapper.sh \
+    && cp /tmp/rustc-switch-wrapper.sh /tmp/mesa/rustc-switch-wrapper.sh \
+    && cp /tmp/bindgen-atomic-shim.h /tmp/mesa/bindgen-atomic-shim.h \
+    && cp /tmp/switch_cross_file.txt /tmp/mesa/switch_cross_file.txt \
+    && cp /tmp/switch_native_file.txt /tmp/mesa/switch_native_file.txt \
+    && /tmp/build-mesa.sh \
     && rm -rf /tmp/mesa
 
 # SDL3 with its Vulkan support on. It builds against its own copy of the Vulkan headers and only
-# records vulkan_nouveau for the application's link.
+# records Vulkan API entry points for the application's link.
 # patches/sdl-vulkan-window-without-egl.patch: the fork refuses every window until EGL is loaded,
 # which SDL does only for OpenGL windows, so a Vulkan window could not be made at all.
 COPY patches/sdl-vulkan-window-without-egl.patch /tmp/sdl-vulkan-window-without-egl.patch
+COPY patches/sdl-static-nvk-no-legacy-mesa.patch /tmp/sdl-static-nvk-no-legacy-mesa.patch
 RUN git clone https://github.com/etonedemid/SDL.git /tmp/sdl \
     && git -C /tmp/sdl checkout --detach ${SDL_REV} \
     && git -C /tmp/sdl apply --check /tmp/sdl-vulkan-window-without-egl.patch \
     && git -C /tmp/sdl apply /tmp/sdl-vulkan-window-without-egl.patch \
+    && git -C /tmp/sdl apply --check /tmp/sdl-static-nvk-no-legacy-mesa.patch \
+    && git -C /tmp/sdl apply /tmp/sdl-static-nvk-no-legacy-mesa.patch \
     && cmake -S /tmp/sdl -B /tmp/sdl/build -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=${DEVKITPRO}/cmake/Switch.cmake -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=${SWITCH_PREFIX} -DCMAKE_PREFIX_PATH=${SWITCH_PREFIX} \
         -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_VULKAN=ON \
+        -DSDL_OPENGL=OFF \
     && cmake --build /tmp/sdl/build --target install \
+    && ! grep -Eq 'EGL|glapi|drm_nouveau|vulkan_nouveau' /opt/switch/lib/cmake/SDL3/SDL3staticTargets.cmake \
     && rm -rf /tmp/sdl
 
 # The build runs as the invoking user so the mounted checkout keeps its ownership.

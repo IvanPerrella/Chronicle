@@ -13,7 +13,7 @@ FILE_PATTERNS          = *.c \
                          *.h \
                          *.hpp
 RECURSIVE              = YES
-USE_MDFILE_AS_MAINPAGE = README.md
+USE_MDFILE_AS_MAINPAGE = ./README.md
 ALIASES                = "mangled=@par Mangled name:^^" \
                          "address=@par Address:^^" \
                          "size=@par Size:^^" \
