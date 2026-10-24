@@ -54,6 +54,7 @@ gfx::TextureHandle  g_shadow_target = gfx::kNullTexture;
 gfx::TextureHandle  g_last_frame_copy = gfx::kNullTexture;
 unsigned            g_frame_copies = 0;
 gfx::TextureHandle  g_frame_picture = gfx::kNullTexture;
+bool                g_frame_picture_pending = false;
 gfx::TextureHandle  g_shadow_previous = gfx::kMainTarget;
 Draw3DShadowProgram g_shadow_program = Draw3DShadowProgram::Every;
 
@@ -163,11 +164,7 @@ void Blit(const ResolvedRect &src, const ResolvedRect &dst, gfx::Filter filter) 
     if (src.texture == gfx::kMainTarget && dst.texture != gfx::kMainTarget) {
         g_last_frame_copy = dst.texture;
         g_frame_copies++;
-        g_frame_picture = gfx::NamedRenderTarget("frame copy picture", static_cast<uint32_t>(kScreenWidth),
-                                                 static_cast<uint32_t>(kScreenHeight), false, false, true);
-        if (g_frame_picture != gfx::kNullTexture && !gfx::SnapshotFrame(g_frame_picture)) {
-            g_frame_picture = gfx::kNullTexture;
-        }
+        g_frame_picture_pending = true;
     }
     if (src.texture == dst.texture) {
         BlitWithin(src.texture, src.rect, dst.rect, filter);
@@ -295,6 +292,16 @@ unsigned Draw3DFrameCopies() {
 }
 
 gfx::TextureHandle Draw3DFramePicture() {
+    // The picture is taken when first asked for after the game's copy: the water draws straight
+    // after the copy, with nothing written to the frame in between.
+    if (g_frame_picture_pending) {
+        g_frame_picture_pending = false;
+        g_frame_picture = gfx::NamedRenderTarget("frame copy picture", static_cast<uint32_t>(kScreenWidth),
+                                                 static_cast<uint32_t>(kScreenHeight), false, false, true);
+        if (g_frame_picture != gfx::kNullTexture && !gfx::SnapshotFrame(g_frame_picture)) {
+            g_frame_picture = gfx::kNullTexture;
+        }
+    }
     if (g_frame_picture != gfx::kNullTexture && !gfx::GetTextureInfo(g_frame_picture)) {
         g_frame_picture = gfx::kNullTexture;
     }

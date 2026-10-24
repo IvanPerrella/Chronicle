@@ -67,8 +67,11 @@ bool PrepareRefraction(Refraction &refraction) {
     static gfx::TextureHandle pictured = gfx::kNullTexture;
     static unsigned           copies = 0;
 
+    if (gfx::CurrentRenderTarget() != gfx::kMainTarget) {
+        return false;
+    }
     refraction.frame = Draw3DFramePicture();
-    if (gfx::CurrentRenderTarget() != gfx::kMainTarget || refraction.frame == gfx::kNullTexture) {
+    if (refraction.frame == gfx::kNullTexture) {
         return false;
     }
     uint32_t width = static_cast<uint32_t>(kScreenWidth);
