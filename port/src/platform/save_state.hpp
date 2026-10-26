@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 
 // What the title needs to know before a save is loaded, kept as JSON beside the saves: the card's
 // configuration file held it on the PS2.
@@ -15,3 +16,9 @@ bool SaveStateRead(const std::filesystem::path &path, SaveState &state);
 
 // Written durably (files.hpp), its directory created first if need be.
 bool SaveStateWrite(const std::filesystem::path &path, const SaveState &state);
+
+/**
+ * Copies a save-root fixture into a new or empty destination before startup reads it.
+ * Rejects overlapping roots and source links; failures may leave a partial destination.
+ */
+bool SaveStateSeed(const std::filesystem::path &source, const std::filesystem::path &destination, std::string &error);

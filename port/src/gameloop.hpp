@@ -26,13 +26,16 @@ std::int64_t GameFrameCount();
 // last file's number whole where retail's round trip keeps one byte of it.
 void ResetSaveKeepingConfig(CSaveData &save);
 
-// Test hooks. GameSetJump takes "edit[:<map no>]" (the game's MapNo: 0-4 the towns, 11 and up
-// the sub maps, 99 the interior), "dungeon[:<n>]" (dungeon n, 0-6, map 200 + n, at its floor
-// select), "title", "rush", "opening" or "menu"; false for anything else. RunGame then sets
-// DebugMode, skips the warm-up and starts in that mode, set up as the developer menu (and, for a
-// dungeon, its loader) would have. GameSetFastLoad cuts the loading screen's holds and fades to a
-// few ticks.
+/**
+ * Selects a developer-mode start, skipping warm-up; returns false for an invalid specification.
+ * Accepts edit[:MapNo], dungeon[:0-6], title, rush, opening, menu, or populated town presets
+ * e01 (Norune), e03 (Queens) and e04 (Muska Lacka). Edit MapNo uses 0-4 for towns, 11 and up
+ * for submaps, and 99 for interiors; dungeons start at floor selection.
+ */
 bool GameSetJump(const char *spec);
+/**
+ * Reduces loading-screen holds and fades to a few ticks.
+ */
 void GameSetFastLoad(bool fast);
 
 // Test hook: the item and weapon numbers (ps2/include/itemdata.hpp's ITEM_*) the party is given,
@@ -123,6 +126,9 @@ struct GamePresentStats {
 };
 
 GamePresentStats GamePresentStatistics();
+
+// --perf-log: once a second, the game thread's tick times and the renderer's gfx::FrameTimings on stderr.
+void GameSetPerfLog(bool on);
 
 // Whether the FPS counter is drawn now.
 bool GameShowingFps();

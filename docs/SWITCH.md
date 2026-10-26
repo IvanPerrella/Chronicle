@@ -27,7 +27,11 @@ Copy these files to `sdmc:/switch/chronicle/`:
 
 `data.zip` contains every extracted file, including the normalized copies and language list. It is a standard stored ZIP and stays outside Git. An existing extracted `data/` directory also works; when both are installed, `data.zip` takes precedence. `--data` still names the logical `data/` path beside the archive.
 
-Start Chronicle from the Homebrew Menu with a game's title override by holding R while starting a game. Launching from the album applet leaves too little memory for the game. Runtime logs are written to `darkcloud.log` beside the `.nro`; `save/` stores settings, saves and the Vulkan pipeline cache created at startup.
+Start Chronicle from the Homebrew Menu with a game's title override by holding R while starting a game. Launching from the album applet leaves too little memory for the game. `save/` stores settings, saves and the Vulkan pipeline cache created at startup.
+
+## Logs
+
+Sent with `nxlink -s`, stdout and stderr go back to the sending computer and no log file is written. Otherwise every line also goes to the system log manager (the `lm` service): a development unit's Target Manager shows it with `ControlTarget read-log`, and Atmosphère's `lm` can keep it. Started from the Homebrew Menu, the game also writes `darkcloud.log` beside the `.nro`. Each start replaces the previous file, and a run writes at most 4 MiB to it, then notes that it stopped. A low-priority thread writes the file because a single SD card write can take 10 to 25 ms on hardware, and the game thread would otherwise stall on every log line. An installed application, such as a development unit's NSP, writes no log file and removes one an earlier run left in its directory. Saves, settings and the pipeline cache are never touched by log handling.
 
 The Homebrew Menu does not pass arguments to the application. Put whitespace-separated arguments in `args.txt` beside the `.nro`; supported options are listed in [PC port documentation](PC.md).
 
@@ -35,13 +39,35 @@ With asynchronous rendering, Chronicle places the game and render threads on sep
 
 ## Platform support
 
-The Switch build supplies guarded arena memory, cooperative context switching, compatibility flags for newlib and logging through nxlink. Its Vulkan driver is [Mesa NVK from Dan's Switch port](https://github.com/danfromtico/mesa-switch), pinned to commit `0ff52079ca9e9e837ed27eb95a8d239f439a1864` (Mesa 26.2.4) and built as a loaderless static library with a direct libnx Horizon backend. The WSI presents scanout-backed images with the GPU completion fence, avoiding a CPU copy on the present path. The output target is 1280 × 720 at 60 Hz in handheld mode and 1920 × 1080 at 60 Hz when docked. The game fills those 16:9 targets, cropping the 4:3 image vertically as needed. The game has not been qualified for gameplay or performance on physical Switch hardware; these are output targets, not measured frame rates.
+The Switch build supplies guarded arena memory, cooperative context switching, compatibility flags for newlib and logging through nxlink, `lm` and a capped log file (see [Logs](#logs)). Its Vulkan driver is [Mesa NVK from Dan's Switch port](https://github.com/danfromtico/mesa-switch), pinned to commit `0ff52079ca9e9e837ed27eb95a8d239f439a1864` (Mesa 26.2.4) and built as a loaderless static library with a direct libnx Horizon backend. The WSI presents scanout-backed images with the GPU completion fence, avoiding a CPU copy on the present path. The output target is 1280 × 720 at 60 Hz in handheld mode and 1920 × 1080 at 60 Hz when docked. The game fills those 16:9 targets, cropping the 4:3 image vertically as needed. Physical development-unit tests have sustained 60 Hz in the title and selected populated Norune, Queens and Muska Lacka views at stock handheld clocks and full handheld render scale. Those fixtures do not qualify the entire game or docked performance.
 
 To send an existing build through the Homebrew Menu's netloader, use `port/switch/run.sh`. Set `SWITCH_ADDRESS` when the console cannot be discovered by broadcast.
 
 ## Display
 
 Switch selects its rendering scale from the current console mode: 1.5 for handheld and 2.25 for docked, relative to the game's 480-pixel logical height. Docking and undocking update the scale and output size. The Switch build does not offer resolution or render-scale controls; saved desktop settings and `args.txt` cannot override its output target. Motion interpolation is disabled, while the game's 60 Hz tick rate remains unchanged.
+
+Switch enables display-list arenas, direct shadow clipping, proven-opaque alpha-test
+draws, safe near-fog mesh variants, reciprocal near-fog depth, combined depth planes
+and inline render-thread mesh dispatch. Each preserves the general fallback for
+unsupported geometry or state. Heat haze begins farther from the player, skips
+identity copies and samples a half-resolution image with linear filtering. The
+renderer keeps normal ordered blending for 2D draws.
+
+For A/B comparisons, `--env NAME=VALUE` in `args.txt` overrides these defaults:
+`KZ_LIST_ARENA`, `DC_SHADOW_CLIP_DIRECT`, `KZ_ALPHA_OPAQUE`, `KZ_FOG_NEAR_SAFE`,
+`KZ_DEPTH_PLANES`, `DC_HAZE_SKIP_IDENTITY`, `KZ_FOG_NEAR_RECIPROCAL` and
+`KZ_INLINE_MESH_DISPATCH` are `1`; `DC_HAZE_SCALE` is `0.5`. Set the corresponding
+boolean to `0`, or the haze scale to `1`, for its baseline. These switches are
+diagnostic controls, not lower-quality display presets.
+
+The archive and source-metadata improvements described in [PC](PC.md) also apply
+on Switch. In a populated Norune loading fixture, archive indexing fell from about
+3.55 s to 0.18 s, and the measured archive/source-read span fell from 8.2 s to 1.4 s.
+That span excludes pipeline compilation and is not total startup time. First-log
+to regular frame reports was approximately 12–13 s in the development-unit fast-load
+harness, including about 5.9 s of pipeline setup. Homebrew Menu launch-to-playable,
+normal UI loading and all area transitions still require separate measurement.
 
 ## Emulator testing
 
@@ -55,7 +81,40 @@ The fresh Mesa 26.2.4 NRO was also tested with Ryubing Canary 1.3.351 (Windows x
 
 ## Performance work
 
-The Switch integration has not been measured on physical hardware. Establish a repeatable baseline on physical consoles before attributing slow scenes to the CPU, GPU or storage. Use the same PAL data, save, scripted inputs, area and camera path for each run, with the fixed mode-specific resolution. Record frame times, late presents, CPU and GPU timings, memory use and game ticks. Check screenshots against the existing rendering baseline after every optimization. The separate-core setting needs a physical comparison against `--switch-core-affinity auto`; libnx otherwise allows its worker threads on every process core.
+The Switch build was first measured on a development unit on 2026-10-25; see [Measurements](#measurements). Establish a repeatable baseline on physical consoles before attributing slow scenes to the CPU, GPU or storage. Use the same PAL data, save, scripted inputs, area and camera path for each run, with the fixed mode-specific resolution. Record frame times, late presents, CPU and GPU timings, memory use and game ticks. Check screenshots against the existing rendering baseline after every optimization. The separate-core setting needs a physical comparison against `--switch-core-affinity auto`; libnx otherwise allows its worker threads on every process core.
+
+### Measuring on a development unit
+
+The runner includes title and populated Norune routes. Queens and Muska Lacka
+require an explicit qualified `-SceneArgsOverride`, `-InputOverride` and `-Frames`;
+the provisional developer-preset routes are not used for acceptance.
+
+`--perf-log` prints one line a second: game-thread tick intervals and late ticks, the mode's logic and recording time (`work`), the canonical render call including any wait for the render thread (`render`) and the wait for the next tick; the render thread's CPU time per canonical and display frame; GPU time from Vulkan timestamps around each frame's draw commands and the share of the second the GPU was busy; `vkAcquireNextImageKHR`, `vkQueuePresentKHR` and frame-fence waits; and present intervals bucketed by 60 Hz refreshes. It is off by default and works on every platform. The Switch build also logs its operation mode, performance mode and performance configuration, and Kazarov logs the swapchain's extent, image count and present mode. NVK reports a 1 ns timestamp period on the GM20B, whose timer ticks every 625/384 ns, so the Switch build corrects it.
+
+`args.txt` may contain `--env NAME=VALUE` to set a settings variable such as `KZ_BINDLESS` or `DC_PRESENT_STATS`, since the console has no environment.
+
+`port/switch/devkit-perf.ps1` packages `port/build/switch/darkcloud.elf` as a test application, runs it on a development unit in handheld mode at normal clocks, and prints a summary of the last ten one-second windows in the scene:
+
+```powershell
+port/switch/devkit-perf.ps1 -Scene title -DataZip <PAL data.zip> -SdkRoot <NintendoSDK> -Target <serial>
+port/switch/devkit-perf.ps1 -Scene norune -DataZip <PAL data.zip> -SdkRoot <NintendoSDK> -Target <serial>
+```
+
+`title` is `--jump title` with no input for 720 ticks. `norune` is `--jump edit:0 --fast-load`, the developer menu's `e01`: it walks forward for 120 ticks, then holds the right stick to turn the camera until tick 900. Each run writes a new `Chronicle-DevkitPerf-<scene>-<time>` directory with the NSP, the relayed log (`run.log`) and a screenshot from the measured window. The unit's operation and performance policies return to automatic afterwards.
+
+### Measurements
+
+Handheld, 1280 × 720 swapchain and main target, configuration 0x00020003 (GPU 307.2 MHz, memory 1331.2 MHz), measured on 2026-10-25 with the libnx build and Mesa NVK:
+
+| Scene | Ticks per second | Canonical GPU per tick | Official-driver build, same clocks |
+|---|---|---|---|
+| Title, ticks 610-720 | 25.8 | 37.4 ms | about 57-60 |
+| Title, about tick 1800 | 20 | 49 ms | — |
+| Norune, turning | 46 | 20.3 ms | 60 |
+| Sun and Moon Temple, idle | 60 | 9.5 ms | 60 |
+
+Every slow case is GPU-bound: the GPU is busy for the whole second, and CPU work and present waits are small. Docked at 1920 × 1080 with boost clocks (configuration 0x00010001), the title runs at 21 ticks per second (46 ms GPU), and the Temple runs at 60 (11.3 ms GPU). With console mode forced to normal clocks, the Temple drops to 42 (21.3 ms GPU), compared with 9.3 ms for the official driver at the same clocks and resolution. In Norune, GPU time follows the GPU clock more than memory bandwidth: 20.5 ms at 307 MHz, 17.3 ms at 384 MHz, 15.5 ms at 460.8 MHz, and 14.3 ms at 460.8 MHz with 1600 MHz memory. Pushed textures (`KZ_BINDLESS=0`) and host-memory transients (`KZ_TRANSIENT_MEMORY=host`) make no difference. On the title, the cloud layer costs about 24 ms and the eight-tap fog about 18 ms at 720p. Synchronous SD card log writes of 10 to 25 ms each were removed from the game thread (see [Logs](#logs)).
+
 
 | Console mode | Repeatable scene runs | Capture and timing checks |
 |---|---|---|

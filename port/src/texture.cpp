@@ -449,12 +449,12 @@ std::optional<unsigned> Dc1ImgEntryIndex(const DataReadSource &source) {
     if (source.offset < member_start || source.offset - member_start >= member_size) {
         return std::nullopt;
     }
-    std::vector<std::uint8_t> raw;
-    if (!DataReadReadResolvedFile(source.path, raw) || member_start > raw.size() ||
-        member_size > raw.size() - member_start || member_size < 16) {
+    const auto snapshot = DataReadResolvedMetadataSnapshot(source.path);
+    if (snapshot == nullptr || member_start > snapshot->size() ||
+        member_size > snapshot->size() - member_start || member_size < 16) {
         return std::nullopt;
     }
-    const std::uint8_t *member = raw.data() + member_start;
+    const std::uint8_t *member = snapshot->data() + member_start;
     const bool img3 = std::memcmp(member, "IM3\0", 4) == 0;
     if (!img3 && std::memcmp(member, "IMG\0", 4) != 0 && std::memcmp(member, "IM2\0", 4) != 0) {
         return std::nullopt;
@@ -518,11 +518,11 @@ std::optional<std::string> BakedTextureDocument(const DataReadSource &source) {
         } else {
             container_size = static_cast<std::size_t>(source.range_size);
         }
-        std::vector<std::uint8_t> raw;
-        if (!DataReadReadResolvedFile(source.path, raw)) {
+        const auto snapshot = DataReadResolvedMetadataSnapshot(source.path);
+        if (snapshot == nullptr) {
             return std::nullopt;
         }
-        const auto offset = EmbeddedTextureOffset(raw, container_start, container_size,
+        const auto offset = EmbeddedTextureOffset(*snapshot, container_start, container_size,
                                                   static_cast<std::size_t>(source.offset));
         if (!offset) {
             return std::nullopt;

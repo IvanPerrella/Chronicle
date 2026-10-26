@@ -7,6 +7,9 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
 
 #include "draw2d_port.hpp"
 #include "draw3d.hpp"
@@ -116,6 +119,8 @@ void TitlePortFog(std::span<const TitleFogBand> bands) {
     constexpr float field_offset[2] = {1.125f, -1.375f};
     constexpr float field_step[2] = {-0.5f, 0.0f};
     constexpr float down[2] = {-0.5f, 0.5f};
+    std::vector<gfx::Vertex2D> quads;
+    quads.reserve(taps * bands.size() * 4);
 
     for (int tap = 0; tap < taps; tap++) {
         for (const TitleFogBand &band : bands) {
@@ -155,11 +160,24 @@ void TitlePortFog(std::span<const TitleFogBand> bands) {
                 for (gfx::Vertex2D &vertex : quad) {
                     vertex.v *= 2.0f;
                 }
-                gfx::Draw2D(gfx::Primitive::Quads, quad, binding, draw2d::SpriteState());
-            } else {
-                draw2d::DrawTextured(gfx::Primitive::Quads, quad, texture->tex0, kFogTex1, draw2d::SpriteState());
             }
+            quads.insert(quads.end(), quad.begin(), quad.end());
         }
+    }
+    auto draw = [&](std::span<gfx::Vertex2D> vertices) {
+        if (full_height) {
+            gfx::Draw2D(gfx::Primitive::Quads, vertices, binding, draw2d::SpriteState());
+        } else {
+            draw2d::DrawTextured(gfx::Primitive::Quads, vertices, texture->tex0, kFogTex1, draw2d::SpriteState());
+        }
+    };
+    const char *batch = std::getenv("DC_TITLE_FOG_BATCH");
+    if (batch != nullptr && std::strcmp(batch, "0") == 0) {
+        for (size_t offset = 0; offset < quads.size(); offset += 4) {
+            draw(std::span(quads).subspan(offset, 4));
+        }
+    } else {
+        draw(quads);
     }
     draw2d::RestoreTestZbuf();
 }

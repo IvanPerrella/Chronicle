@@ -3,6 +3,7 @@
 #include "common.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -23,6 +24,16 @@ std::uintmax_t DataFileSize(std::string_view path);
 std::vector<std::string> DataReadListFiles();
 bool                     DataReadReadFile(std::string_view path, std::vector<std::uint8_t> &bytes);
 bool                     DataReadReadResolvedFile(std::string_view source_path, std::vector<std::uint8_t> &bytes);
+
+/**
+ * Pins raw source bytes for main-thread texture metadata inspection.
+ *
+ * Archived assets are cached by default and immutable within an index epoch; edits require DataReadReset
+ * or InitCDFile. DC_TEXTURE_SOURCE_CACHE=0 disables caching. Loose files stay fresh. Pins survive eviction
+ * and index reset.
+ * Returns nullptr when the exact source binding is missing, ambiguous or unreadable.
+ */
+std::shared_ptr<const std::vector<std::uint8_t>> DataReadResolvedMetadataSnapshot(std::string_view source_path);
 
 struct DataTextureReadStats {
     std::uint64_t            archived_json = 0;

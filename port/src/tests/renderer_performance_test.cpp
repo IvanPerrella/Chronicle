@@ -1,6 +1,7 @@
 #include <SDL3/SDL.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -108,7 +109,7 @@ TEST(ChroniclePresentation, ClothTurnsWithItsAttachmentWithoutBlendingAcrossTheB
                 }
             }
         }
-        previous = mesh.vertices;
+        previous.assign(mesh.vertices.begin(), mesh.vertices.end());
     }
     Draw3DSweepVisuals();
 }
@@ -137,6 +138,55 @@ TEST(ChroniclePresentation, AsyncPublishesAndStopsTheWorker) {
     const auto stopped = GamePresentStatistics().display_frames;
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     EXPECT_EQ(GamePresentStatistics().display_frames, stopped);
+}
+
+TEST(GfxGpuChroniclePresentation, AsyncPresentationReleasesDestroyedTexturesAtStop) {
+    dc::test::GfxFixture fixture(64, 48, 1.0f,
+                                 dc::test::GfxOptions{.offscreen = true, .texture_slots = 24, .render_thread = gfx::RenderThreadMode::Async});
+    ClockSetUnbounded(false);
+    ClockSetTickRate(60);
+    ClockReset();
+    GameSetPresentSettings({});
+    std::vector<std::weak_ptr<const gfx::DisplayList>> frames;
+    constexpr unsigned                                 count = 40;
+    {
+        // Keep the worker parked while recordings release their owned texture resources.
+        gfx::RenderLease lease;
+        for (unsigned tick = 0; tick < count; ++tick) {
+            gfx::BeginRecording();
+            const uint8_t clear[] = {0, 0, 0, 128};
+            gfx::Clear(true, clear, true, 0);
+            auto cpu_list = gfx::EndRecording();
+            frames.emplace_back(cpu_list);
+            GameRenderTick(std::move(cpu_list));
+            const auto texture = gfx::CreateTexture({1, 1});
+            ASSERT_NE(texture, gfx::kNullTexture);
+            const auto texel = dc::test::Rgba(static_cast<uint8_t>(40 + tick), 80, 120);
+            ASSERT_TRUE(gfx::UpdateTexture(texture, 0, 0, 0, 1, 1, &texel));
+            gfx::BeginRecording();
+            gfx::Clear(true, clear, true, 0);
+            gfx::TextureBinding binding;
+            binding.texture = texture;
+            const auto quad = dc::test::Quad(0, 0, 640, 480, {128, 128, 128, 128}, 0, 0, 1, 1);
+            gfx::Draw2D(gfx::Primitive::Quads, quad, binding, {});
+            gfx::DestroyTexture(texture);
+            auto list = gfx::EndRecording();
+            frames.emplace_back(list);
+            GameRenderTick(std::move(list));
+        }
+        EXPECT_LE(std::ranges::count_if(frames, [](const auto &frame) { return !frame.expired(); }), 8);
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!frames.front().expired() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_TRUE(frames.front().expired());
+    GameStopPresentation();
+    for (size_t i = 0; i + 2 < frames.size(); ++i) {
+        EXPECT_TRUE(frames[i].expired()) << i;
+    }
+    ASSERT_TRUE(gfx::ReadbackFrame(fixture.pixels, fixture.width, fixture.height));
+    EXPECT_TRUE(fixture.PixelNear(fixture.width / 2, fixture.height / 2, 40 + count - 1, 80, 120, 1));
 }
 
 TEST(ChroniclePresentation, CachedAdjacentStripsRetainOrderAfterMaterialChanges) {
