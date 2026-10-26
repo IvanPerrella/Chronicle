@@ -3,7 +3,9 @@
 #include "texture_port.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -28,6 +30,62 @@ constexpr unsigned kPsmT4HL = 36;
 constexpr unsigned kPsmT4HH = 44;
 
 std::unordered_map<std::string, std::vector<std::uint8_t>> texture_cluts;
+
+using BakedLoadClock = std::chrono::steady_clock;
+
+bool BakedLoadPerfEnabled() {
+    static const bool enabled = [] {
+        const char *value = std::getenv("DC_PERF_LOAD");
+        return value != nullptr && std::strcmp(value, "1") == 0;
+    }();
+    return enabled;
+}
+
+double BakedLoadMilliseconds(BakedLoadClock::time_point start, BakedLoadClock::time_point end) {
+    return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+struct BakedLoadTrace {
+    std::string_view           document;
+    std::string_view           name;
+    unsigned                   picture_index;
+    std::size_t                json_bytes = 0;
+    std::size_t                png_reads = 0;
+    std::size_t                png_decodes = 0;
+    std::uint64_t              png_bytes = 0;
+    std::uint64_t              rgba_bytes = 0;
+    double                     json_read_ms = 0.0;
+    double                     json_parse_schema_ms = 0.0;
+    double                     png_read_ms = 0.0;
+    double                     png_decode_ms = 0.0;
+    bool                       success = false;
+    BakedLoadClock::time_point started;
+
+    BakedLoadTrace(std::string_view document, std::string_view name, unsigned picture_index)
+        : document(document), name(name), picture_index(picture_index), started(BakedLoadClock::now()) {}
+
+    ~BakedLoadTrace() {
+        if (!success) {
+            return;
+        }
+        const auto            finished = BakedLoadClock::now();
+        const double          total_ms = BakedLoadMilliseconds(started, finished);
+        const double          other_ms = total_ms - json_read_ms - json_parse_schema_ms - png_read_ms - png_decode_ms;
+        constexpr std::size_t max_text = 512;
+        std::fprintf(stderr,
+                     "perf load texture success picture %u mips %zu json_reads 1 json_bytes %zu "
+                     "png_reads %zu png_bytes %llu png_decodes %zu rgba_bytes %llu total_wall_ms %.6f "
+                     "json_read_wall_ms %.6f json_parse_schema_wall_ms %.6f png_read_wall_ms %.6f "
+                     "png_decode_wall_ms %.6f selection_assembly_other_wall_ms %.6f "
+                     "doc_len %zu name_len %zu doc %.*s name %.*s\n",
+                     picture_index, png_decodes, json_bytes, png_reads, static_cast<unsigned long long>(png_bytes),
+                     png_decodes, static_cast<unsigned long long>(rgba_bytes), total_ms, json_read_ms,
+                     json_parse_schema_ms, png_read_ms, png_decode_ms, other_ms,
+                     document.size(), name.size(), static_cast<int>(std::min(document.size(), max_text)),
+                     document.empty() ? "" : document.data(), static_cast<int>(std::min(name.size(), max_text)),
+                     name.empty() ? "" : name.data());
+    }
+};
 
 enum class EntryKind : uint8_t {
     Free,
@@ -305,19 +363,32 @@ bool PortLoadBakedTexture(std::string_view document, std::string_view name, unsi
                           const u_char *clut, std::size_t clut_bytes,
                           PortDecodedTexture &out, std::string &error,
                           std::optional<unsigned> entry_index, int source_bpp) {
+    // Declared before parsed/local buffers so successful timing includes their teardown.
+    std::optional<BakedLoadTrace> trace;
+    if (BakedLoadPerfEnabled()) {
+        trace.emplace(document, name, picture_index);
+    }
     (void)level_count;
     using Json = nlohmann::json;
     std::vector<std::uint8_t> json_bytes;
+    const auto json_read_start = trace ? BakedLoadClock::now() : BakedLoadClock::time_point{};
     if (!DataReadReadFile(document, json_bytes)) {
         error = "missing texture document " + std::string(document);
         return false;
     }
+    const auto json_read_end = trace ? BakedLoadClock::now() : BakedLoadClock::time_point{};
     Json root = Json::parse(json_bytes.begin(), json_bytes.end(), nullptr, false);
     if (root.is_discarded() || !root.is_object() || root.value("schema_version", 0) != 3 ||
         !root.contains("groups") || !root["groups"].is_array() || !root.contains("entries") ||
         !root["entries"].is_array()) {
         error = "invalid schema-3 texture document " + std::string(document);
         return false;
+    }
+    const auto json_schema_end = trace ? BakedLoadClock::now() : BakedLoadClock::time_point{};
+    if (trace) {
+        trace->json_bytes = json_bytes.size();
+        trace->json_read_ms = BakedLoadMilliseconds(json_read_start, json_read_end);
+        trace->json_parse_schema_ms = BakedLoadMilliseconds(json_read_end, json_schema_end);
     }
     const Json *entry = nullptr;
     if (entry_index) {
@@ -409,16 +480,30 @@ bool PortLoadBakedTexture(std::string_view document, std::string_view name, unsi
         }
         std::vector<std::uint8_t> png_bytes;
         const std::string png_path = parent + relative;
+        const auto png_read_start = trace ? BakedLoadClock::now() : BakedLoadClock::time_point{};
         if (!DataReadReadFile(png_path, png_bytes)) {
             error = "missing baked PNG " + png_path;
             return false;
         }
+        const auto png_read_end = trace ? BakedLoadClock::now() : BakedLoadClock::time_point{};
+        if (trace) {
+            ++trace->png_reads;
+            trace->png_bytes += png_bytes.size();
+            trace->png_read_ms += BakedLoadMilliseconds(png_read_start, png_read_end);
+        }
         int decoded_width = 0;
         int decoded_height = 0;
         std::vector<std::uint8_t> rgba;
+        const auto png_decode_start = trace ? BakedLoadClock::now() : BakedLoadClock::time_point{};
         if (!PngDecodeRgba(png_bytes, decoded_width, decoded_height, rgba)) {
             error = "invalid baked PNG " + png_path;
             return false;
+        }
+        const auto png_decode_end = trace ? BakedLoadClock::now() : BakedLoadClock::time_point{};
+        if (trace) {
+            ++trace->png_decodes;
+            trace->rgba_bytes += rgba.size();
+            trace->png_decode_ms += BakedLoadMilliseconds(png_decode_start, png_decode_end);
         }
         if (level == 0) {
             out.width = width == 0 ? static_cast<unsigned>(decoded_width) : width;
@@ -432,6 +517,9 @@ bool PortLoadBakedTexture(std::string_view document, std::string_view name, unsi
             return false;
         }
         out.levels.push_back(std::move(rgba));
+    }
+    if (trace) {
+        trace->success = true;
     }
     return true;
 }

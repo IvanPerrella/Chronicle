@@ -576,19 +576,6 @@ int Run(int argc, const char **argv) {
     if (options.font != nullptr) {
         LocalizeSetFontPath(PathsFromUtf8(options.font));
     }
-#if !defined(__ANDROID__) && !defined(__SWITCH__)
-    if (options.export_text == nullptr) {
-        // Once per save folder: the extracted data's text as JSON for translators (docs/LOCALIZATION.md).
-        std::filesystem::path seed = PathsSaveRoot() / "lang-export";
-        std::error_code       error;
-        if (!std::filesystem::exists(seed / "en_gb.json", error)) {
-            std::fprintf(stderr, "exporting the game text to %s\n", PathsDisplay(seed).c_str());
-            if (LocalizeExport(seed, false) < 0) {
-                std::fprintf(stderr, "the game text could not be exported\n");
-            }
-        }
-    }
-#endif
     if (options.export_text != nullptr) {
         // The game's message files as language JSON for translators; no window, no game.
         return LocalizeExport(options.export_text, true) >= 0 ? kExitOk : kExitUsage;

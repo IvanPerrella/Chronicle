@@ -354,7 +354,8 @@ bool DataArchive::Read(std::size_t index, std::span<std::uint8_t> output) const 
         if (perf_load) {
             locked = LoadClock::now();
         }
-        if (!record.local_header_checked) {
+        const bool first_read = !record.local_header_checked;
+        if (first_read) {
             std::array<std::uint8_t, kLocalHeaderSize> local{};
             stream_.clear();
             stream_.seekg(static_cast<std::streamoff>(record.local_header_offset));
@@ -404,16 +405,20 @@ bool DataArchive::Read(std::size_t index, std::span<std::uint8_t> output) const 
             if (record.compressed_size != record.entry.size) {
                 return false;
             }
-            stream_.clear();
-            stream_.seekg(static_cast<std::streamoff>(record.data_offset));
+            if (!first_read) {
+                stream_.clear();
+                stream_.seekg(static_cast<std::streamoff>(record.data_offset));
+            }
             stream_.read(reinterpret_cast<char *>(output.data()), static_cast<std::streamsize>(output.size()));
             if (static_cast<std::size_t>(stream_.gcount()) != output.size()) {
                 return false;
             }
         } else {
             compressed.resize(record.compressed_size);
-            stream_.clear();
-            stream_.seekg(static_cast<std::streamoff>(record.data_offset));
+            if (!first_read) {
+                stream_.clear();
+                stream_.seekg(static_cast<std::streamoff>(record.data_offset));
+            }
             stream_.read(reinterpret_cast<char *>(compressed.data()), static_cast<std::streamsize>(compressed.size()));
             if (static_cast<std::size_t>(stream_.gcount()) != compressed.size()) {
                 return false;
@@ -427,7 +432,6 @@ bool DataArchive::Read(std::size_t index, std::span<std::uint8_t> output) const 
             }
             std::array<std::uint8_t, 16> descriptor{};
             stream_.clear();
-            stream_.seekg(static_cast<std::streamoff>(descriptor_offset));
             const std::uint64_t available = central_directory_offset_ - descriptor_offset;
             const std::size_t   descriptor_size = static_cast<std::size_t>(std::min<std::uint64_t>(available, descriptor.size()));
             stream_.read(reinterpret_cast<char *>(descriptor.data()), static_cast<std::streamsize>(descriptor_size));

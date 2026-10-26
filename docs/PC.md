@@ -106,7 +106,7 @@ a language the data lacks, and its English button reads as the disc's art does.
 | `--give ITEM,...` | test hook: items and weapons the party is given when a town or dungeon starts (see "Test hooks"); also `DC_GIVE` |
 | `--display-per-tick N` | headless test aid: render N interpolated display frames per tick (offscreen, not presented) before presenting the tick's canonical image |
 | `--show-fps` | draw the FPS counter when headless too (a headless run leaves `show_fps` off) |
-| `--perf-log` | print tick, render-thread, GPU-timestamp and present timings once a second (see [Switch](SWITCH.md#measuring-on-a-development-unit)) |
+| `--perf-log` | print tick, render-thread, GPU-timestamp and present timings once a second (see [Switch](SWITCH.md#performance-measurement)) |
 | `--screenshot-fps` | with `--screenshot` and `--show-fps`: write the image as a window shows it, the counter over the canonical image, instead of the canonical image alone |
 
 Environment: `DC_DATA` and `DC_SAVE` (above), `DC_INPUT` (above), `DC_AUDIO=off` (no audio
@@ -2091,6 +2091,20 @@ These loading paths are enabled on all native platforms. For comparisons, set
 enables its path; other values disable it. `DC_PERF_LOAD=1` adds archive and source-read
 timings and byte counts; it is disabled by default.
 
+Desktop startup leaves translation-template generation to the explicit
+`--export-text DIR` command. A fresh save root no longer scans every message
+container to create translator files before the game starts. Translation loading
+and the export command are unchanged; see [Localization](LOCALIZATION.md).
+
+Loading traces separate baked-texture JSON parsing/schema checks and PNG decoding
+from their file-read API spans. Those outer spans include lookup and diagnostic
+output costs and should not be reported as storage throughput or parsing CPU time.
+A populated Norune console trace measured 27.8 ms in JSON parse/schema calls and
+356.8 ms in PNG decode calls across 113 texture loads and 141 distinct PNGs. The
+largest remaining measured software stage is image decoding; a repeated-image
+cache has no demonstrated opportunity in this fixture. Model conversion and upload
+costs still need separate measurement.
+
 Chronicle reads the retail HD/BD/SQ audio formats through Kazarov's raw audio parser
 (`tools/kazarov/src/cpp/audio/raw_audio.cpp`), which normalizes retail events once when a
 sequence loads; playback uses Kazarov's event player. Dark Cloud's SQ note-offs carry only a
@@ -2099,8 +2113,8 @@ re-extracting disc data.
 
 
 Verification on Windows x64 (2026-10-26): the release game and test executables
-build against this pin. The native and GPU suites passed 652 tests, with six skips
-for unavailable fixtures or platform features and one disabled latency benchmark.
+build against this pin. The native and GPU suites passed 651 tests, with eight skips
+for unavailable fixtures or test-environment features and one disabled latency benchmark.
 Coverage includes alpha-tested and fogged meshes, depth copies and planes,
 display-list lifetimes, draw order, archive integrity and source-cache invalidation.
 A populated Norune replay matched the pre-cleanup raw RGBA image exactly and

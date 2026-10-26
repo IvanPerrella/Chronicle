@@ -1,7 +1,7 @@
 # Offline only: reads saved reports, estimates cumulative reported-tick coverage and identifies worst windows.
 param([string]$AuditLogPath = '', [int]$AuditWindowCount = 5)
 
-function Get-DevkitPerfWindowAudit([string[]]$ReportLines, [int]$WindowCount = 5) {
+function Get-PerfWindowAudit([string[]]$ReportLines, [int]$WindowCount = 5) {
     $reports = [Collections.Generic.List[object]]::new()
     [long]$reportedTicks = 0
     foreach ($line in $ReportLines) {
@@ -47,6 +47,6 @@ function Get-DevkitPerfWindowAudit([string[]]$ReportLines, [int]$WindowCount = 5
 }
 
 if ($AuditLogPath) {
-    Get-DevkitPerfWindowAudit -ReportLines @(Get-Content -LiteralPath $AuditLogPath) -WindowCount $AuditWindowCount |
+    Get-PerfWindowAudit -ReportLines @(Get-Content -LiteralPath $AuditLogPath) -WindowCount $AuditWindowCount |
         ConvertTo-Json -Depth 8
 }

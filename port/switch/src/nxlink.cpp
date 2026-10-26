@@ -1,10 +1,10 @@
 // The log on a console. Sent by `nxlink -s darkcloud.nro`, the game sends stdout and stderr back to
 // the computer that sent it and writes no log file. Started any other way, each line also goes to
-// the system log manager (the lm service), which a development unit's Target Manager relays to the
-// host and Atmosphère's lm can keep. An NRO started from the Homebrew Menu also writes darkcloud.log
+// the system log manager (the lm service), which Atmosphère can keep.
+// An NRO started from the Homebrew Menu also writes darkcloud.log
 // in its own directory, replaced at every start and capped in size; a worker thread writes it, since
-// one SD card write can take tens of milliseconds. An installed application (a development unit's
-// NSP) writes no file and removes one an earlier run left. libnx calls userAppInit and userAppExit
+// one SD card write can take tens of milliseconds. An installed application writes no file and
+// removes one an earlier run left. libnx calls userAppInit and userAppExit
 // around main.
 
 #include <arpa/inet.h>
