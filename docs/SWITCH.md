@@ -119,3 +119,6 @@ comparisons need both empty and compatible pipeline caches: cached startup and
 first launch have different costs. Internal driver pipelines can also compile
 on first use. Keep loose data and packed data comparisons separate; `dcdata pack`
 currently writes stored ZIP entries.
+
+See [Loading and character switching](LOADING.md) for asset-work optimizations,
+measurement controls, fixture limits and pending platform qualification.

@@ -1,8 +1,10 @@
 #include "menu_dungeon.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <span>
@@ -10,14 +12,18 @@
 
 #include "dataread.hpp"
 #include "dun/gameloop.hpp"
+#include "gameloop.hpp"
 #include "gamepad.hpp"
 #include "itemdata.hpp"
 #include "memcard.hpp"
 #include "menu_draw.hpp"
 #include "menu_dungeon_port.hpp"
 #include "menu_inventory.hpp"
+#include "menu_misc.hpp"
 #include "menuitemstep.hpp"
 #include "nowload.hpp"
+#include "platform/input.hpp"
+#include "platform/load_work_profile.hpp"
 #include "rect.hpp"
 #include "savedata.hpp"
 #include "snd.hpp"
@@ -541,7 +547,42 @@ void QuickChangeOpenElements(bool elements) {
 
 int CharaChangeLoop() {
     if (!g_picker.requested) {
-        return CharaChangeLoopRetail();
+        static const bool trace = [] {
+            const char *value = std::getenv("DC_PERF_CHARACTER_SWITCH");
+            return value != nullptr && std::strcmp(value, "1") == 0;
+        }();
+        if (!trace) {
+            return CharaChangeLoopRetail();
+        }
+        static unsigned long long          ordinal = 0;
+        const auto                         frame = GameFrameCount();
+        const auto                         buttons = InputGetPad(0).buttons;
+        const int                          character_before = ChangeStatusDataPt == nullptr ? -1 : ChangeStatusDataPt->cur_chara;
+        const int                          preview_before = charachangeid;
+        const int                          read_before = CharaChangeReadFlag;
+        const auto                         work_before = dc::load_profile::counters;
+        const dc::load_profile::Activation profile;
+        const auto                         started = std::chrono::steady_clock::now();
+        const int                          result = CharaChangeLoopRetail();
+        const auto                         finished = std::chrono::steady_clock::now();
+        const int                          character_after = ChangeStatusDataPt == nullptr ? -1 : ChangeStatusDataPt->cur_chara;
+        std::fprintf(stderr,
+                     "perf character party_loop ordinal %llu frame %lld buttons %u "
+                     "character_before %d character_after %d preview_before %d preview_after %d "
+                     "menu_ready_before %d menu_ready_after %d result %d wall_ms %.6f "
+                     "background_read_ms %.6f metadata_ms %.6f png_ms %.6f texture_api_ms %.6f "
+                     "visual_build_ms %.6f mesh_finish_ms %.6f\n",
+                     ++ordinal, static_cast<long long>(frame), static_cast<unsigned>(buttons),
+                     character_before, character_after, preview_before, static_cast<int>(charachangeid),
+                     read_before, static_cast<int>(CharaChangeReadFlag), result,
+                     std::chrono::duration<double, std::milli>(finished - started).count(),
+                     dc::load_profile::MillisecondsSince(work_before, dc::load_profile::Kind::BackgroundRead),
+                     dc::load_profile::MillisecondsSince(work_before, dc::load_profile::Kind::Metadata),
+                     dc::load_profile::MillisecondsSince(work_before, dc::load_profile::Kind::Png),
+                     dc::load_profile::MillisecondsSince(work_before, dc::load_profile::Kind::Texture),
+                     dc::load_profile::MillisecondsSince(work_before, dc::load_profile::Kind::Visual),
+                     dc::load_profile::MillisecondsSince(work_before, dc::load_profile::Kind::Mesh));
+        return result;
     }
 
     if (!g_picker.loaded) {

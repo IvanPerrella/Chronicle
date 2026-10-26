@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -536,6 +537,7 @@ int Run(int argc, const char **argv) {
     }
     argc = PathsConsumeArgs(argc, argv);
     g_options = ParseOptions(argc, argv);
+    GameLoadTraceLaunch();
     Options &options = g_options;
     if (options.seed_save != nullptr) {
         if (explicit_save == nullptr || *explicit_save == '\0') {
@@ -569,6 +571,7 @@ int Run(int argc, const char **argv) {
     const char *fast_load = std::getenv("DC_FAST_LOAD");
     GameSetFastLoad(options.fast_load || (fast_load != nullptr && *fast_load != '\0' && *fast_load != '0'));
     RequireData();
+    GameLoadTraceCheckpoint("data_ready");
     DC_ANDROID_TRACE("Run: data available");
     if (!options.headless) {
         GameSetDataIcon();
@@ -635,6 +638,7 @@ int Run(int argc, const char **argv) {
 #endif
     renderer.validation = renderer.validation || SettingsEnv("VULKAN_VALIDATION") != nullptr;
     gfx::RendererInit(WindowHandle(), renderer);
+    GameLoadTraceCheckpoint("renderer_ready");
     DC_ANDROID_TRACE("Run: renderer initialized");
 #if defined(__SWITCH__)
     if (options.switch_core_affinity) {
@@ -655,7 +659,8 @@ int Run(int argc, const char **argv) {
 #else
     ClockSetTickRate(config.tick_rate);
 #endif
-    ClockSetUnbounded(options.headless);
+    const char *bounded_headless = std::getenv("DC_HEADLESS_BOUNDED");
+    ClockSetUnbounded(options.headless && !(bounded_headless != nullptr && std::strcmp(bounded_headless, "1") == 0));
     ClockAddPumpHook(PumpHost);
     GameSetFrameBudget(options.frames);
     GameSetPerfLog(options.perf_log);

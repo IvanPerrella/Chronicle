@@ -31,6 +31,7 @@
 #include "dun/gameloop.hpp"
 #include "editground.hpp"
 #include "editloop.hpp"
+#include "editloop3.hpp"
 #include "exitcodes.hpp"
 #include "gamemode.hpp"
 #include "gamepad.hpp"
@@ -60,9 +61,12 @@
 #include "title/opening.hpp"
 #include "title/rushmovi.hpp"
 #include "title/title.hpp"
+#include "wind.hpp"
 
 int  EditInit(void *param);
 int  EditLoop();
+int          run_event_check();
+unsigned int GameRandomStateForTrace();
 void SndInit();
 bool TakeBattleMenuLoadRequest();
 bool TakeBattleMenuTitleRequest();
@@ -74,6 +78,42 @@ extern s32 mc_mode;
 extern s32 NextMapNo;
 
 namespace {
+
+using LoadTraceClock = std::chrono::steady_clock;
+
+struct LoadTrace {
+    bool                       active = false;
+    bool                       controls_seen = false;
+    bool                       fade_clear_seen = false;
+    unsigned                   sequence = 0;
+    const char                *kind = "mode";
+    int                        target = -1;
+    LoadTraceClock::time_point started;
+    LoadTraceClock::time_point previous;
+} load_trace;
+
+bool LoadTraceEnabled() {
+    static const bool enabled = [] {
+        const char *value = std::getenv("DC_PERF_TRANSITIONS");
+        return value != nullptr && std::strcmp(value, "1") == 0;
+    }();
+    return enabled;
+}
+
+void BeginLoadTrace(const char *kind, int target) {
+    if (!LoadTraceEnabled()) {
+        return;
+    }
+    load_trace.active = true;
+    load_trace.controls_seen = false;
+    load_trace.fade_clear_seen = false;
+    ++load_trace.sequence;
+    load_trace.kind = kind;
+    load_trace.target = target;
+    load_trace.started = load_trace.previous = LoadTraceClock::now();
+    std::fprintf(stderr, "perf transition begin id %u kind %s source %d target %d frame %lld fast_load %d\n",
+                 load_trace.sequence, kind, MapNo, target, static_cast<long long>(GameFrameCount()), GameFastLoad());
+}
 
 // Words of CSaveData::config that main() reads and writes directly.
 constexpr int kConfigVibrationOff = 7;
@@ -704,6 +744,69 @@ void ResetSaveKeepingConfig(CSaveData &save) {
     static_cast<s32 *>(save.GetConfigData())[kConfigLastFile] = last_file;
 }
 
+void GameLoadTraceLaunch() { BeginLoadTrace("launch", -1); }
+
+void GameLoadTraceRequest(int map_no) {
+    if (!LoadTraceEnabled() || (load_trace.active && load_trace.kind == std::string_view("world") && load_trace.target == map_no)) {
+        return;
+    }
+    BeginLoadTrace("world", map_no);
+}
+
+void GameLoadTraceCheckpoint(const char *stage) {
+    if (!load_trace.active) {
+        return;
+    }
+    const auto now = LoadTraceClock::now();
+    std::fprintf(stderr,
+                 "perf transition stage id %u kind %s map %d stage %s frame %lld clock_tick %lld elapsed_wall_ms %.3f delta_wall_ms %.3f\n",
+                 load_trace.sequence, load_trace.kind, MapNo, stage, static_cast<long long>(GameFrameCount()),
+                 static_cast<long long>(ClockTickCount()),
+                 std::chrono::duration<double, std::milli>(now - load_trace.started).count(),
+                 std::chrono::duration<double, std::milli>(now - load_trace.previous).count());
+    load_trace.previous = now;
+    if (std::strcmp(stage, "mode_init_done") == 0 || std::strcmp(stage, "revealed_walk") == 0) {
+        std::fprintf(stderr, "perf transition random id %u stage %s state %u wind_gust %.9f wind_velocity %.9f\n",
+                     load_trace.sequence, stage, GameRandomStateForTrace(), EdWind.gust, EdWind.velocity);
+    }
+}
+
+void GameLoadTraceControlsReady() {
+    if (load_trace.active && (load_trace.target < 0 || load_trace.target == MapNo) && run_event_check() == 0) {
+        if (!load_trace.controls_seen) {
+            GameLoadTraceCheckpoint("controls_ready");
+            load_trace.controls_seen = true;
+        }
+        float fade[4];
+        EdGetFadeColor(fade);
+        if (fade[3] <= 0.0f && load_trace.fade_clear_seen) {
+            GameLoadTraceCheckpoint("revealed_walk");
+            load_trace.active = false;
+        }
+        load_trace.fade_clear_seen = fade[3] <= 0.0f;
+    }
+}
+
+void GameLoadTraceWorldMapSelection(int cursor, int state, int target) {
+    if (!LoadTraceEnabled()) {
+        return;
+    }
+    static int last_cursor = -1, last_state = -1;
+    if (cursor != last_cursor || state != last_state) {
+        if (state == MENU_MOVE_STATE_SELECT && last_state != state) {
+            for (int place = 0; place < WORLD_PLACE_COUNT; ++place) {
+                const auto &position = TownOrDngPos[place];
+                std::fprintf(stderr, "perf world position place %d target %d x %d y %d visited %d\n",
+                             place, MenuGrobalMapNoTbl[place], position.x, position.y, position.visited);
+            }
+        }
+        std::fprintf(stderr, "perf world selection cursor %d state %d target %d frame %lld\n",
+                     cursor, state, target, static_cast<long long>(GameFrameCount()));
+        last_cursor = cursor;
+        last_state = state;
+    }
+}
+
 void GameFollowMapJump() {
     if (NextMapNo < 0) {
         return;
@@ -1291,12 +1394,17 @@ int RunGame(int argc, char **argv) {
     bool data_loaded = false;
     bool skip_title = false;
     for (;;) {
+        if (!load_trace.active) {
+            BeginLoadTrace("mode", MapNo);
+        }
+        GameLoadTraceCheckpoint("mode_begin");
         // A language chosen on the Options screen takes hold here, where the next area is about to load.
         LocalizeApplyPendingLanguage();
         if (mode != GAME_MODE_UNUSED_12 && !data_loaded) {
             initialize_data();
             data_loaded = true;
         }
+        GameLoadTraceCheckpoint("common_data_done");
         InitReadBG();
         SndInit();
 
@@ -1306,6 +1414,7 @@ int RunGame(int argc, char **argv) {
         }
 
         LoadOverlay(mode);
+        GameLoadTraceCheckpoint("overlay_done");
         MGSetRenderInfo(800.0f, 10.0f, 65535.0f);
         switch (mode) {
             case GAME_MODE_LOADER:
@@ -1321,6 +1430,7 @@ int RunGame(int argc, char **argv) {
         if (mode != GAME_MODE_UNUSED_12 && StartEventNo < 0) {
             init_now_loading(MapNo);
         }
+        GameLoadTraceCheckpoint("loading_card_started");
         GamePad.StopVibration();
         if (DebugMode) {
             LoadSystemMessage();
@@ -1330,11 +1440,13 @@ int RunGame(int argc, char **argv) {
         GameOptionsApply(ConfigGet().options);
         bool event_start = StartEventNo >= 0;
         ModeInit(title_ran, exist_data, skip_title);
+        GameLoadTraceCheckpoint("mode_init_done");
 
         NextMapNo = -1;
         // check_now_loading pumps the clock while the loading screen runs.
         while (check_now_loading() == 0) {
         }
+        GameLoadTraceCheckpoint("loading_card_done");
 
         MGInitVSyncCallBack(PlayTimeCount);
         LoadDrawEnv();
@@ -1346,9 +1458,17 @@ int RunGame(int argc, char **argv) {
         }
 
         int result;
+        bool first_tick = true;
         do {
             if (FrameBoundaryStop()) {
                 return kExitOk;
+            }
+            if (first_tick) {
+                GameLoadTraceCheckpoint("first_mode_tick");
+                first_tick = false;
+                if (mode != GAME_MODE_EDIT) {
+                    load_trace.active = false;
+                }
             }
             MGAdjustScreen(ConfigWords()[kConfigScreenX], ConfigWords()[kConfigScreenY]);
             ConfigWords()[kConfigGameClear] = GameClearFlag;

@@ -22,6 +22,13 @@ void GameSetFrameBudget(std::int64_t frames);
 
 std::int64_t GameFrameCount();
 
+/** Records optional loading milestones when DC_PERF_TRANSITIONS=1. */
+void GameLoadTraceLaunch();
+void GameLoadTraceRequest(int map_no);
+void GameLoadTraceCheckpoint(const char *stage);
+void GameLoadTraceControlsReady();
+void GameLoadTraceWorldMapSelection(int cursor, int state, int target);
+
 // Clears save for a new game as retail's main() does, keeping its configuration, and keeping the
 // last file's number whole where retail's round trip keeps one byte of it.
 void ResetSaveKeepingConfig(CSaveData &save);

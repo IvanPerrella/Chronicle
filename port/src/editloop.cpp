@@ -43,6 +43,7 @@
 #include "effectgroup.hpp"
 #include "frame.hpp"
 #include "framevu1.hpp"
+#include "gameloop.hpp"
 #include "gamemode.hpp"
 #include "gamepad.hpp"
 #include "gfx/gfx.hpp"
@@ -766,6 +767,7 @@ PORT_OVERRIDE int EditLoop() {
                 EdExitMenu();
 
                 if (MenuMapJumpMode >= 0) {
+                    GameLoadTraceRequest(MenuMapJumpMode);
                     MapJump(MenuMapJumpMode, -1);
                     EdEventInfo.integer_arguments[0] = MenuMapJumpMode;
                     RunSystemEvent(2, NowCamera);
@@ -1259,6 +1261,10 @@ PORT_OVERRIDE int EditLoop() {
         end_counter = 0;
     }
 
+    if (GameMode == ED_MODE_WALK && loop_counter >= 2 && !key_lock &&
+        start_event_no <= 0 && start_system_event <= 0) {
+        GameLoadTraceControlsReady();
+    }
     SndStep();
     loop_counter++;
     key_counter++;

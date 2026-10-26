@@ -28,6 +28,7 @@
 #include "dataread_port.hpp"
 #include "localize.hpp"
 #include "platform/data_archive.hpp"
+#include "platform/load_work_profile.hpp"
 #include "platform/paths.hpp"
 
 namespace fs = std::filesystem;
@@ -45,6 +46,7 @@ struct IndexedFile {
 
 std::unordered_map<std::string, IndexedFile> data_index;
 std::unordered_map<std::string, IndexedFile> data_base_index;
+std::unordered_map<std::string, const IndexedFile *> source_index;
 std::unique_ptr<DataArchive>                 data_archive;
 
 constexpr std::size_t kMetadataCacheFiles = 4;
@@ -64,6 +66,14 @@ std::uint64_t                                     data_index_epoch = 0;
 bool MetadataSnapshotsEnabled() {
     static const bool enabled = [] {
         const char *value = std::getenv("DC_TEXTURE_SOURCE_CACHE");
+        return value == nullptr || std::strcmp(value, "1") == 0;
+    }();
+    return enabled;
+}
+
+bool SourceLookupIndexed() {
+    static const bool enabled = [] {
+        const char *value = std::getenv("DC_SOURCE_LOOKUP_INDEX");
         return value == nullptr || std::strcmp(value, "1") == 0;
     }();
     return enabled;
@@ -248,18 +258,22 @@ const IndexedFile *Lookup(std::string_view path) {
 }
 
 const IndexedFile *ResolveSource(std::string_view key) {
-    const IndexedFile *resolved = nullptr;
-    for (const auto &entry : data_index) {
-        const IndexedFile &file = entry.second;
-        if (FoldArchivePath(file.source_path) != key) {
-            continue;
+    if (!SourceLookupIndexed()) {
+        const IndexedFile *resolved = nullptr;
+        for (const auto &entry : data_index) {
+            const IndexedFile &file = entry.second;
+            if (FoldArchivePath(file.source_path) != key) {
+                continue;
+            }
+            if (resolved != nullptr && resolved != &file) {
+                return nullptr;
+            }
+            resolved = &file;
         }
-        if (resolved != nullptr && resolved != &file) {
-            return nullptr;
-        }
-        resolved = &file;
+        return resolved;
     }
-    return resolved;
+    const auto found = source_index.find(std::string(key));
+    return found == source_index.end() ? nullptr : found->second;
 }
 
 bool ReadResolved(const IndexedFile *resolved, std::vector<std::uint8_t> &bytes) {
@@ -428,6 +442,7 @@ PORT_OVERRIDE void InitCDFile() {
     ResetMetadataSnapshots();
     const fs::path &root = PathsDataRoot();
     std::error_code error;
+    source_index.clear();
     data_index.clear();
     data_base_index.clear();
     data_archive.reset();
@@ -530,6 +545,17 @@ PORT_OVERRIDE void InitCDFile() {
     if (data_index.empty()) {
         NoData(root, "is empty");
     }
+    // Index the effective bindings after normalized overrides. Null preserves rejection
+    // of source names that become ambiguous after escaping and case folding.
+    if (SourceLookupIndexed()) {
+        source_index.reserve(data_index.size());
+        for (const auto &[logical, file] : data_index) {
+            auto [at, inserted] = source_index.emplace(FoldArchivePath(file.source_path), &file);
+            if (!inserted && at->second != &file) {
+                at->second = nullptr;
+            }
+        }
+    }
     data_indexed = true;
     CheckAgainstIndex(root);
 }
@@ -625,6 +651,7 @@ bool DataReadReadResolvedFile(std::string_view source_path, std::vector<std::uin
 }
 
 std::shared_ptr<const std::vector<std::uint8_t>> DataReadResolvedMetadataSnapshot(std::string_view source_path) {
+    const dc::load_profile::Span profile(dc::load_profile::Kind::Metadata);
     if (!data_indexed) {
         InitCDFile();
     }
@@ -816,6 +843,7 @@ void DataReadForgetPackCapacities(const void *owner) {
 void DataReadReset() {
     ResetMetadataSnapshots();
     loaded_capacities.clear();
+    source_index.clear();
     data_index.clear();
     data_base_index.clear();
     data_archive.reset();
@@ -884,6 +912,7 @@ PORT_OVERRIDE void BreakReadBG() {
 // The read happens here rather than a vertical sync later, so the slot is handed out already
 // complete: issued (id) and done, as retail's ReadBG leaves it.
 PORT_OVERRIDE int LoadFileBG(char *name, u_long128 *buffer, int *out_size) {
+    const dc::load_profile::Span profile(dc::load_profile::Kind::BackgroundRead);
     if (out_size) {
         *out_size = 0;
     }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -10,4 +11,13 @@
 // are decoded here, to RGBA.
 bool PngLoadRgba(const std::filesystem::path &file, int &width, int &height, std::vector<std::uint8_t> &rgba);
 bool PngDecodeRgba(std::span<const std::uint8_t> bytes, int &width, int &height,
-                   std::vector<std::uint8_t> &rgba);
+                   std::vector<std::uint8_t> &rgba, bool *cache_hit = nullptr);
+
+struct PngDecodeCacheStats {
+    std::size_t entries;
+    std::size_t resident_bytes;
+    std::size_t capacity_bytes;
+};
+
+// Counts compressed keys and decoded pixels; allocator bookkeeping is not included.
+PngDecodeCacheStats PngDecodeCacheGetStats();
