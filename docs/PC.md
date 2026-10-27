@@ -176,7 +176,8 @@ key is optional; these are the defaults:
         "detail_distance": 0,       // how far full detail reaches (world units); 0: at any distance
         "shadow_distance": 0,       // how far town parts cast full shadows (world units); 0: at any distance
         "anisotropy": 0,            // anisotropic filtering of 3D textures: 0 (off), 2, 4, 8 or 16 samples
-        "soft_focus": true          // the game's farside soft focus
+        "soft_focus": true,         // the game's farside soft focus
+        "cloth": "original"         // original: the PS2's cloth; enhanced: also kept out of the body (docs/MODEL_FRAMEWORK.md)
     },
     "audio": {
         "master_volume": 1.0,       // 0 to 1
@@ -1394,7 +1395,7 @@ help. Retail's screen-position row is gone: `MGAdjustScreen` moves nothing on PC
 | Page | Rows |
 |---|---|
 | Game | save cursor position, clock, time speed, dungeon map, enemy damage, party damage, enemy HP, names, Discord Rich Presence, element quick select, swap keeps lock-on, autosave |
-| Display | window mode, resolution (the monitor's own and the sizes that fit it), V-Sync (`fifo`, `mailbox`, `immediate`), frame limit, aspect ratio, interface size (`ui_scale`), smooth motion (`interpolation`), FPS counter, FPS info (`fps_detail`), anisotropic filter (`anisotropy`), soft focus |
+| Display | window mode, resolution (the monitor's own and the sizes that fit it), V-Sync (`fifo`, `mailbox`, `immediate`), frame limit, aspect ratio, interface size (`ui_scale`), smooth motion (`interpolation`), FPS counter, FPS info (`fps_detail`), anisotropic filter (`anisotropy`), soft focus, cloth (`cloth`) |
 | Audio | volume, sound (mono, stereo or surround), soundtrack (PS2 or custom) |
 | Controls | vibration, mouse sensitivity (in hundredths below 1 and tenths above, whatever its unit), invert mouse Y, vertical return, mouse wheel zoom, reset zoom (its binding), stick sensitivity, invert stick X and Y, gyro, gyro sensitivity, invert gyro X and Y |
 | Text | language, message speed, button symbols (original or new), symbols shown (glyph device), text font (sharp or original), text shadow, symbol shadow, area name shadow, floor label shadow, boss name shadow |
@@ -1952,6 +1953,12 @@ first. `list` prints each file's sector, size and path. `publish-sound`
 converts an extracted folder's sound packs into ChronicleTwo's bank, sample
 and sequence formats beside the originals, which the game still plays
 (`docs/AUDIO_FRAMEWORK.md`).
+`extract` also converts the models, motions, skin weights and bind poses to
+glTF beside the originals, indexed by `models.json`; the game rebuilds the
+retail records from them as it reads a file. `convert-models <raw> <out>`
+writes that conversion to a folder of its own, `bake-assets <raw> <data>`
+publishes it into extracted data, and `strip-models <data>` empties the
+converted originals (`docs/MODEL_FRAMEWORK.md`).
 
 The layout of `data/` or the root of `data.zip` is the disc archive's own: `dun/pack/maindat.pac`,
 `commenu/a_eng/savetex.pak`, `sound/bgm/...` and so on. Lookups fold case,

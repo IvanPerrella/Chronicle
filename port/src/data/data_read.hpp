@@ -30,6 +30,16 @@ std::vector<s32> SupportedLanguages();
 std::uintmax_t DataFileSize(std::string_view path);
 
 /**
+ * Whether the game's data has a file of that name, even an empty one.
+ */
+bool DataFileExists(std::string_view path);
+
+/**
+ * How many times the data has been indexed: what read it before can be stale once this changes.
+ */
+std::uint64_t DataReadGeneration();
+
+/**
  * Whether the data has been indexed. Unlike the readers it never indexes, which stops the program
  * when there is no data.
  */

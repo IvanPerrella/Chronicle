@@ -1,5 +1,7 @@
 #include "kazarov/extract_job.hpp"
+#include "kazarov/profile_reader.hpp"
 #include "kazarov_bridge/rust/host_jobs.h"
+#include "kazarov_bridge/rust/host_models.h"
 #include "kazarov_bridge/rust/lib.h"
 
 #include <algorithm>
@@ -19,6 +21,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "character_profile.hpp"
 #include "dcdata.hpp"
 #include "sound_data.hpp"
 
@@ -177,6 +180,63 @@ void BakeTextures(const fs::path &raw, const fs::path &data) {
     dcdata::Log(stdout, "baked {} texture sources into {} PNGs\n", textures.sources, textures.pngs);
 }
 
+// Converts the raw tree's textures and models into `output`, the models as glTF with Dark Cloud's
+// character configurations read as the game reads them.
+void ConvertInto(const fs::path &raw, const fs::path &output) {
+    auto reader = kazarov::make_profile_reader(
+        [](std::string_view alias, std::string_view data) { return dcdata::profile::Read(alias, data); });
+    const kazarov::ModelConvertReport report =
+        kazarov::models_convert_dc1(Utf8Path(raw), Utf8Path(output), std::move(reader), WorkerCount());
+    dcdata::Log(stdout, "converted {} texture sources into {} PNGs and published {} model files\n",
+                report.texture_sources, report.pngs, report.files);
+    if (report.unresolved_motions != 0) {
+        dcdata::Log(stdout, "{} motions fit no model\n", report.unresolved_motions);
+    }
+}
+
+void ConvertModels(const fs::path &raw, const fs::path &output) {
+    if (fs::exists(output)) {
+        throw std::runtime_error("model output already exists: " + output.string());
+    }
+    fs::create_directories(output);
+    ConvertInto(raw, output);
+}
+
+bool IsModelAsset(const fs::path &path) {
+    const std::string name = path.filename().string();
+    return name.ends_with(".gltf") || name.ends_with(".gltf.bin") || name.ends_with(".game.json");
+}
+
+// Copies the converted models and their index into the data, replacing an earlier conversion's.
+// The disc's own model files stay beside them; the port rebuilds them from these as it reads them.
+void MergeModelAssets(const fs::path &stage, const fs::path &data) {
+    const fs::path staged = stage / "data";
+    std::size_t    copied = 0;
+    for (fs::recursive_directory_iterator it(staged), end; it != end; ++it) {
+        const fs::path relative = it->path().lexically_relative(staged);
+        if (!it->is_regular_file() || *relative.begin() == "textures" || !IsModelAsset(relative)) {
+            continue;
+        }
+        const auto     utf8 = relative.generic_u8string();
+        const fs::path target = data / dcdata::PublishedPath(std::string(utf8.begin(), utf8.end()), [&](std::string_view prefix) {
+                                    return fs::exists(data / prefix) && !fs::is_directory(data / prefix);
+                                });
+        fs::create_directories(target.parent_path());
+        fs::copy_file(it->path(), target, fs::copy_options::overwrite_existing);
+        copied++;
+    }
+    fs::copy_file(staged / "models.json", data / "models.json", fs::copy_options::overwrite_existing);
+    dcdata::Log(stdout, "published {} model files\n", copied);
+}
+
+// Converts the textures and models in one pass, since the models' glTF reference the textures' PNGs.
+void BakeAssets(const fs::path &raw, const fs::path &data) {
+    TextureStage stage;
+    ConvertInto(raw, stage.root);
+    MergeTextureAssets(stage.root, data);
+    MergeModelAssets(stage.root, data);
+}
+
 rust::Slice<const std::uint8_t> Bytes(const dcdata::PackMember &member) {
     return {member.data.data(), member.data.size()};
 }
@@ -321,6 +381,9 @@ int Usage() {
                "       dcdata bake-textures <raw-directory> <data-directory>\n"
                "       dcdata publish-sound <data-directory>\n"
                "       dcdata texture-map <raw-directory> <mapping.json>\n"
+               "       dcdata convert-models <raw-directory> <output-directory>\n"
+               "       dcdata bake-assets <raw-directory> <data-directory>\n"
+               "       dcdata strip-models <data-directory>\n"
                "       dcdata pack <data-directory> [output.zip]\n"
                "       dcdata list <iso-or-directory>\n",
                stderr);
@@ -403,7 +466,7 @@ int Extract(const std::filesystem::path &source, const std::filesystem::path &ou
     if (result != 0) {
         return result;
     }
-    BakeTextures(out, out);
+    BakeAssets(out, out);
     return 0;
 }
 
@@ -426,6 +489,20 @@ int main(int argc, char **argv) {
         }
         if (argc == 4 && std::strcmp(argv[1], "bake-textures") == 0) {
             BakeTextures(argv[2], argv[3]);
+            return 0;
+        }
+        if (argc == 3 && std::strcmp(argv[1], "strip-models") == 0) {
+            // The game rebuilds what this empties from the published models as it reads it.
+            const std::uint64_t stripped = kazarov::models_strip_dc1(Utf8Path(argv[2]));
+            dcdata::Log(stdout, "emptied {} converted sources; the game rebuilds them from their glTF\n", stripped);
+            return 0;
+        }
+        if (argc == 4 && std::strcmp(argv[1], "bake-assets") == 0) {
+            BakeAssets(argv[2], argv[3]);
+            return 0;
+        }
+        if (argc == 4 && std::strcmp(argv[1], "convert-models") == 0) {
+            ConvertModels(argv[2], argv[3]);
             return 0;
         }
         if (argc == 4 && std::strcmp(argv[1], "texture-map") == 0) {

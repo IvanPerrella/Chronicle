@@ -4,6 +4,11 @@
 
 #include <libvu0.h>
 
+#include <array>
+#include <cstdint>
+#include <span>
+#include <vector>
+
 #include "dataalloc.hpp"
 #include "mdt.hpp"
 #include "visualvu1.hpp"
@@ -103,5 +108,71 @@ public:
      */
     virtual int DrawVu1(sceVif1Packet *packet, float (*matrix)[4], RenderInfo *info, VU1_PROGRAM program, u_long128 *draw_state, int unknown1, int unknown2);
 };
+
+/**
+ * The Options screen's Enhanced cloth pushes the cloth out of the body as well as the .clo files'
+ * boxes. The body is the skeleton as capsules.
+ */
+namespace cloth_body {
+
+constexpr int kTorsoSectors = 12; /**< How many directions round its axis a torso's shape is measured in. */
+constexpr int kTorsoBands = 6;    /**< How many heights along its axis a torso's shape is measured at. */
+
+/**
+ * A capsule of the body, from a to b, radius thick.
+ */
+struct Capsule {
+    std::array<float, 3> a;
+    std::array<float, 3> b;
+    float                radius;
+    bool                 torso = false; /**< Keeps the cloth off itself, and stops the limbs pressing the cloth into it. */
+    /**
+     * A torso fitted to the body's mesh (FitTorsos): how far its surface lies from the axis, by direction
+     * round it (measured from `side`, a direction square to the axis that turns with the body) and by
+     * height from a to b. Unfitted, the torso is round, `radius` thick.
+     */
+    std::array<float, 3>                           side = {};
+    std::array<float, kTorsoSectors * kTorsoBands> shape = {};
+    bool                                           fitted = false;
+};
+
+/**
+ * How far the capsule's surface lies from its axis in the direction of `p`.
+ */
+float Reach(const Capsule &capsule, const float *p);
+
+/**
+ * The body's mesh: its vertices, in world space, and its triangles, three vertices each.
+ */
+struct Mesh {
+    std::vector<std::array<float, 3>>         vertices;
+    std::vector<std::array<std::uint32_t, 3>> triangles;
+};
+
+/**
+ * Fits the torsos among `capsules` to `body` as it stands: how far out from the axis each direction meets
+ * the torso's faces. A vertex belongs to the capsule whose surface it lies nearest, `others` (the head,
+ * the hands, the feet) among them, so arms and hands held against the torso don't fatten it. A round
+ * capsule sized from the spine's length stood out behind Toan's back, his chest being deeper than it.
+ */
+void FitTorsos(std::span<Capsule> capsules, std::span<const Capsule> others, const Mesh &body);
+
+/**
+ * How near a limb's axis a vertex may come: the limb's thickness, or less where the cloth rests against
+ * the limb, as near as `home` (where the cloth's rest shape puts the vertex when it settles on the body)
+ * lies to it then. A vertex resting against an arm isn't pushed off it, and an arm raised through where
+ * the cloth rests still pushes it.
+ */
+float Clearance(const Capsule &limb, const float *home);
+
+/**
+ * Pushes a free vertex out of `capsules`, each limb to its `clearances` entry (Clearance, taken when the
+ * cloth settled), the torso to its surface, or as far out as `home` lies if that is inside it. A limb
+ * pressing the vertex towards the torso stops it at the torso's surface, or where it rests if that is
+ * nearer.
+ */
+void PushOutOfBody(std::span<const Capsule> capsules, std::span<const float> clearances, const float *home, float *vertex);
+
+} // namespace cloth_body
 
 } // namespace dc::game

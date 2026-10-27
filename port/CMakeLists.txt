@@ -167,7 +167,7 @@ add_library(dc_port OBJECT ${PORT_LIB_SOURCES} ${DC_SCE_SOURCES})
 if(NINTENDO_SWITCH)
     dc_switch_port(dc_port)
 endif()
-target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json kz_port_headers)
+target_link_libraries(dc_port PRIVATE dc_options SDL3::SDL3 Vulkan::Vulkan nlohmann_json::nlohmann_json fastgltf::fastgltf kz_port_headers)
 # port/src, the generated headers and the stb directories: captionfont.cpp rasterizes with
 # stb_truetype and platform/png_image.cpp decodes with stb_image, which Kazarov stages (or fetches)
 # for dc_host.

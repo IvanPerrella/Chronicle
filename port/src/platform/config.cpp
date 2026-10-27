@@ -609,6 +609,9 @@ bool Apply(Config &config, std::string_view name, const Json &value) {
     if (name == "discord.rich_presence") {
         return ReadBool(value, config.discord_rich_presence);
     }
+    if (name == "video.cloth") {
+        return ReadChoice(value, "original", "enhanced", config.enhanced_cloth);
+    }
     if (name == "audio.soundtrack") {
         return ReadChoice(value, "ps2", "custom", config.soundtrack);
     }
@@ -770,6 +773,7 @@ std::string ConfigSerialize(const Config &config) {
     root["video"]["shadow_distance"] = Shortest(config.shadow_distance);
     root["video"]["anisotropy"] = config.anisotropy;
     root["video"]["soft_focus"] = options.soft_focus;
+    root["video"]["cloth"] = config.enhanced_cloth ? "enhanced" : "original";
     root["audio"]["master_volume"] = Shortest(config.master_volume);
     root["audio"]["sound"] = SoundName(config);
     root["audio"]["soundtrack"] = config.soundtrack ? "custom" : "ps2";

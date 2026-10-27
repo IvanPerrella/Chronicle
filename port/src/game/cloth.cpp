@@ -3,23 +3,35 @@
 #include <libvu0.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <memory>
+#include <numbers>
+#include <span>
+#include <unordered_map>
+#include <vector>
 
 #include "bound.hpp"
 #include "chararead.hpp"
 #include "frame.hpp"
 #include "framevu1.hpp"
+#include "mdt.hpp"
 #include "mglib.hpp"
+#include "platform/config.hpp"
 #include "render/draw3d.hpp"
 #include "renderinfo.hpp"
 #include "texture.hpp"
+#include "visualvu1.hpp"
 #include "vu0_ops.hpp"
 #include "wind.hpp"
 
 namespace dc::game {
 
+using namespace dc::platform;
 using namespace dc::render;
 
 void CCloth::Draw() {
@@ -128,7 +140,496 @@ void Follow(float *vertex, float *velocity, float *world_home, const float *home
     }
 }
 
+bool StartsWith(const char *name, const char *prefix) {
+    return std::strncmp(name, prefix, std::strlen(prefix)) == 0;
+}
+
+using cloth_body::Capsule;
+
+std::array<float, 3> WorldPosition(CFrame *frame) {
+    sceVu0FMATRIX matrix;
+    frame->GetLWMatrix(matrix);
+    return {matrix[3][0], matrix[3][1], matrix[3][2]};
+}
+
+// The body as capsules. A limb is a chain with two joints ("jntN_1" to "jntN_2" to "effN", an arm or a
+// leg): a capsule along each joint, a fifth of its length thick. The torso is a chain with one joint whose
+// end the other chains branch from (the pelvis, the spine up to the shoulders): a capsule along it, 0.4 of
+// its length thick until FitTorsos shapes it to the mesh (Toan's chest lies 0.65 to 1.27 from his 3.1-long
+// spine). The other chains with one joint (the head, the hands, the feet) go in `others`, when asked for.
+void BodyCapsules(CFrame *frame, std::vector<Capsule> &capsules, std::vector<Capsule> *others = nullptr) {
+    CFrame *root = frame;
+    while (root->parent != nullptr && root->reference == 0) {
+        root = root->parent;
+    }
+    auto joint_child = [](CFrame *joint) -> CFrame * {
+        for (CFrame *child = joint->child; child != nullptr; child = child->brother) {
+            if (StartsWith(child->name, "jnt") || StartsWith(child->name, "eff")) {
+                return child;
+            }
+        }
+        return nullptr;
+    };
+    std::vector<CFrame *> pending = {root};
+    while (!pending.empty()) {
+        CFrame *frame_at = pending.back();
+        pending.pop_back();
+        for (CFrame *child = frame_at->child; child != nullptr; child = child->brother) {
+            pending.push_back(child);
+        }
+        CFrame *middle = StartsWith(frame_at->name, "jnt") ? joint_child(frame_at) : nullptr;
+        if (middle == nullptr || StartsWith(frame_at->parent->name, "jnt")) {
+            continue;
+        }
+        if (StartsWith(middle->name, "eff")) {
+            int branches = 0;
+            for (CFrame *child = middle->child; child != nullptr; child = child->brother) {
+                branches += StartsWith(child->name, "chn") ? 1 : 0;
+            }
+            if (branches >= 2) {
+                const std::array<float, 3> a = WorldPosition(frame_at);
+                const std::array<float, 3> b = WorldPosition(middle);
+                const float                length = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+                Capsule                    torso = {a, b, length * 0.4f, true};
+                // The joint's axis least along the spine, square to it: the fitted shape turns with the body.
+                sceVu0FMATRIX matrix;
+                frame_at->GetLWMatrix(matrix);
+                const float axis[3] = {(b[0] - a[0]) / length, (b[1] - a[1]) / length, (b[2] - a[2]) / length};
+                int         across = 0;
+                float       along = 2.0f;
+                for (int row = 0; row < 3; row++) {
+                    const float dot = std::fabs(matrix[row][0] * axis[0] + matrix[row][1] * axis[1] + matrix[row][2] * axis[2]) /
+                                      std::hypot(matrix[row][0], matrix[row][1], matrix[row][2]);
+                    if (dot < along) {
+                        along = dot;
+                        across = row;
+                    }
+                }
+                const float dot = matrix[across][0] * axis[0] + matrix[across][1] * axis[1] + matrix[across][2] * axis[2];
+                float       side[3];
+                for (int k = 0; k < 3; k++) {
+                    side[k] = matrix[across][k] - dot * axis[k];
+                }
+                const float side_length = std::hypot(side[0], side[1], side[2]);
+                torso.side = {side[0] / side_length, side[1] / side_length, side[2] / side_length};
+                capsules.push_back(torso);
+            } else if (others != nullptr) {
+                const std::array<float, 3> a = WorldPosition(frame_at);
+                const std::array<float, 3> b = WorldPosition(middle);
+                const float                length = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+                others->push_back({a, b, std::clamp(length * 0.2f, 0.4f, 1.4f)});
+            }
+            continue;
+        }
+        // A limb starts at a joint whose next is a joint too.
+        for (CFrame *joint = frame_at, *next = middle; next != nullptr; joint = next, next = joint_child(next)) {
+            const std::array<float, 3> a = WorldPosition(joint);
+            const std::array<float, 3> b = WorldPosition(next);
+            const float                length = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+            capsules.push_back({a, b, std::clamp(length * 0.2f, 0.4f, 1.4f)});
+            if (!StartsWith(next->name, "jnt")) {
+                break;
+            }
+        }
+    }
+}
+
+std::array<float, 3> NearestOnCapsule(const Capsule &capsule, const float *p) {
+    const float ab[3] = {capsule.b[0] - capsule.a[0], capsule.b[1] - capsule.a[1], capsule.b[2] - capsule.a[2]};
+    const float length2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+    float       t = 0.0f;
+    if (length2 > 1e-12f) {
+        t = std::clamp(((p[0] - capsule.a[0]) * ab[0] + (p[1] - capsule.a[1]) * ab[1] + (p[2] - capsule.a[2]) * ab[2]) / length2,
+                       0.0f, 1.0f);
+    }
+    return {capsule.a[0] + ab[0] * t, capsule.a[1] + ab[1] * t, capsule.a[2] + ab[2] * t};
+}
+
+// The torso capsule whose surface lies nearest `p`, the point of its line nearest `p`, the distance to it
+// and how far the surface lies from the line that way, or null when the skeleton has none.
+struct TorsoNearest {
+    const Capsule       *capsule = nullptr;
+    std::array<float, 3> at;
+    float                distance = 1e9f;
+    float                reach = 0.0f;
+};
+
+TorsoNearest NearestTorso(std::span<const Capsule> capsules, const float *p) {
+    TorsoNearest nearest;
+    for (const Capsule &capsule : capsules) {
+        if (capsule.torso) {
+            const std::array<float, 3> at = NearestOnCapsule(capsule, p);
+            const float                distance = std::hypot(p[0] - at[0], p[1] - at[1], p[2] - at[2]);
+            const float                reach = cloth_body::Reach(capsule, p);
+            if (nearest.capsule == nullptr || distance - reach < nearest.distance - nearest.reach) {
+                nearest = {&capsule, at, distance, reach};
+            }
+        }
+    }
+    return nearest;
+}
+
+// How far along `ray` (a unit direction) from `origin` it crosses `face`, or -1 where it misses.
+float RayHit(const float *origin, const float *ray, const std::array<std::array<float, 3>, 3> &face) {
+    float edge1[3];
+    float edge2[3];
+    float to[3];
+    for (int k = 0; k < 3; k++) {
+        edge1[k] = face[1][k] - face[0][k];
+        edge2[k] = face[2][k] - face[0][k];
+        to[k] = origin[k] - face[0][k];
+    }
+    const float cross[3] = {ray[1] * edge2[2] - ray[2] * edge2[1], ray[2] * edge2[0] - ray[0] * edge2[2],
+                            ray[0] * edge2[1] - ray[1] * edge2[0]};
+    const float det = edge1[0] * cross[0] + edge1[1] * cross[1] + edge1[2] * cross[2];
+    if (std::fabs(det) < 1e-9f) {
+        return -1.0f;
+    }
+    const float u = (to[0] * cross[0] + to[1] * cross[1] + to[2] * cross[2]) / det;
+    if (u < 0.0f || u > 1.0f) {
+        return -1.0f;
+    }
+    const float q[3] = {to[1] * edge1[2] - to[2] * edge1[1], to[2] * edge1[0] - to[0] * edge1[2], to[0] * edge1[1] - to[1] * edge1[0]};
+    const float v = (ray[0] * q[0] + ray[1] * q[1] + ray[2] * q[2]) / det;
+    if (v < 0.0f || u + v > 1.0f) {
+        return -1.0f;
+    }
+    const float t = (edge2[0] * q[0] + edge2[1] * q[1] + edge2[2] * q[2]) / det;
+    return t >= 0.0f ? t : -1.0f;
+}
+
+// Where `p` lies round the capsule's axis, from 0 to 1 starting at its side, and along it from a to b.
+std::array<float, 2> AroundAndAlong(const Capsule &capsule, const float *p) {
+    const float ab[3] = {capsule.b[0] - capsule.a[0], capsule.b[1] - capsule.a[1], capsule.b[2] - capsule.a[2]};
+    const float length2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+    const float ap[3] = {p[0] - capsule.a[0], p[1] - capsule.a[1], p[2] - capsule.a[2]};
+    const float t = length2 > 1e-12f ? (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / length2 : 0.0f;
+    float       out[3];
+    for (int k = 0; k < 3; k++) {
+        out[k] = ap[k] - ab[k] * t;
+    }
+    const float length = std::sqrt(length2);
+    const float axis[3] = {ab[0] / length, ab[1] / length, ab[2] / length};
+    const float other[3] = {axis[1] * capsule.side[2] - axis[2] * capsule.side[1],
+                            axis[2] * capsule.side[0] - axis[0] * capsule.side[2],
+                            axis[0] * capsule.side[1] - axis[1] * capsule.side[0]};
+    const float x = out[0] * capsule.side[0] + out[1] * capsule.side[1] + out[2] * capsule.side[2];
+    const float y = out[0] * other[0] + out[1] * other[1] + out[2] * other[2];
+    float       around = std::atan2(y, x) / (2.0f * std::numbers::pi_v<float>);
+    if (around < 0.0f) {
+        around += 1.0f;
+    }
+    return {around, t};
+}
+
+// The body's mesh in world space, as drawn: the skinned meshes, which keep their vertices for the motions
+// to move. A cloth's frame isn't drawn (clothread.cpp's CommandFRAME), its mesh only the cloth's start.
+void BodyMesh(CFrame *frame, cloth_body::Mesh &body) {
+    CFrame *root = frame;
+    while (root->parent != nullptr && root->reference == 0) {
+        root = root->parent;
+    }
+    std::vector<CFrame *> pending = {root};
+    while (!pending.empty()) {
+        CFrame *frame_at = pending.back();
+        pending.pop_back();
+        const bool drawn = (frame_at->attr.draw_on & 1) != 0;
+        if (drawn || (frame_at->attr.draw_on & 2) == 0) {
+            for (CFrame *child = frame_at->child; child != nullptr; child = child->brother) {
+                pending.push_back(child);
+            }
+        }
+        // A character's frames are CFrameVu1 (dataset.cpp builds them as an array of them).
+        CVisualVu1 *visual = static_cast<CFrameVu1 *>(frame_at)->GetVisual();
+        if (!drawn || visual == nullptr) {
+            continue;
+        }
+        const auto *model = reinterpret_cast<const MDT_HEADER *>(visual->GetMDTDataAddress());
+        if (model == nullptr) {
+            continue;
+        }
+        const auto   *local = reinterpret_cast<const sceVu0FVECTOR *>(reinterpret_cast<const u_char *>(model) + model->vertex_ofs);
+        sceVu0FMATRIX matrix;
+        frame_at->GetLWMatrix(matrix);
+        const auto first = static_cast<std::uint32_t>(body.vertices.size());
+        for (int k = 0; k < model->vertex_num; k++) {
+            const float point[4] = {local[k][0], local[k][1], local[k][2], 1.0f};
+            float       world[4];
+            vu0::Apply(world, matrix, point);
+            body.vertices.push_back({world[0], world[1], world[2]});
+        }
+        // The strips as visualvu1.cpp reads them: each a primitive, a count and a material, then for each
+        // corner its vertex, normal and texture coordinate indices, and colour's when the model has them.
+        const auto  *mesh = reinterpret_cast<const u_int *>(reinterpret_cast<const u_char *>(model) + model->mesh_ofs);
+        const int    stride = model->colour_ofs > 0 ? 4 : 3;
+        const u_int *index = mesh + 4;
+        for (u_int strip = 0; strip < mesh[2]; strip++) {
+            const u_int prim = index[0];
+            const u_int count = index[1];
+            index += 3;
+            auto corner = [&](u_int k) { return index[k * stride]; };
+            for (u_int k = 0; k + 2 < count; k += prim == 4 ? 1 : 3) {
+                const u_int a = corner(k);
+                const u_int b = corner(k + 1);
+                const u_int c = corner(k + 2);
+                if (std::max({a, b, c}) < static_cast<u_int>(model->vertex_num)) {
+                    body.triangles.push_back({first + a, first + b, first + c});
+                }
+            }
+            index += count * stride;
+        }
+    }
+}
+
+constexpr float kCapsuleMargin = 0.05f;
+
+// What a cloth takes from the body when it settles on it: each vertex's clearance from each limb, and the
+// torsos' shapes.
+struct Settled {
+    std::vector<float>   clearances;
+    std::vector<Capsule> torsos;
+};
+
+std::unordered_map<const CCloth *, Settled> &SettledOn() {
+    static std::unordered_map<const CCloth *, Settled> settled;
+    return settled;
+}
+
+// The Options screen's Enhanced cloth: the PS2's step, then the free vertices pushed out of the body's
+// capsules as the step pushes them out of the boxes, so the body no longer passes through the cloth.
+// How near each limb a vertex may come, and the torso's shape, are taken when the cloth first steps on the
+// body, or after a reset: the cloth is authored resting on the body as it stands.
+template <class At>
+void PushClothOutOfBody(CCloth &cloth, At at) {
+    std::vector<Capsule> capsules;
+    std::vector<Capsule> others;
+    BodyCapsules(cloth.frame, capsules, &others);
+    const std::size_t   count = capsules.size();
+    Settled            &settled = SettledOn()[&cloth];
+    std::vector<float> &clearances = settled.clearances;
+    if (clearances.size() != static_cast<std::size_t>(cloth.num_i * cloth.num_j) * count) {
+        settled.torsos.clear();
+        if (std::ranges::any_of(capsules, &Capsule::torso)) {
+            cloth_body::Mesh body;
+            BodyMesh(cloth.frame, body);
+            cloth_body::FitTorsos(capsules, others, body);
+            std::ranges::copy_if(capsules, std::back_inserter(settled.torsos), &Capsule::torso);
+        }
+        clearances.resize(static_cast<std::size_t>(cloth.num_i * cloth.num_j) * count);
+        for (int i = 0; i < cloth.num_i; i++) {
+            for (int j = 0; j < cloth.num_j; j++) {
+                for (std::size_t c = 0; c < count; c++) {
+                    clearances[(i * cloth.num_j + j) * count + c] = cloth_body::Clearance(capsules[c], cloth.world_home[i][j]);
+                }
+            }
+        }
+    }
+    auto torso = settled.torsos.begin();
+    for (Capsule &capsule : capsules) {
+        if (capsule.torso && torso != settled.torsos.end()) {
+            capsule.shape = torso->shape;
+            capsule.fitted = torso->fitted;
+            ++torso;
+        }
+    }
+    for (int i = 0; i < cloth.num_i; i++) {
+        for (int j = 1; j < cloth.num_j; j++) {
+            cloth_body::PushOutOfBody(capsules, std::span(clearances).subspan((i * cloth.num_j + j) * count, count),
+                                      cloth.world_home[i][j], at(i, j));
+        }
+    }
+}
+
 } // namespace
+
+float cloth_body::Reach(const Capsule &capsule, const float *p) {
+    if (!capsule.fitted) {
+        return capsule.radius;
+    }
+    const auto [around, along] = AroundAndAlong(capsule, p);
+    const float sector = around * kTorsoSectors - 0.5f;
+    const float band = std::clamp(along * kTorsoBands - 0.5f, 0.0f, static_cast<float>(kTorsoBands - 1));
+    const int   sector0 = static_cast<int>(std::floor(sector));
+    const int   band0 = std::min(static_cast<int>(band), kTorsoBands - 2);
+    const float s = sector - static_cast<float>(sector0);
+    const float h = std::min(band - static_cast<float>(band0), 1.0f);
+    auto        at = [&](int sector_at, int band_at) {
+        return capsule.shape[std::min(band_at, kTorsoBands - 1) * kTorsoSectors + (sector_at + kTorsoSectors) % kTorsoSectors];
+    };
+    const float low = at(sector0, band0) * (1.0f - s) + at(sector0 + 1, band0) * s;
+    const float high = at(sector0, band0 + 1) * (1.0f - s) + at(sector0 + 1, band0 + 1) * s;
+    return low * (1.0f - h) + high * h;
+}
+
+void cloth_body::FitTorsos(std::span<Capsule> capsules, std::span<const Capsule> others, const Mesh &body) {
+    // Too few vertices, or faces in too few directions, to say what shape a torso is, and it keeps its
+    // round one.
+    constexpr int kFewest = 8;
+    constexpr int kFewestCrossed = kTorsoSectors * kTorsoBands / 2;
+
+    std::vector<std::size_t> owners(body.vertices.size(), capsules.size());
+    std::vector<int>         counts(capsules.size());
+    for (std::size_t v = 0; v < body.vertices.size(); v++) {
+        const float *vertex = body.vertices[v].data();
+        auto         outside = [&](const Capsule &capsule) {
+            const std::array<float, 3> at = NearestOnCapsule(capsule, vertex);
+            return std::hypot(vertex[0] - at[0], vertex[1] - at[1], vertex[2] - at[2]) - capsule.radius;
+        };
+        std::size_t owner = capsules.size();
+        float       nearest = 1e9f;
+        for (std::size_t c = 0; c < capsules.size(); c++) {
+            if (outside(capsules[c]) < nearest) {
+                nearest = outside(capsules[c]);
+                owner = c;
+            }
+        }
+        if (owner < capsules.size() && capsules[owner].torso &&
+            std::ranges::none_of(others, [&](const Capsule &other) { return outside(other) < nearest; })) {
+            owners[v] = owner;
+            counts[owner]++;
+        }
+    }
+    for (std::size_t c = 0; c < capsules.size(); c++) {
+        Capsule &torso = capsules[c];
+        if (!torso.torso || counts[c] < kFewest) {
+            continue;
+        }
+        // The torso's faces: those with most of their corners on it, not an arm's or a hand's.
+        std::vector<std::array<std::array<float, 3>, 3>> faces;
+        for (const std::array<std::uint32_t, 3> &triangle : body.triangles) {
+            const int on = static_cast<int>(std::ranges::count_if(triangle, [&](std::uint32_t v) { return owners[v] == c; }));
+            if (on >= 2) {
+                faces.push_back({body.vertices[triangle[0]], body.vertices[triangle[1]], body.vertices[triangle[2]]});
+            }
+        }
+        const float length = std::hypot(torso.b[0] - torso.a[0], torso.b[1] - torso.a[1], torso.b[2] - torso.a[2]);
+        const float axis[3] = {(torso.b[0] - torso.a[0]) / length, (torso.b[1] - torso.a[1]) / length,
+                               (torso.b[2] - torso.a[2]) / length};
+        const float other[3] = {axis[1] * torso.side[2] - axis[2] * torso.side[1], axis[2] * torso.side[0] - axis[0] * torso.side[2],
+                                axis[0] * torso.side[1] - axis[1] * torso.side[0]};
+        // Each direction and height looks out from the axis to the furthest face it crosses.
+        std::array<float, kTorsoSectors * kTorsoBands> shape;
+        shape.fill(-1.0f);
+        for (int band = 0; band < kTorsoBands; band++) {
+            const float along = (static_cast<float>(band) + 0.5f) / static_cast<float>(kTorsoBands);
+            float       origin[3];
+            for (int k = 0; k < 3; k++) {
+                origin[k] = torso.a[k] + (torso.b[k] - torso.a[k]) * along;
+            }
+            for (int sector = 0; sector < kTorsoSectors; sector++) {
+                const float angle = 2.0f * std::numbers::pi_v<float> * (static_cast<float>(sector) + 0.5f) / kTorsoSectors;
+                float       ray[3];
+                for (int k = 0; k < 3; k++) {
+                    ray[k] = torso.side[k] * std::cos(angle) + other[k] * std::sin(angle);
+                }
+                float &cell = shape[band * kTorsoSectors + sector];
+                for (const auto &face : faces) {
+                    cell = std::max(cell, RayHit(origin, ray, face));
+                }
+            }
+        }
+        if (std::ranges::count_if(shape, [](float reach) { return reach >= 0.0f; }) < kFewestCrossed) {
+            continue;
+        }
+        // A direction no face lies in takes the shape between its neighbours round the band; a band with
+        // none takes the nearest band's.
+        for (int band = 0; band < kTorsoBands; band++) {
+            float                           *row = &shape[band * kTorsoSectors];
+            std::array<float, kTorsoSectors> filled;
+            std::copy(row, row + kTorsoSectors, filled.begin());
+            for (int sector = 0; sector < kTorsoSectors; sector++) {
+                if (row[sector] >= 0.0f) {
+                    continue;
+                }
+                int before = 1;
+                while (before < kTorsoSectors && row[(sector - before + kTorsoSectors) % kTorsoSectors] < 0.0f) {
+                    before++;
+                }
+                if (before == kTorsoSectors) {
+                    break;
+                }
+                int after = 1;
+                while (row[(sector + after) % kTorsoSectors] < 0.0f) {
+                    after++;
+                }
+                const float from = row[(sector - before + kTorsoSectors) % kTorsoSectors];
+                const float to = row[(sector + after) % kTorsoSectors];
+                filled[sector] = from + (to - from) * static_cast<float>(before) / static_cast<float>(before + after);
+            }
+            std::copy(filled.begin(), filled.end(), row);
+        }
+        for (int band = 0; band < kTorsoBands; band++) {
+            for (int step = 1; shape[band * kTorsoSectors] < 0.0f && step < kTorsoBands; step++) {
+                for (const int from : {band - step, band + step}) {
+                    if (from >= 0 && from < kTorsoBands && shape[from * kTorsoSectors] >= 0.0f) {
+                        std::copy_n(&shape[from * kTorsoSectors], kTorsoSectors, &shape[band * kTorsoSectors]);
+                        break;
+                    }
+                }
+            }
+        }
+        torso.shape = shape;
+        torso.fitted = true;
+    }
+}
+
+float cloth_body::Clearance(const Capsule &limb, const float *home) {
+    const std::array<float, 3> at = NearestOnCapsule(limb, home);
+    return std::min(limb.radius + kCapsuleMargin, std::hypot(home[0] - at[0], home[1] - at[1], home[2] - at[2]));
+}
+
+// The PS2's step lets the cloth through the chest when the body turns quickly (an about-turn swings
+// Toan's chest through the poncho over a dozen ticks) and when an arm presses it there. Carrying the cloth
+// round with the turn instead took most of its swing away; keeping it off the chest keeps the swing.
+// Squeezed between an arm and the chest, the cloth stays on the chest and the arm overlaps it.
+void cloth_body::PushOutOfBody(std::span<const Capsule> capsules, std::span<const float> clearances, const float *home,
+                               float *vertex) {
+    for (const Capsule &capsule : capsules) {
+        if (!capsule.torso) {
+            continue;
+        }
+        // Cloth authored resting inside the torso (Toan's collar) goes no deeper than it rests: pushed out
+        // to the surface, it puffed; left be, it sank deeper into his chest in the attract movie's poses.
+        const std::array<float, 3> home_at = NearestOnCapsule(capsule, home);
+        const float                rest = std::hypot(home[0] - home_at[0], home[1] - home_at[1], home[2] - home_at[2]);
+        const float                reach = std::min(cloth_body::Reach(capsule, vertex) + kCapsuleMargin, rest);
+        const std::array<float, 3> nearest = NearestOnCapsule(capsule, vertex);
+        const float                out[3] = {vertex[0] - nearest[0], vertex[1] - nearest[1], vertex[2] - nearest[2]};
+        const float                distance = std::hypot(out[0], out[1], out[2]);
+        if (distance < reach && distance > 1e-6f) {
+            for (int axis = 0; axis < 3; axis++) {
+                vertex[axis] = nearest[axis] + out[axis] * reach / distance;
+            }
+        }
+    }
+    for (std::size_t c = 0; c < capsules.size(); c++) {
+        const Capsule &capsule = capsules[c];
+        if (capsule.torso) {
+            continue;
+        }
+        const float                reach = c < clearances.size() ? clearances[c] : capsule.radius + kCapsuleMargin;
+        const std::array<float, 3> nearest = NearestOnCapsule(capsule, vertex);
+        const float                out[3] = {vertex[0] - nearest[0], vertex[1] - nearest[1], vertex[2] - nearest[2]};
+        const float                distance = std::hypot(out[0], out[1], out[2]);
+        if (distance >= reach || distance <= 1e-6f) {
+            continue;
+        }
+        float pushed[3];
+        for (int axis = 0; axis < 3; axis++) {
+            pushed[axis] = nearest[axis] + out[axis] * reach / distance;
+        }
+        const TorsoNearest torso = NearestTorso(capsules, pushed);
+        if (torso.capsule != nullptr && torso.distance > 1e-6f) {
+            const float floor = std::min(torso.reach + kCapsuleMargin, NearestTorso(capsules, home).distance);
+            if (torso.distance < floor) {
+                for (int axis = 0; axis < 3; axis++) {
+                    pushed[axis] = torso.at[axis] + (pushed[axis] - torso.at[axis]) * floor / torso.distance;
+                }
+            }
+        }
+        std::copy(pushed, pushed + 3, vertex);
+    }
+}
 
 void CCloth::Step(int step) {
     if (num_i <= 0 || num_i > 16 || num_j <= 0 || num_j > 16) {
@@ -136,6 +637,7 @@ void CCloth::Step(int step) {
     }
 
     if (step < 0) {
+        SettledOn().erase(this);
         Clear();
         return;
     }
@@ -263,6 +765,13 @@ void CCloth::Step(int step) {
                 rest[i][j][3] = -1.0f;
             }
         }
+    }
+
+    if (ConfigGet().enhanced_cloth && frame != nullptr && !reset) {
+        PushClothOutOfBody(*this, work_at);
+    } else if (reset) {
+        // A cut or a teleport puts the cloth back on its rest shape, on the body as it stands now.
+        SettledOn().erase(this);
     }
 
     sceVu0FVECTOR wind_force = {0.0f, 0.0f, 0.0f, 0.0f};

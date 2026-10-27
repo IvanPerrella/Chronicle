@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "../../../tools/dcdata/dcdata.hpp"
+#include "data/model_gltf.hpp"
 #include "dataalloc.hpp"
 #include "platform/data_archive.hpp"
 #include "platform/load_work_profile.hpp"
@@ -109,6 +110,7 @@ std::unordered_map<const void *, PackCapacity>                     loaded_capaci
 std::unordered_map<const void *, std::unordered_set<const void *>> copied_capacities_by_owner;
 constinit std::atomic<std::size_t>                                 copied_capacity_count = 0;
 bool                                                               data_indexed;
+constinit std::atomic<std::uint64_t>                               data_generation = 0;
 std::mutex                                                         texture_read_stats_mutex;
 DataTextureReadStats                                               texture_read_stats;
 std::atomic<bool>                                                  texture_read_stats_enabled = false;
@@ -375,6 +377,7 @@ std::string IndexedPath(const IndexedFile &file) {
 } // namespace
 
 void DataReadIndex() {
+    data_generation.fetch_add(1, std::memory_order_relaxed);
     ResetMetadataSnapshots();
     const fs::path &root = PathsDataRoot();
     std::error_code error;
@@ -502,14 +505,23 @@ bool DataReadLoadFile(std::string_view path, void *buffer, int *size) {
     ForgetPackCapacities(buffer);
     std::size_t capacity = 0;
     *size = ReadWhole(*file, buffer, &capacity);
+    model_gltf::Splice(IndexedPath(*file), std::span(static_cast<std::uint8_t *>(buffer), static_cast<std::size_t>(*size)));
     ForgetOverwrittenCapacities(buffer, capacity);
     TrackPackCapacity(buffer, capacity, buffer, IndexedPath(*file), {}, 0, static_cast<std::size_t>(*size));
     return true;
 }
 
+bool DataFileExists(std::string_view path) {
+    return Lookup(path) != nullptr;
+}
+
 std::uintmax_t DataFileSize(std::string_view path) {
     const IndexedFile *file = Lookup(path);
     return file != nullptr ? file->size : 0;
+}
+
+std::uint64_t DataReadGeneration() {
+    return data_generation.load(std::memory_order_relaxed);
 }
 
 bool DataReadIndexed() {
@@ -757,6 +769,7 @@ void DataReadForgetPackCapacities(const void *owner) {
 }
 
 void DataReadReset() {
+    model_gltf::Reset();
     ResetMetadataSnapshots();
     loaded_capacities.clear();
     source_index.clear();

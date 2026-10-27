@@ -649,6 +649,9 @@ constexpr Row kDisplayRows[] = {
                "\"Anisotropic Filter\"\nSharper textures on\nsurfaces seen at a\nslant.", AnisotropyCount,
                AnisotropyChoice, SetAnisotropy, nullptr, "Off|2x|4x|8x|16x"),
     GameRow<&ConfigGameOptions::soft_focus, true>("video.soft_focus", "Soft Focus", "On|Off", 0x169),
+    NamedRow<&Config::enhanced_cloth>("video.cloth", "Cloth",
+                                      "\"Cloth\"\nOriginal: the PS2's.\nEnhanced: the body no\nlonger passes through.",
+                                      "Original|Enhanced"),
 };
 
 #ifdef __ANDROID__
@@ -666,6 +669,7 @@ constexpr Row kAndroidDisplayRows[] = {
     kDisplayRows[9],
     kDisplayRows[10],
     kDisplayRows[11],
+    kDisplayRows[12],
 };
 #elifdef __SWITCH__
 constexpr Row kSwitchDisplayRows[] = {
@@ -674,6 +678,7 @@ constexpr Row kSwitchDisplayRows[] = {
     kDisplayRows[8],
     kDisplayRows[9],
     kDisplayRows[10],
+    kDisplayRows[11],
 };
 #endif
 
