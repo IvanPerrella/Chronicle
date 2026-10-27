@@ -50,12 +50,6 @@ jobs:
       - name: Build the Switch NRO
         run: ./build.sh switch
 
-      - name: Publish the toolchain image
-        if: steps.image.outputs.built == 'true' && github.event_name == 'push'
-        run: |
-          docker tag "chronicle-switch:${{ steps.image.outputs.tag }}" "$REGISTRY_IMAGE:${{ steps.image.outputs.tag }}"
-          docker push "$REGISTRY_IMAGE:${{ steps.image.outputs.tag }}"
-
       - name: Upload the Switch build
         uses: actions/upload-artifact@v7
         with:
@@ -65,3 +59,13 @@ jobs:
             port/build/switch/lang/**
             port/build/switch/glyphs/**
           if-no-files-found: error
+
+      # The registry refuses the push until the chronicle-switch package grants this repository write access
+      # (package settings, Manage Actions access); the build stands without it and the next run builds the
+      # image again.
+      - name: Publish the toolchain image
+        if: steps.image.outputs.built == 'true' && github.event_name == 'push'
+        run: |
+          docker tag "chronicle-switch:${{ steps.image.outputs.tag }}" "$REGISTRY_IMAGE:${{ steps.image.outputs.tag }}"
+          docker push "$REGISTRY_IMAGE:${{ steps.image.outputs.tag }}" ||
+            echo "::warning::The registry refused the toolchain image; grant this repository write access to the chronicle-switch package"
