@@ -1015,6 +1015,8 @@ void CCloth::InitParam() {
 }
 
 CCloth::CCloth(int grid_i, int grid_j, float grid_pitch) {
+    // Cloths live in arenas that are reset without destroying them, so a new cloth may take an old one's address.
+    SettledOn().erase(this);
     InitParam();
     num_i = grid_i;
     num_j = grid_j;
