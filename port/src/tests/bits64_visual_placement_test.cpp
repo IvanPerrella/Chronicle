@@ -11,6 +11,9 @@ namespace dc::test {
 
 using namespace dc::game;
 
+// Apart from bits64_placement_test.cpp: visual.hpp and visualvu1.hpp, which that file includes through
+// cloth.hpp, define CVisualVu1 differently, so they can't share a translation unit.
+
 // CreateVisual: three quadwords for a visual that keeps its model, two for one that does not. Its VU
 // block starts at the next 64-byte line, so the visual is placed at each quadword of a line.
 TEST(Bits64Placement, CreateVisualKeepsTheVisualClearOfItsBlock) {

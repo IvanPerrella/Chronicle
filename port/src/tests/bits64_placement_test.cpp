@@ -135,7 +135,7 @@ TEST(Bits64Placement, CreateCollisionMDTKeepsItsTrianglesWhole) {
     header->vertex_num = 3;
     header->vertex_ofs = 64;
     header->mesh_ofs = 112;
-    auto       *corners = reinterpret_cast<float(*)[4]>(data.data() + 16);
+    auto       *corners = reinterpret_cast<float (*)[4]>(data.data() + 16);
     const float wall[3][4] = {
         {22.12f, -1.0f, 20.35f, 1.0f},
         {20.95f, -1.0f, 25.57f, 1.0f},
